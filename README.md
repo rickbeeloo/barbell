@@ -16,11 +16,13 @@ To install Barbell Demultiplexer, clone the repository and build it using Cargo:
 ```sh
 # Clone the repository
 git clone git@github.com:rickbeeloo/barbell-sg.git
-cd barbell-demux
+cd barbell-sg
 
 # Build the project
-cargo build --release
+RUSTFLAGS='-C target-cpu=native' cargo build --release
 ```
+
+Note, we use compile flags to target the native architecture as the aligner uses [SIMD instructions](https://en.wikipedia.org/wiki/SIMD).
 
 ## Usage
 
@@ -28,7 +30,7 @@ cargo build --release
 To annotate a FASTQ file with barcode information, use the `annotate` command:
 
 ```sh
-./barbell-demux annotate -i input.fastq -o output.txt -q queries.fasta -t 8 --tune
+./barbell-sg annotate -i input.fastq -o output.txt -q queries.fasta -t 8 --tune
 ```
 
 **Options:**
@@ -44,7 +46,7 @@ It's recommended to use the `--tune` flag to find the best parameter for your in
 (Not implemented yet)
 
 ```sh
-./barbell-demux plot
+./barbell-sg plot
 ```
 
 ## Example Output
