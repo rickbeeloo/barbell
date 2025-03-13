@@ -43,6 +43,8 @@ Note, the executable is in `./target/release/`
 
 It's recommended to use the `--tune` flag to find the best parameter for your input queries unless you already have a good estimamte. This is simply the fraction of the input sequence which is allowed to be mutated. Generally two random sequences have an edit distnace of 0.5, so this cut off should be below that, by default `0.35`.
 
+An example of a query file can be found in [examples/rapid_barcodes.fasta](examples/rapid_barcodes.fasta).
+
 ### Plot Results
 (Not implemented yet)
 
