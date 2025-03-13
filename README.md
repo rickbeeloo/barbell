@@ -28,9 +28,10 @@ Note, we use compile flags to target the native architecture as the aligner uses
 
 ### Annotate FASTQ Files
 To annotate a FASTQ file with barcode information, use the `annotate` command:
+Note, the executable is in `./target/release/`
 
 ```sh
-./barbell-sg annotate -i input.fastq -o output.txt -q queries.fasta -t 8 --tune
+./barbell annotate -i input.fastq -o output.txt -q queries.fasta -t 8 --tune
 ```
 
 **Options:**
@@ -46,7 +47,7 @@ It's recommended to use the `--tune` flag to find the best parameter for your in
 (Not implemented yet)
 
 ```sh
-./barbell-sg plot
+./barbell plot
 ```
 
 ## Example Output
