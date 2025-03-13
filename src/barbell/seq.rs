@@ -1,20 +1,10 @@
 use pa_types::Pos;
-use pa_bitpacking::search::*;
-use crate::barbell::misc::*;
-use plotly::{Plot, Scatter, Layout};
-use crate::barbell::reader::{Query, QueryGroup};
-use crate::barbell::strategy::*;
 
 /// Returns the reverse complement of a DNA sequence
 /// Based on https://www.bioinformatics.org/sms/iupac.html
 pub fn reverse_complement(seq: &[u8]) -> Vec<u8> {
-    println!("Input to reverse_complement: {}", String::from_utf8_lossy(seq));
-    // Create a reversed vector first
-    let reversed: Vec<u8> = seq.iter().rev().cloned().collect();
-    println!("After reverse: {}", String::from_utf8_lossy(&reversed));
-    
     // Then complement the reversed sequence
-    let result = reversed.iter()
+    let result = seq.iter().rev()
         .map(|&base| match base {
             b'A' => b'T', b'T' => b'A',
             b'C' => b'G', b'G' => b'C',
@@ -29,7 +19,6 @@ pub fn reverse_complement(seq: &[u8]) -> Vec<u8> {
             _ => base,
         })
         .collect::<Vec<u8>>();
-    println!("Output from reverse_complement: {}", String::from_utf8_lossy(&result));
     result
 }
 
@@ -58,71 +47,6 @@ impl Match {
     }
 }
 
-
-
-
-#[derive(Clone, Debug)]
-pub struct Read<'a, S: Strategy> {
-    seq: &'a [u8], // Reference to seq io buffer
-    flank_locations: Vec<Match>,
-    barcodes: Vec<BarcodeMatch>,
-    strategy: S,
-}
-
-impl<'a, S: Strategy> Read<'a, S> {
-    
-    pub fn from_seq(seq: &'a [u8]) -> Self {
-        Self { 
-            seq, 
-            flank_locations: Vec::new(),
-            barcodes: Vec::new(),
-            strategy: S::default(), // Note: Strategy trait needs to implement Default
-        }
-    }
-
-    pub fn with_strategy(mut self, strategy: S) -> Self {
-        self.strategy = strategy;
-        self
-    }
-
-    pub fn annotate(&mut self, query_groups: &[QueryGroup]) -> Vec<Match> {  
-        self.strategy.annotate(query_groups, self.seq)
-    }
-
-    pub fn final_assignment(&mut self, matches: &[Match]) -> Vec<Match> {
-        self.strategy.final_assignment(matches)
-    }
-
-    
-}
-
-
-#[derive(Clone, Debug)]
-pub struct BarcodeMatch {
-    pub barcode_idx: usize,
-    pub edits: i32,
-    pub pos: usize,
-}
-
-impl BarcodeMatch {
-    pub fn new(barcode_idx: usize, edits: i32, pos: usize) -> Self {
-        Self { barcode_idx, edits, pos }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct FlankMatch {
-    pub start: usize,
-    pub end: usize,
-    pub edits: i32,
-    pub barcodes: Option<Vec<BarcodeMatch>>, // Could be empty if no barcode passess filtering
-}
-
-impl FlankMatch {
-    pub fn new(start: usize, end: usize, edits: i32) -> Self {
-        Self { start, end, edits, barcodes: None }
-    }
-}
 
 
 #[derive(Clone, Debug)]

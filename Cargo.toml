@@ -1,0 +1,24 @@
+[package]
+name = "barbell-sg"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "barbell"
+path = "src/lib.rs"
+
+[[bin]]
+name = "barbell"
+path = "src/main.rs"
+
+[dependencies]
+plotly = "0.12.1"
+pa-bitpacking = { git = "https://github.com/RagnarGrootKoerkamp/astar-pairwise-aligner.git", branch = "master" }
+pa-types = { git = "https://github.com/pairwise-alignment/pa-types" }
+seq_io = "0.3.1"
+rand = "0.8"
+rayon = "1.10.0"
+spinners = "4.1.1"
+indicatif = "0.17.11"
+colored = "2.0.0"
+clap = { version = "4.4", features = ["derive"] }

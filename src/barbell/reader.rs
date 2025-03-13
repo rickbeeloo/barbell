@@ -1,6 +1,6 @@
 use seq_io::fasta::{Reader,Record};
 use crate::barbell::{misc::*, seq::*};
-
+use colored::Colorize;
 #[derive(Debug)]
 pub struct Query {
     pub id: String,
@@ -120,13 +120,17 @@ pub fn read_queries(fasta_files: Vec<&str>, min_flank_length: Option<usize>) -> 
         query_groups.push(QueryGroup::new(rc_flanks, reverse_queries, ids.clone(), b'R', true));
     }
 
+    println!("\n{}", "Query Groups".bold().underline());
+    println!("{}:", "Found".bold());
+
     // Print statistics for each query group
     for g in &query_groups {
-        println!("📊 Query Group '{}' Stats:", g.prefix_char as char);
-        println!("\tNumber of sequences: {}", g.queries.len());
+        let orientation = if g.rc { "RC".red() } else { "FW".green() };
+        println!("  • Sequences: {} ({})", g.queries.len().to_string().bold(), orientation);
+        
         if let Some(flank) = &g.flank {
-            println!("\t🧬 Extracted flank pattern: {}", flank.as_string());
-        } 
+            println!("    Pattern: {}", flank.as_string().dimmed());
+        }
         println!();
     }
 

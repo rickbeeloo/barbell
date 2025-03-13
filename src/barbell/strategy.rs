@@ -2,33 +2,21 @@ use crate::barbell::seq::*;
 use crate::barbell::reader::*;
 use crate::barbell::misc::*;
 use pa_bitpacking::search::*;
-
-
-fn rel_dist_to_end(pos: isize, read_len: usize) -> isize {
-    // If already negative, for a match starting before the read we can return 1
-    if pos < 0 {
-        return 1;
-    }
-
-    if pos <= (read_len / 2) as isize {
-        if pos == 0 {
-            1  // Left end
-        } else {
-            pos  // Distance from left end (already isize)
-        }
-    } else if pos == read_len as isize {
-        -1  // Right end
-    } else {
-        -(read_len as isize - pos)  // Distance from right end
-    }
-}
+use std::collections::HashMap;
+use rand::Rng;
+use rayon::prelude::*;
+use spinners::{Spinner, Spinners};
+use std::time::Instant;
+use colored::Colorize;
 
 pub trait Strategy {
     fn default() -> Self;
-    fn annotate(&self, flanks: &[QueryGroup], read: &[u8]) -> Vec<Match>;
+    fn annotate(&self, queries: &[QueryGroup], read: &[u8]) -> Vec<Match>;
     fn final_assignment(&self, matches: &[Match]) -> Vec<Match>;
+    fn auto_tune_parmas(&mut self, queries: &[QueryGroup]);
 }
 
+#[derive(Clone)]
 pub struct SimpleStrategy {
    q: f32,                      // Prefix/suffix penalty semi-global aln (0.5)
    max_edit_fraction: f32,      // Fraction of total (unmasked)query length to consider a match valid (0.4)
@@ -49,22 +37,18 @@ impl Strategy for SimpleStrategy {
        }
    }
 
+
+
    fn annotate(&self, query_groups: &[QueryGroup], read: &[u8]) -> Vec<Match> {
        let mut all_matches = Vec::new();
-       let mut all_edits = Vec::new();
-
-       for (i, query) in query_groups.iter().enumerate() {
-           // Always flank?
-           let flank = query.flank.as_ref().unwrap();
-           let (passed_mask, locations, edits) = self.locate_flank(flank, read);
-           all_edits.push((i, edits));
+       
+       for query in query_groups.iter() {
+           let flank = query.flank.as_ref().unwrap(); // Flank gauranteed for now
+           let (passed_mask, locations) = self.locate_flank(flank, read);
            for (passed, (f_start, f_end, e)) in passed_mask.iter().zip(locations.iter()) {
                if *passed {
                   // println!("\t✅ Flank found: {:?} with edits: {}", (f_start, f_end), e);
                    let barcodes = self.find_valid_barcode((*f_start, *f_end), read, &query.queries, query.prefix_char, query.rc);
-                   // for b in barcodes.iter() {
-                   //     println!("\tBarcode: {:?}", b);
-                   // }
                    if let Some(barcode) = barcodes {
                        all_matches.push(barcode);
                    } else {
@@ -80,13 +64,6 @@ impl Strategy for SimpleStrategy {
                }
            }
        }
-
-       // for m in all_matches.iter() {
-       //     println!("Match: {:?}", m);
-       // }
-
-     self.plot_edit_distances(all_edits);
-
        all_matches
    }
 
@@ -154,159 +131,259 @@ impl Strategy for SimpleStrategy {
      
        final_matches
    }
+
+
+  
+
+   fn auto_tune_parmas(&mut self, queries: &[QueryGroup])  {
+        let start_time = Instant::now();
+        // Generate sequence from 0.05 to 0.5 with 0.01 steps
+        let param_values: Vec<f32> = (0..46).map(|i| 0.05 + (i as f32 * 0.01)).collect();
+    
+        let total_tests = 10_000;
+        let tests_per_param = total_tests / param_values.len();
+
+        println!("\n{}", "Parameter Tuning".bold().underline());
+        println!("  • Range: {} - {}", "0.05".dimmed(), "0.50".dimmed());
+        println!("  • Test sequences: {}\n", "10,000".dimmed());
+
+        let mut sp = Spinner::new(Spinners::OrangeBluePulse, "Tuning on random sequences".into());
+    
+        // Track counts of number of barcodes found for each parameter value
+        let param_counts: HashMap<i32, HashMap<usize, usize>> = param_values.par_iter()
+            .map(|&param_value| {
+                let mut local_counts: HashMap<usize, usize> = HashMap::new();
+                let mut rng = rand::thread_rng();
+                let bases = b"ACGT";
+                let seq_length = 1000;
+    
+                for _ in 0..tests_per_param {
+                    // Generate random sequence
+                    let seq: Vec<u8> = (0..seq_length)
+                        .map(|_| bases[rng.gen_range(0..4)])
+                        .collect();
+    
+                    // Clone the necessary parts of self
+                    let mut self_clone = self.clone();
+                    self_clone.max_edit_fraction = param_value;
+                    let annotation = self_clone.annotate(queries, &seq);
+                    let matches = self_clone.final_assignment(&annotation);
+                    let barcode_count = matches.len();
+    
+                    local_counts
+                        .entry(barcode_count)
+                        .and_modify(|count| *count += 1)
+                        .or_insert(1);
+                }
+    
+                let param_key = (param_value * 100.0) as i32;
+                (param_key, local_counts)
+            })
+            .collect();
+    
+        sp.stop();
+        // Find the most permissive parameter where we still get zero matches
+        let best_param = param_values.iter()
+            .rev() // Reverse to start from highest (most permissive) value
+            .find(|&&param| {
+                let param_key = (param * 100.0) as i32;
+                let counts = param_counts.get(&param_key).unwrap();
+                let false_positives: usize = counts.iter()
+                    .filter(|(&k, _)| k > 0)  // Only count sequences with matches
+                    .map(|(_, count)| *count)
+                    .sum();
+                false_positives == 0
+            })
+            .unwrap();
+    
+        println!("  • Selected: {}\n", best_param.to_string().bold());
+        println!("Done! tuning took {} seconds ", start_time.elapsed().as_secs());
+    
+        self.max_edit_fraction = *best_param;
+    }
+
 }
 
 impl SimpleStrategy {
 
-
+   
    fn segregate_scores_in_alns(&self, flank: &FlankSeq, res: &SearchResult, threshold: i32) -> (Vec<bool>, Vec<(usize, usize, i32)>) {
-     // The first thing we can do is discard all scores ABOVE our edit distance threshold
-     // for clarify now, collect as tuple of (pos, edits)
-     // println!("Using threshold: {}", threshold);
-     let filtered_scores: Vec<(usize, i32)> = res.out.iter()
-         .enumerate()
-         .filter(|&(_, edits)| *edits <= threshold)
-         .map(|(pos, &edits)| (pos, edits))
-         .collect();
-      // In the filtered scores, we now have to find local minima (misc.rs)
-      let minima = find_prominent_minima(&filtered_scores, 1.0);
-     // println!("Found minima: {:?}", minima);
-      // Now for each minimum we do a traceback, then again remove overlapping (but tracebacked alignments)
-       let mut traced_ranges: Vec<(usize, usize, i32)> = Vec::with_capacity(minima.len());
+       // Filter scores below threshold and collect positions with their edit distances
+       let filtered_scores = res.out.iter()
+           .enumerate()
+           .filter(|&(_, edits)| *edits <= threshold)
+           .map(|(pos, &edits)| (pos, edits))
+           .collect::<Vec<_>>();
+
+       // Find local minima in filtered scores
+       let minima = find_prominent_minima(&filtered_scores, 1.0);
+
+       // Pre-allocate vectors for results
+       let mut traced_ranges = Vec::with_capacity(minima.len());
        let mut passed_mask = Vec::with_capacity(minima.len());
-       for min_idx in minima {
+
+       // Process each minimum to get alignment ranges and mask coverage
+       for &min_idx in &minima {
            let (_, path_positions) = res.trace(min_idx);
-           let left_side = path_positions.first().unwrap();
-           let right_side = path_positions.last().unwrap();
-           let (t_from, t_to) = (left_side.0, right_side.0);
-           // println!("\t {} - {} with edits: {}", t_from, t_to, res.out[min_idx]);
-           let (mask_coverage, passed) = flank.mask_covered(&path_positions[..], self.min_mask_available);
-           traced_ranges.push((t_from as usize, t_to as usize, res.out[min_idx]));
-           passed_mask.push(passed);
+           
+           // Extract alignment boundaries from path
+           let alignment_range = {
+               let start: i32 = path_positions.first().unwrap().0;
+               let end = path_positions.last().unwrap().0;
+               (start as usize, end as usize)
+           };
+
+           // Check mask coverage and store results
+           let (_, mask_passed) = flank.mask_covered(&path_positions, self.min_mask_available);
+           traced_ranges.push((alignment_range.0, alignment_range.1, res.out[min_idx]));
+           passed_mask.push(mask_passed);
        }
-       // Only merge if contained within another
-       //let overlap_removed = remove_overlap(traced_ranges);
-       //println!("Overlap removed: {:?}", overlap_removed);
-     //  println!("Traced ranges: {:?}", traced_ranges);
+
        (passed_mask, traced_ranges)
    }
 
 
-   fn locate_flank(&self, flank: &FlankSeq, read: &[u8]) -> (Vec<bool>, Vec<(usize, usize, i32)>, Vec<i32>) {
+   fn locate_flank(&self, flank: &FlankSeq, read: &[u8]) -> (Vec<bool>, Vec<(usize, usize, i32)>) {
        // Perform semi-global alignment of flank, using q as gap penalty for prefix/suffix region
        let result = search(flank.seq.as_ref(), read, self.q);
+
+       // We have a masked region that matches  anything, on average we expect around 50% edits when actually alignen
+       // this region, so we take mask.len() / 2 as expected edits
        let half_mask = flank.mask_len() / 2; // we count only half as expected edits
        let threshold = ((flank.unmasked_len() + half_mask) as f32 * self.max_edit_fraction) as i32;
-       println!("Using threshold: {} from unmasked len: {}", threshold, flank.unmasked_len());
+
+        // Use the threshold for filtering
        let (passed_mask, locations) = self.segregate_scores_in_alns(flank, &result, threshold);
-       let edits = result.out;
-       (passed_mask, locations, edits)
+
+       (passed_mask, locations)
    }
 
-   fn find_valid_barcode(&self, flank:(usize, usize), read: &[u8], queries: &[Query], prefix_char: u8, rc: bool) -> Option<Match> {
-       let mut barcodes = Vec::new();
-       for (query_idx, query) in queries.iter().enumerate() {
-           let result = search(query.seq.as_ref(), read[flank.0..flank.1].as_ref(), self.q);
-           let threshold = (query.seq.len() as f32 * self.max_edit_fraction) as i32;
-           let min_score = result.out.iter().min().unwrap();
-           if *min_score <= threshold {
-               // println!("\t✅ Barcode passed: {:?} with edits: {}", (flank.0, flank.1), *min_score);
-               let label = format!("{}#{}_{}", query.id, prefix_char as char, if rc { "rc" } else { "fw" });
-               let rel_dist = rel_dist_to_end(flank.0 as isize, read.len());
-               barcodes.push(Match::new(label, MatchType::Barcode, flank.0, flank.1, *min_score, rel_dist));
-           }
+   fn select_best_match(&self, barcodes: &mut [Match]) -> Option<Match> {
+       // Early return if empty
+       if barcodes.is_empty() {
+           return None;
        }
-       // Sort barcode matches by edit distance (low to high)
+
+       // Sort matches by edit distance
        barcodes.sort_by_key(|m| m.edits);
 
-
-       // If we have at least two matches, we can check if the second best is at least min_barcode_edit_diff better than the best
-       if barcodes.len() >= 2 {
-           let best_edit = barcodes[0].edits;
-           let second_best_edit = barcodes[1].edits;
-          // println!("Best edit: {}, Second best edit: {}", best_edit, second_best_edit);
-           if second_best_edit - best_edit >= self.min_barcode_edit_diff {
-               Some(barcodes[0].clone())
-           } else {
-               None
-           }
-       } else if barcodes.len() == 1 {
-           Some(barcodes[0].clone())
-       } else {
-           None
+       // Return single match if it's the only one
+       if barcodes.len() == 1 {
+           return Some(barcodes[0].clone());
        }
-       
-       
+
+       // Check if best match is significantly better than second best
+       let (best, second_best) = (&barcodes[0], &barcodes[1]);
+       match second_best.edits - best.edits >= self.min_barcode_edit_diff {
+           true => Some(best.clone()),
+           false => None,
+       }
    }
 
+   fn find_valid_barcode(&self, flank: (usize, usize), read: &[u8], queries: &[Query], prefix_char: u8, rc: bool) -> Option<Match> {
+       let mut barcodes = Vec::new();
+       let read_target_slice = &read[flank.0..flank.1];
 
+       // Try to match each query sequence against the flanked region
+       for query in queries {
+           let result = search(query.seq.as_ref(), read_target_slice, self.q);
+           let threshold = (query.seq.len() as f32 * self.max_edit_fraction) as i32; // Should we precalculate this?
 
-   fn plot_edit_distances(&self, all_edits: Vec<(usize, Vec<i32>)>) -> Result<(), Box<dyn std::error::Error>> {
-       use plotly::{Plot, Scatter};
-       
-       let mut plot = Plot::new();
-       
-       // Create a scatter plot for each flank's edits
-       for (flank_idx, edits) in all_edits.iter() {
-           let x: Vec<f64> = (0..edits.len()).map(|i| i as f64).collect();
-           let y: Vec<f64> = edits.iter().map(|&e| e as f64).collect();
-           
-           let trace = Scatter::new(x, y)
-               .name(format!("Flank {}", flank_idx))
-               .mode(plotly::common::Mode::Lines);
-           
-           plot.add_trace(trace);
-       }
-
-       // Calculate and plot difference between best and second-best scores
-       if all_edits.len() >= 2 {
-           let seq_len = all_edits[0].1.len();
-           let mut diff_y: Vec<f64> = Vec::with_capacity(seq_len);
-           let mut intersections_x: Vec<f64> = Vec::new();
-           let mut intersections_y: Vec<f64> = Vec::new();
-           
-           // For each position
-           for pos in 0..seq_len {
-               // Get all edit distances at this position
-               let mut scores: Vec<i32> = all_edits.iter()
-                   .map(|(_, edits)| edits[pos])
-                   .collect();
-               scores.sort();
-               
-               // Calculate difference between best and second-best
-               let diff = scores[1] - scores[0];
-               diff_y.push(diff as f64);
-
-               // If the best two scores are equal, this is an intersection point
-               if scores[0] == scores[1] {
-                   intersections_x.push(pos as f64);
-                   intersections_y.push(scores[0] as f64);
+           // Check if the best alignment score is within our threshold
+           if let Some(&min_score) = result.out.iter().min() {
+               if min_score <= threshold {
+                   let orientation = if rc { "rc" } else { "fw" };
+                   let label = format!("{}#{}_{}", query.id, prefix_char as char, orientation);
+                   let rel_dist = rel_dist_to_end(flank.0 as isize, read.len());
+                   
+                   barcodes.push(Match::new(
+                       label,
+                       MatchType::Barcode,
+                       flank.0,
+                       flank.1,
+                       min_score,
+                       rel_dist
+                   ));
                }
            }
-
-         //  let x: Vec<f64> = (0..seq_len).map(|i| i as f64).collect();
-        //    let diff_trace = Scatter::new(x, diff_y)
-        //        .name("Difference (Second Best - Best)")
-        //        .mode(plotly::common::Mode::Lines);
-           
-           // Add intersection points
-           let intersection_trace = Scatter::new(intersections_x, intersections_y)
-               .name("Intersections")
-               .mode(plotly::common::Mode::Markers)
-               .marker(plotly::common::Marker::new().color("pink").size(5));
-
-           // plot.add_trace(diff_trace);
-           plot.add_trace(intersection_trace);
        }
-       
-       // Customize the layout
-       plot.set_layout(plotly::Layout::new()
-           .title(plotly::common::Title::from("Edit Distances Across Read Positions"))
-           .x_axis(plotly::layout::Axis::new().title(plotly::common::Title::from("Position")))
-           .y_axis(plotly::layout::Axis::new().title(plotly::common::Title::from("Edit Distance"))));
-       
-       plot.show();
-       
-       Ok(())
+
+       self.select_best_match(&mut barcodes)
    }
+
+    fn generate_random_sequence(length: usize) -> Vec<u8> {
+        let mut rng = rand::thread_rng();
+        let bases = b"ACGT";
+        (0..length)
+            .map(|_| bases[rng.gen_range(0..4)])
+            .collect()
+    }
+
+    fn count_false_positives_for_param(&self, param_value: f32, queries: &[QueryGroup], tests: usize) -> HashMap<usize, usize> {
+        let mut local_counts: HashMap<usize, usize> = HashMap::new();
+        let seq_length = 1000;
+
+        for _ in 0..tests {
+            let seq = Self::generate_random_sequence(seq_length);
+            
+            let mut strategy = self.clone();
+            strategy.max_edit_fraction = param_value;
+            
+            let matches = strategy.final_assignment(&strategy.annotate(queries, &seq));
+            let barcode_count = matches.len();
+
+            *local_counts.entry(barcode_count).or_insert(0) += 1;
+        }
+
+        local_counts
+    }
+
+    fn find_best_parameter(param_counts: &HashMap<i32, HashMap<usize, usize>>, param_values: &[f32]) -> f32 {
+        param_values.iter()
+            .rev() // Start from highest (most permissive) value
+            .find(|&&param| {
+                let param_key = (param * 100.0) as i32;
+                let counts = param_counts.get(&param_key).unwrap();
+                let false_positives: usize = counts.iter()
+                    .filter(|(&k, _)| k > 0)
+                    .map(|(_, count)| *count)
+                    .sum();
+                false_positives == 0
+            })
+            .copied()
+            .unwrap()
+    }
+
+    fn auto_tune_params(&mut self, queries: &[QueryGroup], _read_file: &str) {
+        let param_values: Vec<f32> = (0..46).map(|i| 0.05 + (i as f32 * 0.01)).collect();
+        let total_tests = 10_000;
+        let tests_per_param = total_tests / param_values.len();
+
+        println!("🎯 Tuning {} parameters using random sequences", param_values.len());
+        println!("📊 Testing values from 0.05 to 0.50");
+
+        // Test each parameter value in parallel
+        let param_counts: HashMap<i32, HashMap<usize, usize>> = param_values.par_iter()
+            .map(|&param_value| {
+                let counts = self.count_false_positives_for_param(param_value, queries, tests_per_param);
+                ((param_value * 100.0) as i32, counts)
+            })
+            .collect();
+
+        // Print results
+        for (param, counts) in &param_counts {
+            let false_positives: usize = counts.iter()
+                .filter(|(&k, _)| k > 0)
+                .map(|(_, count)| *count)
+                .sum();
+            println!("{}: {} false positives", param, false_positives);
+        }
+
+        // Find and set the best parameter
+        let best_param = Self::find_best_parameter(&param_counts, &param_values);
+        println!("\n✨ Selected parameter: {:.2}", best_param);
+        println!("   This is the most permissive threshold that still produces no false positives in random sequences");
+
+        self.max_edit_fraction = best_param;
+    }
 }   
