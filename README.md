@@ -8,10 +8,10 @@ The process begins by generating edit distances for every position in the read. 
 Barbell's focus extends beyond barcode identification to include flanking sequences such as adapters. In cases where concatenated barcodes are nearly undetectable, these flanking sequences may still be present. Identifying such cases is crucial to prevent misannotations downstream.
 
 ## Features
-📜 Annotate FASTQ files with barcode information
-🚀 Supports multi-threading for faster processing
-⚙️ Optional autotuning for selecting the main parameter
-🧩 Modular design with a flexible strategy for demultiplexing
+- 📜 Annotate FASTQ files with barcode information
+- 🚀 Supports multi-threading for faster processing
+- ⚙️ Optional autotuning for selecting the main parameter
+- 🧩 Modular design with a flexible strategy for demultiplexing
 
 
 ## Installation
