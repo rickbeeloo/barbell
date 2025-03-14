@@ -1,4 +1,4 @@
-# Barbell Demultiplexer
+# 🦀 Barbell Demultiplexer (Rust)
 
 ## Overview
 Barbell demultiplexer uses a [custom semi-global aligner](https://github.com/RagnarGrootKoerkamp/astar-pairwise-aligner) designed to accurately identify barcodes, even in read ends where semi-global constraints typically introduce artificial edits. Barbell operates with fewer parameters and is optimized to detect as much contamination as possible.
@@ -7,7 +7,7 @@ The process begins by generating edit distances for every position in the read. 
 
 Barbell's focus extends beyond barcode identification to include flanking sequences such as adapters. In cases where concatenated barcodes are nearly undetectable, these flanking sequences may still be present. Identifying such cases is crucial to prevent misannotations downstream.
 
-## Installation
+## Installation (CLI)
 
 To install Barbell Demultiplexer, clone the repository and build it using Cargo:
 
