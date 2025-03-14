@@ -20,6 +20,12 @@ cd barbell-sg
 RUSTFLAGS='-C target-cpu=native' cargo build --release
 ```
 
+If you don't have Rust installed, you can install it using (see [Rust installation guide](https://www.rust-lang.org/tools/install)):
+
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
 Note, we use compile flags (`RUSTFLAGS='-C target-cpu=native'`) to target the native architecture as the aligner uses [SIMD instructions](https://en.wikipedia.org/wiki/SIMD).
 
 ## Quickstart
