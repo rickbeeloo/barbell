@@ -140,12 +140,12 @@ impl Strategy for SimpleStrategy {
         // Generate sequence from 0.05 to 0.5 with 0.01 steps
         let param_values: Vec<f32> = (0..46).map(|i| 0.05 + (i as f32 * 0.01)).collect();
     
-        let total_tests = 10_000;
+        let total_tests = 100_000;
         let tests_per_param = total_tests / param_values.len();
 
         println!("\n{}", "Parameter Tuning".bold().underline());
         println!("  • Range: {} - {}", "0.05".dimmed(), "0.50".dimmed());
-        println!("  • Test sequences: {}\n", "10,000".dimmed());
+        println!("  • Test sequences: {}\n", "100,000".dimmed());
 
         let mut sp = Spinner::new(Spinners::OrangeBluePulse, "Tuning on random sequences".into());
     
