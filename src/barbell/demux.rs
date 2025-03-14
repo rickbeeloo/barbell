@@ -40,11 +40,7 @@ impl<S: Strategy + Send + Sync> Demuxer<S> {
         println!("  • Threads: {}", threads.to_string().bold());
         println!("  • Auto-tune: {}\n", if auto_tune { "yes".green() } else { "no".red() });
 
-        if auto_tune {
-            println!("{}", "Parameter Tuning".bold().underline());
-            println!("  • Range: {} - {}", "0.05".dimmed(), "0.50".dimmed());
-            println!("  • Test sequences: {}\n", "10,000".dimmed());
-            
+        if auto_tune {           
             self.auto_tune_parmas(query_groups);
         }
 
