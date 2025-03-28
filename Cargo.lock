@@ -103,6 +103,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "colored",
+ "csv",
  "indicatif",
  "pa-bitpacking",
  "pa-types",
@@ -110,6 +111,7 @@ dependencies = [
  "rand",
  "rayon",
  "seq_io",
+ "serde",
  "spinners",
 ]
 

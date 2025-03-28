@@ -153,6 +153,7 @@ pub fn rel_dist_to_end(pos: isize, read_len: usize) -> isize {
 
 
 
+#[cfg(test)]
 mod test {
 
     use super::*;

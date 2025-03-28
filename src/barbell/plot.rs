@@ -3,6 +3,7 @@ use plotly::{Plot, Scatter};
 
 
 
+
 pub fn plot_edit_distances(all_edits: Vec<(usize, Vec<i32>)>) -> Result<(), Box<dyn std::error::Error>> {
     let mut plot = Plot::new();
     

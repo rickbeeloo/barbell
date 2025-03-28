@@ -1,6 +1,5 @@
-use crate::barbell::strategy::*;
+use crate::barbell::annotate_strategy::*;
 use crate::barbell::reader::QueryGroup;
-use crate::barbell::seq::Match;
 use seq_io::fastq::{Reader as FastqReader, Record}; // both Fasta and Fastq import same name struct
 use seq_io::parallel::read_parallel;
 use std::io::Write;
@@ -8,6 +7,8 @@ use indicatif::ProgressStyle;
 use std::time::Instant;
 use std::sync::atomic::Ordering;
 use colored::Colorize;
+
+use crate::barbell::pattern_assign::Match;
 
 pub struct Demuxer<S: Strategy + Send + Sync> {
     strategy: S,
@@ -30,7 +31,6 @@ impl<S: Strategy + Send + Sync> Demuxer<S> {
         self.strategy.auto_tune_parmas(query_groups);
     }
 
-
     pub fn demux_fastq(&mut self, read_file: &str, query_groups: &[QueryGroup], auto_tune: bool, threads: u32, output_file: &str) {
         let start_time = Instant::now();
 
@@ -47,7 +47,7 @@ impl<S: Strategy + Send + Sync> Demuxer<S> {
         // Create output file
         let output_file = std::fs::File::create(output_file).expect("Failed to create output file");
         let mut writer = std::io::BufWriter::new(output_file);
-        writeln!(writer, "read\tlabel\tstart\tend\tedits\tdist.to.end\tread.len").expect("Failed to write header");
+        writeln!(writer, "read\tlabel\tstart\tend\tedits\tdist.to.end\tread.len\tseq.idx").expect("Failed to write header");
 
         // Setup progress bars
         let multi_progress = indicatif::MultiProgress::new();
@@ -82,24 +82,27 @@ impl<S: Strategy + Send + Sync> Demuxer<S> {
         let missed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
         let reader = FastqReader::from_path(read_file).expect("Failed to open read file");
-        read_parallel(reader, threads, 1000, |record_set| {
+        read_parallel(reader, threads, 100, |record_set| {
             // this function does the heavy work
+            println!("Number of records: {}", record_set.len());
             let mut results = Vec::with_capacity(record_set.len());
-            for record in record_set.into_iter() {
+
+            
+            for (idx_in_batch, record) in record_set.into_iter().enumerate() {
                 let read_id = record.id().unwrap().to_string();
                 let read = record.seq();
                 let matches = self.demux_read(read, query_groups);
-                results.push((read_id, matches, read.len()));
+                results.push((read_id, matches, read.len(), idx_in_batch));
             }
             
             results
         }, |record_sets| {
-            // This function runs in the main thread. It provides a streaming iterator over
-            // record sets and the corresponding return values from the worker function
-            // (not necessarily in the same order as in the file)
+            // Track the batch index
             while let Some(result) = record_sets.next() {
                 let (_, found_results) = result.unwrap();
-                for (read_id, matches, read_len) in found_results {
+                for (read_id, matches, read_len, idx_in_batch) in found_results {
+
+                    let seq_idx = 1;
                     let total_count = total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     total_bar.set_message(format!("{}", total_count));
                     
@@ -110,21 +113,16 @@ impl<S: Strategy + Send + Sync> Demuxer<S> {
                         for m in matches {
                             writeln!(
                                 writer,
-                            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                            read_id, m.some_id, m.start, m.end, m.edits, m.rel_dist_to_end, read_len
+                                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",  // Added seq_idx column
+                                read_id, m.match_str.stringify(), m.start, m.end, m.edits, m.rel_dist_to_end, read_len, seq_idx
                             ).expect("Failed to write to output file");
                         }
                     } else {
                         let missed_count = missed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         missed_bar.set_message(format!("{}", missed_count));
-                        
-                        writeln!(
-                            writer,
-                            "{}\tno_tag\t{}\t{}\t{}\t{}\t{}",
-                            read_id, 0, 0, 0, 0, read_len
-                        ).expect("Failed to write to output file");
                     }
                 }
+        
             }
         });
 

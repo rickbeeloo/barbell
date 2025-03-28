@@ -24,28 +24,53 @@ pub fn reverse_complement(seq: &[u8]) -> Vec<u8> {
 
 
 
-#[derive(Clone, Debug)]
-pub enum MatchType {
-    Flank, 
-    Barcode,
-}
+// #[derive(Clone, Debug)]
+// pub enum MatchType {
+//     Flank, 
+//     Barcode,
+// }
 
-#[derive(Clone, Debug)]
-pub struct Match {
-    pub some_id: String,
-    pub match_type: MatchType,
-    pub start: usize,
-    pub end: usize,
-    pub edits: i32,
-    pub rel_dist_to_end: isize,
-}
+// #[derive(Clone, Debug)]
+// pub struct Match {
+//     pub some_id: String,
+//     pub match_type: MatchType,
+    
+//     pub prefix_char: u8,
+//     pub query_id: Option<String>, // none for flank
+
+//     pub orientation: bool,
+//     pub start: usize,
+//     pub end: usize,
+//     pub edits: i32,
+//     pub rel_dist_to_end: isize,
+// }
 
 
-impl Match {
-    pub fn new(some_id: String, match_type: MatchType, start: usize, end: usize, edits: i32, rel_dist_to_end: isize) -> Self {
-        Self { some_id, match_type, start, end, edits, rel_dist_to_end }
-    }
-}
+// impl Match {
+//     pub fn new(
+//         some_id: String,
+//         match_type: MatchType,
+//         prefix_char: u8,
+//         query_id: Option<String>,
+//         orientation: bool,
+//         start: usize,
+//         end: usize,
+//         edits: i32,
+//         rel_dist_to_end: isize,
+//     ) -> Self {
+//         Self {
+//             some_id,
+//             match_type,
+//             prefix_char,
+//             query_id,
+//             orientation,
+//             start,
+//             end,
+//             edits,
+//             rel_dist_to_end,
+//         }
+//     }
+// }
 
 
 
@@ -95,7 +120,7 @@ impl FlankSeq {
             None => return (100.0, true),
         };
 
-        // We use the traceback to check if at least min_frac of the mask region is covered
+        // We use the traceback to check if at least min_frac of the masstk region is covered
         let positions_in_mask = traceback_path
             .iter()
             .filter(|Pos(_, q_pos)| *q_pos as usize >= mask_start && (*q_pos as usize) < mask_end)
@@ -157,6 +182,7 @@ impl FlankSeq {
 
 
 
+#[cfg(test)]
 mod test {  
 
     use super::*;

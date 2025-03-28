@@ -1,6 +1,9 @@
 use seq_io::fasta::{Reader,Record};
 use crate::barbell::{misc::*, seq::*};
 use colored::Colorize;
+use crate::barbell::pattern_assign::*;
+
+
 #[derive(Debug)]
 pub struct Query {
     pub id: String,
@@ -14,13 +17,13 @@ pub struct QueryGroup {
     pub flank: Option<FlankSeq>,
     pub queries: Vec<Query>,
     pub query_ids: Vec<String>,
-    pub prefix_char: u8, // As group identifier in output
-    pub rc: bool, // whether this is a reverse complement group, then we still now based on prefix char which were the same 
+    pub match_type: MatchType, // As group identifier in output
+    pub orientation: Orientation, // whether this is a reverse complement group, then we still now based on prefix char which were the same 
 }
 
 impl QueryGroup {
-    pub fn new(flank: Option<FlankSeq>, queries: Vec<Query>, query_ids: Vec<String>, prefix_char: u8, rc: bool) -> Self {
-        Self { flank, queries, query_ids, prefix_char, rc }
+    pub fn new(flank: Option<FlankSeq>, queries: Vec<Query>, query_ids: Vec<String>, match_type: MatchType, orientation: Orientation) -> Self {
+        Self { flank, queries, query_ids, match_type, orientation }
     }
 }
 
@@ -99,25 +102,41 @@ pub fn get_flank_seq(seqs: &[Vec<u8>], min_length: usize) -> Option<FlankSeq> {
 pub fn read_queries(fasta_files: Vec<&str>, min_flank_length: Option<usize>) -> Vec<QueryGroup> {
     let mut query_groups = Vec::new();
     let min_flank_length = min_flank_length.unwrap_or(1);
+    
+    
+    // For now we just support up to 2 fasta files, as single barcode and dual barcode
+    // would it make sense to support more files?
+    if fasta_files.len() > 2 {
+        panic!("Only up to 2 fasta files are supported; if more needed please raise an issue");
+    }
 
-    for fasta_file in fasta_files {
+    // We just always call the first file forward, and the second file reverse barcodes
+    let fasta_groups = vec![MatchType::Fbarcode, MatchType::Rbarcode];
+    
+    for (i, fasta_file) in fasta_files.iter().enumerate() {
+        
+        // Extract queries and get prefix/suffix flanks
         let (queries, ids) = read_fasta(fasta_file);
         let flank = get_flank_seq(&queries, min_flank_length);
 
-        // Forward group
+        // Get match type 
+        let match_type = fasta_groups[i].clone();
+
+        // Collect sequences in forward (original) orientation  ----->
         let forward_queries = queries.iter().zip(&ids).map(|(seq, id)| Query {
             id: id.clone(),
             seq: seq.clone(),
         }).collect();
-        query_groups.push(QueryGroup::new(flank.clone(), forward_queries, ids.clone(), b'F', false));
+        query_groups.push(QueryGroup::new(flank.clone(), forward_queries, ids.clone(), match_type.clone(), Orientation::Forward));
 
-        // Reverse complement group
+        // Reverse complement group, keep the same id but reverse complement the sequence
+        // same Fasta origin file so we keep the match type 
         let reverse_queries = queries.iter().zip(&ids).map(|(seq, id)| Query {
             id: id.clone(),
             seq: reverse_complement(seq),
         }).collect();
         let rc_flanks = flank.map(|f| f.reverse_complement());
-        query_groups.push(QueryGroup::new(rc_flanks, reverse_queries, ids.clone(), b'R', true));
+        query_groups.push(QueryGroup::new(rc_flanks, reverse_queries, ids.clone(), match_type.clone(), Orientation::ReverseComplement));
     }
 
     println!("\n{}", "Query Groups".bold().underline());
@@ -125,7 +144,7 @@ pub fn read_queries(fasta_files: Vec<&str>, min_flank_length: Option<usize>) -> 
 
     // Print statistics for each query group
     for g in &query_groups {
-        let orientation = if g.rc { "RC".red() } else { "FW".green() };
+        let orientation = if g.orientation == Orientation::ReverseComplement { "RC".red() } else { "FW".green() };
         println!("  • Sequences: {} ({})", g.queries.len().to_string().bold(), orientation);
         
         if let Some(flank) = &g.flank {
@@ -137,8 +156,7 @@ pub fn read_queries(fasta_files: Vec<&str>, min_flank_length: Option<usize>) -> 
     query_groups
 }
 
-
-
+#[cfg(test)]
 mod test {
     use super::*;
 
