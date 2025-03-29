@@ -15,7 +15,7 @@ path = "src/main.rs"
 plotly = "0.12.1"
 pa-bitpacking = { git = "https://github.com/RagnarGrootKoerkamp/astar-pairwise-aligner.git", branch = "master" }
 pa-types = { git = "https://github.com/pairwise-alignment/pa-types" }
-seq_io_parallel = {git = "ssh://git@github.com/rickbeeloo/seq_io_parallel_index.git", branch = "main"}
+seq_io_parallel = {git = "https://github.com/rickbeeloo/seq_io_parallel_index.git", branch = "main"}
 seq_io = "0.3.1"
 rand = "0.8"
 rayon = "1.10.0"

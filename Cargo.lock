@@ -1375,7 +1375,7 @@ dependencies = [
 [[package]]
 name = "seq_io_parallel"
 version = "0.2.1"
-source = "git+ssh://git@github.com/rickbeeloo/seq_io_parallel_index.git?branch=main#c9011b14baad13c9ea704adc52875f288651f754"
+source = "git+https://github.com/rickbeeloo/seq_io_parallel_index.git?branch=main#c9011b14baad13c9ea704adc52875f288651f754"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
