@@ -1,0 +1,2 @@
+Rbarcode[fw, *, >>,  @left(0 to 250)]__Fbarcode[fw, 1F, <<, @right(0 to 250)]
+Fbarcode[rc, 1F, >>,  @left(0 to 250)]__Rbarcode[rc, *, <<, @right(0 to 250)]

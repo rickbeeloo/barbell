@@ -4,7 +4,7 @@ use colored::Colorize;
 use crate::barbell::pattern_assign::*;
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Query {
     pub id: String,
     pub seq: Vec<u8>,
@@ -12,7 +12,7 @@ pub struct Query {
 
 // Like this we don't later have to unwrap/match every time to see if we have something present
 // we just generelize to searchig QueryGroup, seeded by flank, in the target
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct QueryGroup {
     pub flank: Option<FlankSeq>,
     pub queries: Vec<Query>,

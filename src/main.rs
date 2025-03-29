@@ -5,6 +5,7 @@ use barbell::reader::*;
 use barbell::annotater::*;
 use barbell::annotate_strategy::*;
 use barbell::filter;
+use barbell::trim;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -55,6 +56,20 @@ enum Commands {
         #[arg(short = 'f', long, conflicts_with = "pattern", required_unless_present = "pattern")]
         file: Option<String>,
     },
+    /// Trim and sort reads based on filtered annotations
+    Trimm {
+        /// Input filtered annotation file
+        #[arg(short = 'i', long)]
+        input: String,
+
+        /// Read FASTQ file
+        #[arg(short = 'r', long)]
+        reads: String,
+
+        /// Output file path for sorted reads
+        #[arg(short = 'o', long)]
+        output: String,
+    },
     /// Plot results (not implemented yet)
     Plot,
 }
@@ -102,6 +117,14 @@ fn main() {
                 Ok(_) => println!("{}", "Filtering complete!".green()),
                 Err(e) => eprintln!("{} {}", "Filtering failed:".red(), e),
             }
+        }
+
+        Commands::Trimm { input, reads, output } => {
+            println!("{}", "Starting read trimming and sorting...".green());
+            
+            barbell::trim::trim_matches(input, reads, output);
+            
+            println!("{}", "Trimming complete!".green());
         }
 
         Commands::Plot => {

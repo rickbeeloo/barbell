@@ -7,3 +7,4 @@ pub mod plot;
 pub mod pattern_assign;
 pub mod filter;
 pub mod trim;
+pub mod merge_sort;
