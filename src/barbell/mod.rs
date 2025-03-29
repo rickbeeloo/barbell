@@ -1,6 +1,10 @@
 pub mod reader;
-pub mod demux;
+pub mod annotater;
 pub mod misc;
 pub mod seq;
-pub mod strategy;
+pub mod annotate_strategy;
 pub mod plot;
+pub mod pattern_assign;
+pub mod filter;
+pub mod trim;
+pub mod merge_sort;
