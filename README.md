@@ -9,12 +9,27 @@ Barbell's focus extends beyond barcode identification to include flanking sequen
 
 ## Installation (CLI)
 
-To install Barbell Demultiplexer, clone the repository and build it using Cargo:
+### Easy - from releases
+The easiest way to install Barbell is from the [releases page](https://github.com/rickbeeloo/barbell-sg/releases).
+1. Download
+2. Unzip
+3. use executable🚀
+
+<i>Note since these binaries are meant to  be stable across architectures the aligner is slower than building from source.</i>
+
+
+### From source
+
+To install Barbell Demultiplexer, clone the repository and build it using Cargo. You  have to swtich to the nigthly channel if you are not already:
 
 ```sh
 # Clone the repository
 git clone git@github.com:rickbeeloo/barbell-sg.git
 cd barbell-sg
+
+# Can skip if already on nightly
+rustup install nightly
+rustup override set nightly
 
 # Build the project
 RUSTFLAGS='-C target-cpu=native' cargo build --release
@@ -26,7 +41,7 @@ If you don't have Rust installed, you can install it using (see [Rust installati
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Note, we use compile flags (`RUSTFLAGS='-C target-cpu=native'`) to target the native architecture as the aligner uses [SIMD instructions](https://en.wikipedia.org/wiki/SIMD).
+Note, we use compile flags (`RUSTFLAGS='-C target-cpu=native'`) to target the native architecture as the aligner uses [SIMD instructions](https://en.wikipedia.org/wiki/SIMD). <b>This will likely give better performance than using the binaries from the releases page.</b>
 
 ## Quickstart
 Inside the folder `target/release/`:
