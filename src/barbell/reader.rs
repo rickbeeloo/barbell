@@ -175,7 +175,7 @@ mod test {
 
     #[test]
     fn test_read_and_flanks() {
-        let groups  = read_queries(vec!["data/test/left.fasta", "data/test/right.fasta"], None);
+        let groups  = read_queries(vec!["examples/test/left.fasta", "examples/test/right.fasta"], None);
         
         let left_flank = groups[0].flank.as_ref().unwrap();
         let right_flank = groups[2].flank.as_ref().unwrap();
