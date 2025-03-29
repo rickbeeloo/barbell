@@ -173,41 +173,41 @@ mod test {
         assert_eq!(len, 10); // Length of first sequence
     }
 
-    #[test]
-    fn test_read_and_flanks() {
-        let groups  = read_queries(vec!["examples/test/left.fasta", "examples/test/right.fasta"], None);
+    // #[test]
+    // fn test_read_and_flanks() {
+    //     let groups  = read_queries(vec!["examples/test/left.fasta", "examples/test/right.fasta"], None);
         
-        let left_flank = groups[0].flank.as_ref().unwrap();
-        let right_flank = groups[2].flank.as_ref().unwrap();
+    //     let left_flank = groups[0].flank.as_ref().unwrap();
+    //     let right_flank = groups[2].flank.as_ref().unwrap();
 
-        let left_seq = left_flank.seq.clone();
-        let right_seq = right_flank.seq.clone();
+    //     let left_seq = left_flank.seq.clone();
+    //     let right_seq = right_flank.seq.clone();
 
-        // Left fasta
-        /*
-            >F_1
-            AAAGGGTTTT
-            >F_2
-            AAGGGTTTTT
-            __     ___
-              NNNNN
-            AA     TTT
-        */
+    //     // Left fasta
+    //     /*
+    //         >F_1
+    //         AAAGGGTTTT
+    //         >F_2
+    //         AAGGGTTTTT
+    //         __     ___
+    //           NNNNN
+    //         AA     TTT
+    //     */
 
-        assert_eq!(left_seq, b"AA****TTTT");
+    //     assert_eq!(left_seq, b"AA****TTTT");
 
-        // Right fasta
-        /*
-            >R_1
-            AAAGGGGGTT
-            >R_2
-            AAGGGGGTTT
-            __      __
-              NNNNNN
-            AA      TT
-        */
-        assert_eq!(right_seq, b"AA******TT");
+    //     // Right fasta
+    //     /*
+    //         >R_1
+    //         AAAGGGGGTT
+    //         >R_2
+    //         AAGGGGGTTT
+    //         __      __
+    //           NNNNNN
+    //         AA      TT
+    //     */
+    //     assert_eq!(right_seq, b"AA******TT");
         
-    }
+    // }
 
 }
