@@ -98,6 +98,8 @@ For quick checks or simple patterns, you can directly pass the pattern as a stri
 
 ### Trim: trim reads based on pattern results
 
+<b> Note, we now keep the longest end which might not always be correct if the read is very short. This will be fixed in the next update</b>
+
 ```sh
 ./barbell trimm -i filtered.txt -r reads.fastq -o trimmed.fastq
 ```
