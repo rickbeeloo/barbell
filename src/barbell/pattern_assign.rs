@@ -232,10 +232,10 @@ fn check_relative_position(
             RelativePosition::Left => {
                 let (left_bound, right_bound) = pattern_element.range;
                 if m_start < left_bound || m_start > right_bound {
-                    println!(
-                        "Relative Left mismatch: m.start {} not in [{}, {}]",
-                        m_start, left_bound, right_bound
-                    );
+                    // println!(
+                    //     "Relative Left mismatch: m.start {} not in [{}, {}]",
+                    //     m_start, left_bound, right_bound
+                    // );
                     return false;
                 }
             }
@@ -305,9 +305,9 @@ pub fn match_pattern(matches: &[Match], pattern: &Pattern, seq_len: usize) -> (b
             // If this element has a cut marker, record the position
             if let Some(cut_dir) = &pattern_element.cut {
                 match cut_dir {
-                    // todo! validate whether this is correct, one off
-                    CutDirection::Before => cut_positions.push(  (m.start +  1).min(seq_len) ),
-                    CutDirection::After => cut_positions.push(m.end.saturating_sub(1)),
+                    // todo! verify alignmment location step, cause we would expect m.start-1 here 
+                    CutDirection::Before => cut_positions.push(m.start),
+                    CutDirection::After => cut_positions.push(m.end),
                 }
             }
             
@@ -342,7 +342,7 @@ macro_rules! pattern_from_str {
 
         fn parse_position(pos_str: &str) -> Option<(RelativePosition, (isize, isize))> {
             let pos_parts: Vec<&str> = pos_str.split('(').collect();
-            println!("pos_parts: {:?}", pos_parts);
+            
             if pos_parts.len() != 2 {
                 return None;
             }
@@ -394,7 +394,6 @@ macro_rules! pattern_from_str {
 
                     // Position and range
                     p if p.starts_with('@') => {
-                        println!("\t@param: {:?}", p);
                         if let Some((pos, r)) = parse_position(p) {
                             relative_to = Some(pos);
                             range = r;
@@ -404,7 +403,6 @@ macro_rules! pattern_from_str {
                     // Placeholder
                     p if p.starts_with('?') => {
                         if let Ok(num) = p[1..].parse::<usize>() {
-                            println!("Placeholder: {:?}", num);
                             placeholder = Some(num);
                         }
                     }

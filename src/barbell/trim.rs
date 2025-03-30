@@ -7,6 +7,10 @@ use std::fs::File;
 use std::collections::HashMap;
 use crate::barbell::pattern_assign::*;
 use std::path::Path;
+use std::time::Instant;
+use indicatif;
+use indicatif::ProgressStyle;
+use colored::Colorize;
 
 
 pub fn get_cuts(annotations: &[AnnotationLine]) {
@@ -97,12 +101,31 @@ pub fn process_read_and_anno(seq: &[u8], qual: &[u8], annotations: &[AnnotationL
 }
 
 pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_folder: &str, add_labels: bool, add_orientation: bool, add_flank: bool) {
+    let start_time = Instant::now();
+
+    println!("\n{}", "Trimming".bold().underline());
+    println!("  • Input matches: {}", filtered_match_file.bold());
+    println!("  • Input reads:   {}", read_fastq_file.bold());
+    println!("  • Output folder: {}", output_folder.bold());
+    println!("  • Labels:        {}", if add_labels { "yes".green() } else { "no".red() });
+    println!("  • Orientation:   {}", if add_orientation { "yes".green() } else { "no".red() });
+    println!("  • Flanks:        {}\n", if add_flank { "yes".green() } else { "no".red() });
+
     let mut reader = Reader::from_path(read_fastq_file).unwrap();
     let mut writers: HashMap<String, BufWriter<File>> = HashMap::new();
 
     // Label formatting config
     let label_config = LabelConfig::new(add_labels, add_orientation, add_flank);
     
+    // Setup progress bar
+    let progress_bar = indicatif::ProgressBar::new_spinner();
+    progress_bar.set_style(
+        ProgressStyle::with_template("{spinner:.blue} {prefix:<12} {msg:>6} {elapsed_precise}")
+            .unwrap()
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+    );
+    progress_bar.set_prefix("Processing:");
+
     let mut total_reads = 0;
     let mut mapped_reads = 0;
     let mut trimmed_reads = 0;
@@ -221,10 +244,14 @@ pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_fol
         writer.flush().expect("Failed to flush output");
     }
 
-    // Print statistics
-    println!("Total reads processed: {}", total_reads);
-    println!("Reads mapped to annotations: {}", mapped_reads);
-    println!("Reads trimmed: {}", trimmed_reads);
-    println!("Mapping rate: {:.2}%", (mapped_reads as f64 / total_reads as f64) * 100.0);
-    println!("Trimming rate: {:.2}%", (trimmed_reads as f64 / mapped_reads as f64) * 100.0);
+    // Finish progress bar and print summary
+    progress_bar.finish_with_message("Done!");
+
+    println!("\n{}", "Summary".bold().underline());
+    println!("  • Time: {} seconds", start_time.elapsed().as_secs().to_string().bold());
+    println!("  • Total reads: {}", total_reads.to_string().bold());
+    println!("  • Mapped reads: {}", mapped_reads.to_string().green().bold());
+    println!("  • Trimmed reads: {}", trimmed_reads.to_string().green().bold());
+    println!("  • Filter (keep rate): {}%", format!("{:.2}", (mapped_reads as f64 / total_reads as f64) * 100.0).bold());
+    println!("  • Trimming rate: {}%\n", format!("{:.2}", (trimmed_reads as f64 / mapped_reads as f64) * 100.0).bold());
 }
