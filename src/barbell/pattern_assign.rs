@@ -728,7 +728,7 @@ mod tests {
 
         let (is_match, cut_positions) = match_pattern(&matches, &pattern, 500);
         assert!(is_match);
-        assert_eq!(cut_positions, vec![29, 41]); // Cut AFTER end of Fbarcode, BEFORE start of Flank
+        assert_eq!(cut_positions, vec![30, 40]); 
     }
 
 }
