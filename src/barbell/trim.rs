@@ -12,13 +12,6 @@ use indicatif;
 use indicatif::ProgressStyle;
 use colored::Colorize;
 
-
-pub fn get_cuts(annotations: &[AnnotationLine]) {
-    // Easier would be specifying the cuts in the filter, but that's a bit less clean cause then the filtered output file 
-    // is different from the input file. For now lets try to get the biggest fragment
-
-}
-
 pub struct LabelConfig {
     include_label: bool,
     include_orientation: bool,
@@ -67,37 +60,59 @@ impl LabelConfig {
     }
 }
 
-pub fn process_read_and_anno(seq: &[u8], qual: &[u8], annotations: &[AnnotationLine], label_config: &LabelConfig) -> (Vec<u8>, Vec<u8>, String) {
-    let cuts = annotations.first().unwrap().cut_positions.clone().unwrap_or_default();
+pub fn process_read_and_anno(seq: &[u8], qual: &[u8], annotations: &[AnnotationLine], label_config: &LabelConfig) -> Option<(Vec<u8>, Vec<u8>, String)> {
+    let cuts = annotations.first().unwrap().cuts.clone().unwrap_or_default();
     let group = label_config.create_label(annotations);
     
     let (trimmed_seq, trimmed_qual) = match cuts.len() {
-        0 => (seq.to_vec(), qual.to_vec()),
+        0 => {
+            // No cuts means no trimming needed
+            return None;
+        },
         1 => {
-            let cut_pos = cuts[0];
-            let seq_len = seq.len();
+            let cut = &cuts[0];
+            let cut_pos = cut.position;
             
-            if cut_pos <= seq_len / 2 {
-                (seq[cut_pos..].to_vec(), qual[cut_pos..].to_vec())
-            } else {
-                (seq[..cut_pos].to_vec(), qual[..cut_pos].to_vec())
+            // Check if cut position is valid
+            if cut_pos >= seq.len() {
+                return None;
+            }
+            
+            match cut.direction {
+                CutDirection::Before => (seq[..cut_pos].to_vec(), qual[..cut_pos].to_vec()),
+                CutDirection::After => (seq[cut_pos..].to_vec(), qual[cut_pos..].to_vec()),
             }
         },
         2 => {
-            let (start, end) = (cuts[0], cuts[1]);
-            if end <= start {
-                eprintln!("Warning: Invalid cut positions (end <= start): {} <= {}", end, start);
-                return (seq.to_vec(), qual.to_vec(), group);
+            let (cut1, cut2) = (&cuts[0], &cuts[1]);
+            
+            let (start, end) = match (cut1.direction.clone(), cut2.direction.clone()) {
+                (CutDirection::After, CutDirection::Before) => (cut1.position, cut2.position),
+                (CutDirection::Before, CutDirection::After) => (cut2.position, cut1.position),
+                _ => return None, // Invalid cut directions
+            };
+            
+            // Check if positions are valid
+            if start >= end || start >= seq.len() || end > seq.len() {
+                return None;
             }
+            
+            // Check if resulting sequence would be empty
+            if end - start < 1 {
+                return None;
+            }
+            
             (seq[start..end].to_vec(), qual[start..end].to_vec())
         },
-        _ => {
-            eprintln!("Warning: More than 2 cut positions specified: {:?}", cuts);
-            (seq.to_vec(), qual.to_vec())
-        }
+        _ => return None, // More than 2 cuts not supported
     };
 
-    (trimmed_seq, trimmed_qual, group)
+    // Check if we actually trimmed something
+    if trimmed_seq.is_empty() {
+        return None;
+    }
+
+    Some((trimmed_seq, trimmed_qual, group))
 }
 
 pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_folder: &str, add_labels: bool, add_orientation: bool, add_flank: bool) {
@@ -146,6 +161,7 @@ pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_fol
 
     for result in matches_reader.deserialize() {
         let anno: AnnotationLine = result.expect("Failed to parse annotation line");
+
         let read_id = anno.read.clone().into_bytes();
 
         // If we encounter a new read ID
@@ -159,15 +175,12 @@ pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_fol
                     
                     if record.id().unwrap().as_bytes() == prev_read_id.as_slice() {
                         mapped_reads += 1;
-                        let (trimmed_seq, trimmed_qual, group) = process_read_and_anno(
+                        if let Some((trimmed_seq, trimmed_qual, group)) = process_read_and_anno(
                             record.seq(),
                             record.qual(),
                             &current_annotations,
                             &label_config
-                        );
-                        
-                        // Only write if we actually trimmed something
-                        if trimmed_seq.len() != record.seq().len() {
+                        ) {
                             trimmed_reads += 1;
                             
                             // Get or create writer for this group
@@ -207,15 +220,12 @@ pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_fol
             
             if record.id().unwrap().as_bytes() == last_read_id.as_slice() {
                 mapped_reads += 1;
-                let (trimmed_seq, trimmed_qual, group) = process_read_and_anno(
+                if let Some((trimmed_seq, trimmed_qual, group)) = process_read_and_anno(
                     record.seq(),
                     record.qual(),
                     &current_annotations,
                     &label_config
-                );
-                
-                // Only write if we actually trimmed something
-                if trimmed_seq.len() != record.seq().len() {
+                ) {
                     trimmed_reads += 1;
                     
                     // Get or create writer for this group

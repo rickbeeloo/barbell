@@ -23,35 +23,38 @@ pub struct AnnotationLine {
     pub record_set_idx: usize,
     pub record_idx: usize,
     #[serde(default)]
-    #[serde(deserialize_with = "deserialize_cut_positions")]
-    pub cut_positions: Option<Vec<usize>>,
+    #[serde(deserialize_with = "deserialize_cuts")]
+    pub cuts: Option<Vec<Cut>>,
 }
 
-// Add this new function to deserialize cut positions
-fn deserialize_cut_positions<'de, D>(deserializer: D) -> Result<Option<Vec<usize>>, D::Error>
+// Update the deserializer
+fn deserialize_cuts<'de, D>(deserializer: D) -> Result<Option<Vec<Cut>>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     let s: String = String::deserialize(deserializer)?;
+    
     if s.is_empty() || s == "-" {
         return Ok(None);
     }
     
-    let numbers: Result<Vec<usize>, _> = s.split(',')
-        .map(str::parse)
-        .collect();
+    let cuts = if s.contains(',') {
+        s.split(',')
+            .map(str::trim)
+            .flat_map(Cut::from_string)
+            .collect::<Vec<_>>()
+    } else {
+        Cut::from_string(&s).into_iter().collect()
+    };
     
-    match numbers {
-        Ok(vec) => Ok(Some(vec)),
-        Err(_) => Ok(None)
-    }
+    Ok(Some(cuts))
 }
 
 impl AnnotationLine {
     pub fn to_record(&self) -> csv::StringRecord {
-        let cut_str = match &self.cut_positions {
-            Some(positions) if !positions.is_empty() => positions.iter()
-                .map(|p| p.to_string())
+        let cut_str = match &self.cuts {
+            Some(cuts) if !cuts.is_empty() => cuts.iter()
+                .map(|cut| cut.to_string())
                 .collect::<Vec<_>>()
                 .join(","),
             _ => "-".to_string()
@@ -107,8 +110,8 @@ pub fn filter(annotated_file: &str, output_file: &str, filters: Vec<Pattern>) ->
     let mut headers = reader.headers()?.clone();
     
     // Always add cut_positions column if it doesn't exist
-    if !headers.iter().any(|h| h == "cut_positions") {
-        headers.push_field("cut_positions");
+    if !headers.iter().any(|h| h == "cuts") {
+        headers.push_field("cuts");
     }
 
     let mut writer = csv::WriterBuilder::new()
@@ -198,7 +201,7 @@ fn check_filter_pass(annotations: &mut [AnnotationLine], patterns: &[Pattern]) -
 
     // Track both the maximum number of matches and the cut positions
     let mut max_matches = 0;
-    let mut best_cut_positions: Option<Vec<usize>> = None;
+    let mut best_cut_positions: Option<Vec<Cut>> = None;
 
     for pattern in patterns {
         let (is_match, cut_positions) = match_pattern(&matches, pattern, read_len);
@@ -214,9 +217,70 @@ fn check_filter_pass(annotations: &mut [AnnotationLine], patterns: &[Pattern]) -
     // If we have a match and cut positions, update all annotations in the group
     if max_matches > 0 && best_cut_positions.is_some() {
         for annotation in annotations.iter_mut() {
-            annotation.cut_positions = best_cut_positions.clone();
+            annotation.cuts = Some(best_cut_positions.clone().unwrap());
         }
     }
 
     max_matches == annotations.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use crate::barbell::pattern_assign::{Cut, CutDirection};
+
+    #[test]
+    fn test_deserialize_cuts_string_format() {
+        // Test single cut with full line
+        let json_value = json!({ 
+            "read": "dac457ea-df0b-4c27-a58b-a52a411dc1ee",
+            "label": "barcode35#fw#Fbar",
+            "start": 0,
+            "end": 107,
+            "edits": 19,
+            "dist.to.end": 1,
+            "read.len": 2374,
+            "record_set_idx": 0,
+            "record_idx": 0,
+            "cuts": "After(118)"
+        });
+        let annotation: AnnotationLine = serde_json::from_value(json_value).unwrap();
+        println!("Annotation: {:?}", annotation);
+        assert_eq!(annotation.cuts.unwrap()[0], Cut::new(118, CutDirection::After));
+
+        // Test multiple cuts with full line
+        let json_value = json!({ 
+            "read": "dac457ea-df0b-4c27-a58b-a52a411dc1ee",
+            "label": "barcode35#fw#Fbar",
+            "start": 0,
+            "end": 107,
+            "edits": 19,
+            "dist.to.end": 1,
+            "read.len": 2374,
+            "record_set_idx": 0,
+            "record_idx": 0,
+            "cuts": "After(118),Before(50)"
+        });
+        let annotation: AnnotationLine = serde_json::from_value(json_value).unwrap();
+        let cuts = annotation.cuts.unwrap();
+        assert_eq!(cuts[0], Cut::new(118, CutDirection::After));
+        assert_eq!(cuts[1], Cut::new(50, CutDirection::Before));
+
+        // Test empty cut with full line
+        let json_value = json!({ 
+            "read": "dac457ea-df0b-4c27-a58b-a52a411dc1ee",
+            "label": "barcode35#fw#Fbar",
+            "start": 0,
+            "end": 107,
+            "edits": 19,
+            "dist.to.end": 1,
+            "read.len": 2374,
+            "record_set_idx": 0,
+            "record_idx": 0,
+            "cuts": "-"
+        });
+        let annotation: AnnotationLine = serde_json::from_value(json_value).unwrap();
+        assert_eq!(annotation.cuts, None);
+    }
 }

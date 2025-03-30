@@ -104,7 +104,7 @@ impl Match {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum CutDirection {
     Before, // < cut at match.start
     After,  // > cut at match.end
@@ -132,6 +132,38 @@ pub enum RelativePosition {
 #[derive(Debug, Eq, PartialEq)]
 pub struct Pattern {
     pub elements: Vec<PatternElement>,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub struct Cut {
+    pub position: usize,
+    pub direction: CutDirection,
+}
+
+impl Cut {
+    pub fn new(position: usize, direction: CutDirection) -> Self {
+        Self { position, direction }
+    }
+
+    pub fn to_string(&self) -> String {
+        match self.direction {
+            CutDirection::Before => format!("Before({})", self.position),
+            CutDirection::After => format!("After({})", self.position),
+        }
+    }
+
+    pub fn from_string(s: &str) -> Option<Self> {
+        let s = s.trim();
+        if s.starts_with("Before(") && s.ends_with(")") {
+            let pos = s[7..s.len()-1].parse().ok()?;
+            Some(Cut::new(pos, CutDirection::Before))
+        } else if s.starts_with("After(") && s.ends_with(")") {
+            let pos = s[6..s.len()-1].parse().ok()?;
+            Some(Cut::new(pos, CutDirection::After))
+        } else {
+            None
+        }
+    }
 }
 
 fn check_match_type_and_label(m: &Match, pattern_element: &PatternElement) -> bool {
@@ -283,11 +315,11 @@ fn matches_pattern_element(
         && check_relative_position(m, pattern_element, prev_end, seq_len as isize)
 }
 
-pub fn match_pattern(matches: &[Match], pattern: &Pattern, seq_len: usize) -> (bool, Vec<usize>) {
+pub fn match_pattern(matches: &[Match], pattern: &Pattern, seq_len: usize) -> (bool, Vec<Cut>) {
     let mut prev_end: Option<isize> = None;
     let mut matched_labels: HashMap<usize, String> = HashMap::new();
     let mut current_match_idx = 0;
-    let mut cut_positions: Vec<usize> = Vec::new();
+    let mut cut_positions: Vec<Cut> = Vec::new();
 
     // Early return if not enough matches
     if matches.len() < pattern.elements.len() {
@@ -302,13 +334,13 @@ pub fn match_pattern(matches: &[Match], pattern: &Pattern, seq_len: usize) -> (b
         let m = &matches[current_match_idx];
         
         if matches_pattern_element(m, pattern_element, prev_end, &mut matched_labels, seq_len) {
-            // If this element has a cut marker, record the position
+            // If this element has a cut marker, record the position and direction
             if let Some(cut_dir) = &pattern_element.cut {
-                match cut_dir {
-                    // todo! verify alignmment location step, cause we would expect m.start-1 here 
-                    CutDirection::Before => cut_positions.push(m.start),
-                    CutDirection::After => cut_positions.push(m.end),
-                }
+                let cut = match cut_dir {
+                    CutDirection::Before => Cut::new(m.start, CutDirection::Before),
+                    CutDirection::After => Cut::new(m.end, CutDirection::After),
+                };
+                cut_positions.push(cut);
             }
             
             prev_end = Some(m.end as isize);
@@ -728,7 +760,22 @@ mod tests {
 
         let (is_match, cut_positions) = match_pattern(&matches, &pattern, 500);
         assert!(is_match);
-        assert_eq!(cut_positions, vec![30, 40]); 
+        assert_eq!(cut_positions, vec![Cut::new(30, CutDirection::After), Cut::new(40, CutDirection::Before)]); 
+    }
+
+    #[test]
+    fn test_cut_from_string() {
+        let cut_str = "After(118)";
+        let cut = Cut::from_string(cut_str).unwrap();
+        assert_eq!(cut, Cut::new(118, CutDirection::After));
+
+        let cut_str = "Before(50)";
+        let cut = Cut::from_string(cut_str).unwrap();
+        assert_eq!(cut, Cut::new(50, CutDirection::Before));
+
+        // Test invalid input
+        assert!(Cut::from_string("Invalid").is_none());
+        assert!(Cut::from_string("After(abc)").is_none());
     }
 
 }

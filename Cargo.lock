@@ -114,6 +114,7 @@ dependencies = [
  "seq_io",
  "seq_io_parallel",
  "serde",
+ "serde_json",
  "spinners",
  "tempfile",
 ]

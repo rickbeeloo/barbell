@@ -27,8 +27,8 @@ pub fn merge_sort_files(input_file: &str) -> io::Result<()> {
     let mut headers = reader.headers()?.clone();
     println!("Headers read: {:?}", headers);
     
-    if !headers.iter().any(|h| h == "cut_positions") {
-        headers.push_field("cut_positions");
+    if !headers.iter().any(|h| h == "cuts") {
+        headers.push_field("cuts");
     }
 
     let mut chunk_count = 0;
@@ -86,8 +86,7 @@ pub fn merge_sort_files(input_file: &str) -> io::Result<()> {
             println!("Final sorted file size: {} bytes", metadata.len());
         }
     } else {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             "Temporary output file was not created successfully"
         ));
     }
