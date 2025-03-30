@@ -4,8 +4,9 @@ use seq_io::fastq::{Reader,Record};
 use csv;
 use std::io::{BufWriter, Write};
 use std::fs::File;
-
-
+use std::collections::HashMap;
+use crate::barbell::pattern_assign::*;
+use std::path::Path;
 
 
 pub fn get_cuts(annotations: &[AnnotationLine]) {
@@ -14,22 +15,67 @@ pub fn get_cuts(annotations: &[AnnotationLine]) {
 
 }
 
+pub struct LabelConfig {
+    include_label: bool,
+    include_orientation: bool,
+    include_flank: bool,
+}
 
-pub fn process_read_and_anno(seq: &[u8], qual: &[u8], annotations: &[AnnotationLine]) -> (Vec<u8>, Vec<u8>) {
+impl LabelConfig {
+    pub fn new(include_label: bool, include_orientation: bool, include_flank: bool) -> Self {
+        Self { include_label, include_orientation, include_flank }
+    }
+
+    fn create_label(&self, annotations: &[AnnotationLine]) -> String {
+        if !self.include_label {
+            return "none".to_string();
+        }
+
+        let label_parts: Vec<String> = annotations.iter()
+            .filter_map(|a| {
+                let encoded = EncodedMatchStr::unstringify(&a.label);
+                let label = encoded.label.unwrap_or_else(|| "Flank".to_string());
+                
+                // Skip if it's a flank and we don't want flanks
+                if !self.include_flank && label == "Flank" {
+                    return None;
+                }
+
+                let mut result = label;
+                
+                if self.include_orientation {
+                    let ori = match encoded.orientation {
+                        Orientation::Forward => "fw",
+                        Orientation::ReverseComplement => "rc",
+                    };
+                    result = format!("{}_{}", result, ori);
+                }
+                
+                Some(result)
+            })
+            .collect();
+
+        if label_parts.is_empty() {
+            "none".to_string()
+        } else {
+            label_parts.join("__")
+        }
+    }
+}
+
+pub fn process_read_and_anno(seq: &[u8], qual: &[u8], annotations: &[AnnotationLine], label_config: &LabelConfig) -> (Vec<u8>, Vec<u8>, String) {
     let cuts = annotations.first().unwrap().cut_positions.clone().unwrap_or_default();
+    let group = label_config.create_label(annotations);
     
-    match cuts.len() {
+    let (trimmed_seq, trimmed_qual) = match cuts.len() {
         0 => (seq.to_vec(), qual.to_vec()),
         1 => {
             let cut_pos = cuts[0];
             let seq_len = seq.len();
             
-            // Determine if cut is closer to left or right end
             if cut_pos <= seq_len / 2 {
-                // Cut is closer to left end, keep right part
                 (seq[cut_pos..].to_vec(), qual[cut_pos..].to_vec())
             } else {
-                // Cut is closer to right end, keep left part
                 (seq[..cut_pos].to_vec(), qual[..cut_pos].to_vec())
             }
         },
@@ -37,7 +83,7 @@ pub fn process_read_and_anno(seq: &[u8], qual: &[u8], annotations: &[AnnotationL
             let (start, end) = (cuts[0], cuts[1]);
             if end <= start {
                 eprintln!("Warning: Invalid cut positions (end <= start): {} <= {}", end, start);
-                return (seq.to_vec(), qual.to_vec());
+                return (seq.to_vec(), qual.to_vec(), group);
             }
             (seq[start..end].to_vec(), qual[start..end].to_vec())
         },
@@ -45,15 +91,18 @@ pub fn process_read_and_anno(seq: &[u8], qual: &[u8], annotations: &[AnnotationL
             eprintln!("Warning: More than 2 cut positions specified: {:?}", cuts);
             (seq.to_vec(), qual.to_vec())
         }
-    }
+    };
+
+    (trimmed_seq, trimmed_qual, group)
 }
 
-pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_file: &str) {
-
+pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_folder: &str, add_labels: bool, add_orientation: bool, add_flank: bool) {
     let mut reader = Reader::from_path(read_fastq_file).unwrap();
-    let writer = BufWriter::new(File::create(format!("{}.trimmed.fastq", output_file))
-        .expect("Failed to create output file"));
-    let mut writer = writer;
+    let mut writers: HashMap<String, BufWriter<File>> = HashMap::new();
+
+    // Label formatting config
+    let label_config = LabelConfig::new(add_labels, add_orientation, add_flank);
+    
     let mut total_reads = 0;
     let mut mapped_reads = 0;
     let mut trimmed_reads = 0;
@@ -62,6 +111,11 @@ pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_fil
         .delimiter(b'\t')
         .from_path(filtered_match_file)
         .expect("Failed to open matches file");
+
+    // If output folder does not exist, create it
+    if !Path::new(output_folder).exists() {
+        std::fs::create_dir_all(output_folder).expect("Failed to create output folder");
+    }
 
     // Group annotations by read ID while preserving order
     let mut current_read_id: Option<Vec<u8>> = None;
@@ -82,16 +136,25 @@ pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_fil
                     
                     if record.id().unwrap().as_bytes() == prev_read_id.as_slice() {
                         mapped_reads += 1;
-                        let (trimmed_seq, trimmed_qual) = process_read_and_anno(
+                        let (trimmed_seq, trimmed_qual, group) = process_read_and_anno(
                             record.seq(),
                             record.qual(),
-                            &current_annotations
+                            &current_annotations,
+                            &label_config
                         );
                         
                         // Only write if we actually trimmed something
                         if trimmed_seq.len() != record.seq().len() {
                             trimmed_reads += 1;
-                            // Write FASTQ format: @header\nsequence\n+\nquality
+                            
+                            // Get or create writer for this group
+                            let writer = writers.entry(group.clone()).or_insert_with(|| {
+                                let output_file = format!("{}/{}.trimmed.fastq", output_folder, group);
+                                BufWriter::new(File::create(&output_file)
+                                    .expect(&format!("Failed to create output file: {}", output_file)))
+                            });
+                            
+                            // Write FASTQ format
                             writeln!(writer, "@{}", String::from_utf8_lossy(record.id().unwrap().as_bytes()))
                                 .expect("Failed to write header");
                             writeln!(writer, "{}", String::from_utf8_lossy(&trimmed_seq))
@@ -121,16 +184,25 @@ pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_fil
             
             if record.id().unwrap().as_bytes() == last_read_id.as_slice() {
                 mapped_reads += 1;
-                let (trimmed_seq, trimmed_qual) = process_read_and_anno(
+                let (trimmed_seq, trimmed_qual, group) = process_read_and_anno(
                     record.seq(),
                     record.qual(),
-                    &current_annotations
+                    &current_annotations,
+                    &label_config
                 );
                 
                 // Only write if we actually trimmed something
                 if trimmed_seq.len() != record.seq().len() {
                     trimmed_reads += 1;
-                    // Write FASTQ format: @header\nsequence\n+\nquality
+                    
+                    // Get or create writer for this group
+                    let writer = writers.entry(group.clone()).or_insert_with(|| {
+                        let output_file = format!("{}/{}.trimmed.fastq", output_folder, group);
+                        BufWriter::new(File::create(&output_file)
+                            .expect(&format!("Failed to create output file: {}", output_file)))
+                    });
+                    
+                    // Write FASTQ format
                     writeln!(writer, "@{}", String::from_utf8_lossy(record.id().unwrap().as_bytes()))
                         .expect("Failed to write header");
                     writeln!(writer, "{}", String::from_utf8_lossy(&trimmed_seq))
@@ -144,9 +216,12 @@ pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_fil
         }
     }
 
-    // Ensure all data is written
-    writer.flush().expect("Failed to flush output");
+    // Flush all writers
+    for (_, writer) in writers.iter_mut() {
+        writer.flush().expect("Failed to flush output");
+    }
 
+    // Print statistics
     println!("Total reads processed: {}", total_reads);
     println!("Reads mapped to annotations: {}", mapped_reads);
     println!("Reads trimmed: {}", trimmed_reads);

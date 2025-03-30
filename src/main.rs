@@ -69,6 +69,18 @@ enum Commands {
         /// Output file path for sorted reads
         #[arg(short = 'o', long)]
         output: String,
+
+        /// Disable label in output filenames
+        #[arg(long, default_value_t = false)]
+        no_label: bool,
+
+        /// Disable orientation in output filenames
+        #[arg(long, default_value_t = false)]
+        no_orientation: bool,
+
+        /// Disable flank in output filenames
+        #[arg(long, default_value_t = false)]
+        no_flanks: bool,
     },
     /// Plot results (not implemented yet)
     Plot,
@@ -119,10 +131,17 @@ fn main() {
             }
         }
 
-        Commands::Trimm { input, reads, output } => {
+        Commands::Trimm { input, reads, output, no_label, no_orientation, no_flanks } => {
             println!("{}", "Starting read trimming and sorting...".green());
             
-            barbell::trim::trim_matches(input, reads, output);
+            barbell::trim::trim_matches(
+                input, 
+                reads, 
+                output,
+                !no_label,           // Invert the flags since the function expects positive logic
+                !no_orientation,
+                !no_flanks
+            );
             
             println!("{}", "Trimming complete!".green());
         }
