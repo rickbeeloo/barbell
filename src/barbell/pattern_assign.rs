@@ -260,6 +260,7 @@ fn check_relative_position(
 ) -> bool {
     if let Some(relative_to) = &pattern_element.relative_to {
         let m_start = m.start as isize;
+        let m_end = m.end as isize;
         match relative_to {
             RelativePosition::Left => {
                 let (left_bound, right_bound) = pattern_element.range;

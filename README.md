@@ -1,35 +1,38 @@
+
 # 🦀 Barbell Demultiplexer (Rust)
 
 ## Overview
-Barbell demultiplexer uses a [custom semi-global aligner](https://github.com/RagnarGrootKoerkamp/astar-pairwise-aligner) designed to accurately identify barcodes, even in read ends where semi-global constraints typically introduce artificial edits. Barbell operates with fewer parameters and is optimized to detect as much contamination as possible. Moreover, Barbell is not restricted to any specific experimental setup and can detect a variety of complex barcode patterns. Barbell follows three steps:
 
-1. <b> Annotate </b>, where are your queries? What is their score? Is the barcode clear?
-2. <b> Filter </b>, what reads match the experimental design? `Fbar--Rbar`, or `Fbar--`, etc.
-3. <b> Trim </b>, Cut of all contamination, barcodes, adapters, etc.
+Barbell Demultiplexer uses a [custom semi-global aligner](https://github.com/RagnarGrootKoerkamp/astar-pairwise-aligner) designed to accurately identify barcodes, even in read ends where semi-global constraints typically introduce artificial edits. Barbell operates with fewer parameters and is optimized to detect as much contamination as possible. It is not restricted to any specific experimental setup and can detect a variety of complex barcode patterns. Barbell follows three steps:
+
+1. **Annotate**: Identify queries, their scores, and barcode clarity.
+2. **Filter**: Match reads to the experimental design (e.g., `Fbar--Rbar`).
+3. **Trim**: Remove contamination, barcodes, adapters, etc.
 
 Enjoy!
 
 ## Installation (CLI)
 
-### Easy - from releases
+### Easy - From Releases
+
 The easiest way to install Barbell is from the [releases page](https://github.com/rickbeeloo/barbell-sg/releases).
+
 1. Download
 2. Unzip
-3. use executable🚀
+3. Use the executable 🚀
 
-<i>Note since these binaries are meant to  be stable across architectures the aligner is slower than building from source.</i>
+*Note: These binaries are designed to be stable across architectures, but the aligner may be slower than building from source.*
 
+### From Source
 
-### From source
-
-To install Barbell Demultiplexer, clone the repository and build it using Cargo. You  have to swtich to the nigthly channel if you are not already:
+To install Barbell Demultiplexer, clone the repository and build it using Cargo. You may need to switch to the nightly channel if you are not already on it:
 
 ```sh
 # Clone the repository
 git clone git@github.com:rickbeeloo/barbell-sg.git
 cd barbell-sg
 
-# Can skip if already on nightly
+# Switch to nightly if not already on it
 rustup install nightly
 rustup override set nightly
 
@@ -37,30 +40,34 @@ rustup override set nightly
 RUSTFLAGS='-C target-cpu=native' cargo build --release
 ```
 
-If you don't have Rust installed, you can install it using (see [Rust installation guide](https://www.rust-lang.org/tools/install)):
+If you don't have Rust installed, you can install it using the [Rust installation guide](https://www.rust-lang.org/tools/install):
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Note, we use compile flags (`RUSTFLAGS='-C target-cpu=native'`) to target the native architecture as the aligner uses [SIMD instructions](https://en.wikipedia.org/wiki/SIMD). <b>This will likely give better performance than using the binaries from the releases page.</b>
+*Note: We use compile flags (`RUSTFLAGS='-C target-cpu=native'`) to target the native architecture as the aligner uses [SIMD instructions](https://en.wikipedia.org/wiki/SIMD). This will likely give better performance than using the binaries from the releases page.*
 
 ## Quickstart
+
 Inside the folder `target/release/`:
-```
+
+```sh
 ./barbell annotate -i input.fastq -o output.txt -q queries.fasta -t 8 --tune
 ```
+To just annotate the reads with barcode information, for filtering and trimming see below.
 
 ## Usage
 
-Barbell follows a  three step process:
-1. Annotate, find all querie sequences in the reads 
-2. Filter, filter for relevant patterns (e.g. fbar-----rbar)
-3. Trim, use results from `Filter` to trim the reads 
+Barbell follows a three-step process:
+
+1. **Annotate**: Find all query sequences in the reads.
+2. **Filter**: Filter for relevant patterns (e.g., `Fbar-----Rbar`).
+3. **Trim**: Use results from `Filter` to trim the reads.
 
 ### Annotate: FASTQ Files
+
 To annotate a FASTQ file with barcode information, use the `annotate` command:
-Note, the executable is in `./target/release/`
 
 ```sh
 ./barbell annotate -i reads.fastq -o annotations.txt -q queries.fasta -t 8 --tune
@@ -73,15 +80,16 @@ Note, the executable is in `./target/release/`
 - `-t, --threads` (optional): Number of threads (default: 5)
 - `--tune` (optional): Enable autotuning
 
-It's recommended to use the `--tune` flag to find the best parameter for your input queries unless you already have a good estimamte. This is simply the fraction of the input sequence which is allowed to be mutated. Generally two random sequences have an edit distance of 0.5, so this cut off should be below that, by default `0.35`.
+It's recommended to use the `--tune` flag to find the best parameter for your input queries unless you already have a good estimate. This is simply the fraction of the input sequence which is allowed to be mutated. Generally, two random sequences have an edit distance of 0.5, so this cutoff should be below that (default: `0.35`).
 
-You can provide multiple query files, so for example if you have a dual-end barcode experiment you can provide `left.fasta` and `right.fasta`, which will  be prefixed wiht `L` and `R` respectively in the output
-- Provide your sequences looking at the top strand (not really a problem as reverse complement is also checked)
--  _DONT_ combine your left and right queries in the same file as this will fail to automatically extract the shared flanking regions.
-An example query file, for rapid barcoding can be found in [examples/rapid_barcodes.fasta](examples/rapid_barcodes.fasta). 
+You can provide multiple query files. For example, if you have a dual-end barcode experiment, you can provide `left.fasta` and `right.fasta` (`-q left.fasta,right.fasta`), which will be prefixed with `Fbar` and `Rbar` respectively in the output.
 
+- Provide your sequences looking at the top strand (reverse complement is checked within Barbell).
+- Do not combine your left and right queries in the same file as this will fail to automatically extract the shared flanking regions.
 
-### Filter: read annotation file
+An example query file for rapid barcoding can be found in [examples/rapid_barcodes.fasta](examples/rapid_barcodes.fasta).
+
+### Filter: Read Annotation File
 
 ```sh
 ./barbell filter -i annotations.txt -o filtered.txt -p "Fbarcode[rc, *, >>, @left(0 to 250)]"
@@ -93,13 +101,12 @@ An example query file, for rapid barcoding can be found in [examples/rapid_barco
 - `-p, --pattern` (required): Pattern string to filter by
 - `-f, --file` (optional): File containing patterns to filter by
 
-For quick checks or simple patterns, you can directly pass the pattern as a string using the `-p` option. For more complex filtering or when using multiple patterns, you can place them in a file and use the `-f` option instead. See [examples/rapid_filters.txt](examples/rapid_filters.txt) for example patterns. The patterns can be as complex as you want, see below for mmore information on building patterns.
+For quick checks or simple patterns, you can directly pass the pattern as a string using the `-p` option. For more complex filtering or when using multiple patterns, you can place them in a file and use the `-f` option instead. See [examples/rapid_filters.txt](examples/rapid_filters.txt) for example patterns. The patterns can be as complex as you need.
 
-
-### Trim: trim reads based on pattern results
+### Trim: Trim Reads Based on Pattern Results
 
 ```sh
-./barbell trimm -i filtered.txt -r reads.fastq -o trimmed.fastq
+./barbell trim -i filtered.txt -r reads.fastq -o trimmed.fastq
 ```
 
 **Options:**
@@ -110,19 +117,21 @@ For quick checks or simple patterns, you can directly pass the pattern as a stri
 - `--no-orientation`: Disable orientation in output filenames
 - `--no-flanks`: Disable flank in output filenames
 
-This will trim reads based on the trim position markers in the pattern (`>>` or `<<`). By default, the output filenames will include labels, orientations, and flanks. You can disable these components in the output filenames using the corresponding flags. For exammple without any disable flags the files in the `output` folder will look like:
+This will trim reads based on the trim position markers in the pattern (`>>` or `<<`). By default, the output filenames will include labels, orientations, and flanks. You can disable these components in the output filenames using the corresponding flags. For example, without any disable flags, the files in the `output` folder will look like:
+
 ```bash
 1R_fw__1F_fw.trimmed.fastq
 2R_fw__1F_fw.trimmed.fastq
 ```
 
 With orientation disabled:
+
 ```bash
 1F__1R.trimmed.fastq
 1F__2R.trimmed.fastq
 ```
 
-In many default experiments you will mostly care about the presence of the barcode, and not the orientation, however it's recommended to look at the orientation information here (or in the filtered output file) to see if the orientation is correct.
+In many default experiments, you will mostly care about the presence of the barcode, not the orientation. However, it's recommended to look at the orientation information (or in the filtered output file) to see if the orientation is correct.
 
 ## Understanding Patterns
 
@@ -130,7 +139,7 @@ Patterns are used to identify and filter specific sequences within reads. They h
 
 ### Components of a Pattern
 
-1. **Label**: Represents the identifier from the fastq file. It can be specific (e.g., `10R`) or a wildcard (`*` for any label, `?1` for matching labels).
+1. **Label**: Represents the identifier from the FASTQ file. It can be specific (e.g., `10R`) or a wildcard (`*` for any label, `?1` for matching labels).
 
 2. **Orientation**: Indicates the direction of the sequence.
    - `fw`: Forward orientation (same as in the query file).
@@ -142,8 +151,8 @@ Patterns are used to identify and filter specific sequences within reads. They h
    - `Flank`: Flanking sequence (e.g., primer or adapter with an unknown barcode).
 
 4. **Position**: Defines the location of the sequence within the read.
-   - `@left(x to y)`: Distance from the left end of the read.
-   - `@right(x to y)`: Distance from the right end of the read.
+   - `@left(x to y)`: Distance from the left end of the read (for the match start).
+   - `@right(x to y)`: Distance from the right end of the read (for the match start).
    - `@prev_left(x to y)`: Relative position to the previous match.
 
 5. **Trimming**: Specifies the trimming position.
@@ -154,7 +163,7 @@ Patterns are used to identify and filter specific sequences within reads. They h
 
 #### Basic Pattern Structure
 
-A pattern is written in the format: `Fbarcode[<extra_filters>]`, and multiple pattern elements are combined using `__`, for exammple `Fbarcode[<extra_filters>]__Rbarcode[<extra_filters>]`.
+A pattern is written in the format: `Fbarcode[<extra_filters>]`, and multiple pattern elements are combined using `__`, for example: `Fbarcode[<extra_filters>]__Rbarcode[<extra_filters>]`.
 
 #### Filtering Barcodes
 
@@ -205,20 +214,21 @@ A pattern is written in the format: `Fbarcode[<extra_filters>]`, and multiple pa
 
 By understanding these components, you can create patterns tailored to your specific experimental needs. If you have any further questions or need additional clarification, feel free to ask!
 
-
-
 ## Features
+
 - 📜 Annotate FASTQ files with barcode information
-- 🚀 Supports multi-threading for faster processing 
+- 🚀 Supports multi-threading for faster processing
 - ⚙️ Optional autotuning for selecting the main parameter
-- 🧩 Extremely modular and advanced filtering for custom experiments can be done using patterns
+- 🧩 Extremely modular and advanced filtering for custom experiments using patterns
 
 ## License
+
 This project is licensed under the MIT License.
 
 ## Contributing
+
 Contributions are welcome! Feel free to submit a pull request or open an issue.
 
 ## Contact
-For any questions or issues, please open an issue on GitHub
 
+For any questions or issues, please open an issue on GitHub.
