@@ -141,14 +141,14 @@ impl Strategy for SimpleStrategy {
 
     fn auto_tune_parmas(&mut self, queries: &[QueryGroup])  {
          let start_time = Instant::now();
-         // Generate sequence from 0.2 to 0.5 with 0.01 steps
-         let param_values: Vec<f32> = (0..31).map(|i| 0.2 + (i as f32 * 0.01)).collect();
+         // Generate sequence from 0.1 to 0.5 with 0.01 steps
+         let param_values: Vec<f32> = (0..41).map(|i| 0.1 + (i as f32 * 0.01)).collect();
      
          let total_tests = 10_000;
          let tests_per_param = total_tests / param_values.len();
 
          println!("\n{}", "Parameter Tuning".bold().underline());
-         println!("  • Range: {} - {}", "0.20".dimmed(), "0.50".dimmed());
+         println!("  • Range: {} - {}", "0.10".dimmed(), "0.50".dimmed());
          println!("  • Test sequences: {}\n", "10,000".dimmed());
 
          let mut sp = Spinner::new(Spinners::OrangeBluePulse, "Tuning on random sequences".into());
