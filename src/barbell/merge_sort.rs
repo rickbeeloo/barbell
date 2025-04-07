@@ -1,148 +1,119 @@
+use std::fs::{File, remove_file, copy};
 use std::io;
-use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
 use csv::{ReaderBuilder, WriterBuilder};
 use tempfile::tempdir;
+
 use super::filter::AnnotationLine;
 
-const CHUNK_SIZE: usize = 10000;
+const CHUNK_SIZE: usize = 1000;
 
-pub fn merge_sort_files(input_file: &str) -> io::Result<()> {
-    let temp_dir = tempdir()?;
-    let mut chunk_files = Vec::new();
-    
-    // Create temporary output file path by appending "_sorted" to the input file
-    let temp_output = format!("{}_sorted", input_file);
+pub fn merge_sort_files(input_file: &str) {
+    let temp_dir = tempdir().expect("Failed to create temp directory");
+    let mut chunk_files: Vec<PathBuf> = Vec::new();
 
-    // Step 1: Split into sorted chunks
     let mut reader = ReaderBuilder::new()
         .delimiter(b'\t')
         .has_headers(true)
-        .from_path(input_file)?;
+        .from_path(input_file)
+        .expect("Failed to open input file");
 
-    // Add debug print for input file
-    println!("Reading from input file: {}", input_file);
-    
-    // Read and store the header
-    let mut headers = reader.headers()?.clone();
-    println!("Headers read: {:?}", headers);
-    
-    if !headers.iter().any(|h| h == "cuts") {
-        headers.push_field("cuts");
-    }
-
+    let headers = reader.headers().expect("Failed to read headers").clone();
     let mut chunk_count = 0;
-    let mut total_records = 0;
+
     loop {
-        let mut chunk: Vec<AnnotationLine> = reader
+        let chunk: Vec<AnnotationLine> = reader
             .deserialize()
             .take(CHUNK_SIZE)
-            .collect::<Result<Vec<_>, _>>()?;
- 
+            .collect::<Result<_, _>>()
+            .expect("Failed to deserialize chunk");
+
         if chunk.is_empty() {
             break;
         }
 
-        total_records += chunk.len();
-        println!("Processing chunk {} with {} records", chunk_count, chunk.len());
-
-        chunk.sort_by_key(|r| (r.record_set_idx, r.record_idx));
+        let mut sorted_chunk = chunk;
+        sorted_chunk.sort_by_key(|r| (r.record_set_idx, r.record_idx));
 
         let chunk_path = temp_dir.path().join(format!("chunk_{}.tsv", chunk_count));
-        let mut chunk_writer = WriterBuilder::new()
+        let mut writer = WriterBuilder::new()
             .delimiter(b'\t')
-            .has_headers(false)
-            .from_path(&chunk_path)?;
+            .from_path(&chunk_path)
+            .expect("Failed to create chunk file");
 
-        for record in &chunk {
-            chunk_writer.write_record(&record.to_record())?;
+        writer.write_record(&headers).expect("Failed to write header");
+        for record in &sorted_chunk {
+            writer.write_record(&record.to_record()).expect("Failed to write record");
         }
-        chunk_writer.flush()?;
-        
+
+        writer.flush().expect("Failed to flush writer");
+
         chunk_files.push(chunk_path);
         chunk_count += 1;
     }
 
-    println!("Total records processed: {}", total_records);
-    println!("Number of chunks created: {}", chunk_count);
+    let temp_output = format!("{}_sorted", input_file);
+    merge_chunks(&chunk_files, &temp_output, headers).expect("Failed to merge chunks");
 
-    // Step 2: Merge sorted chunks with header into temporary file
-    merge_chunks(&chunk_files, &temp_output, headers)?;
-
-    // Verify temp_output exists and has content
-    if let Ok(metadata) = std::fs::metadata(&temp_output) {
-        println!("Temporary output file size: {} bytes", metadata.len());
-    }
-
-    // Step 3: Only remove original file if temporary file exists and has content
-    if std::path::Path::new(&temp_output).exists() {
-        std::fs::remove_file(input_file)?;
-        println!("Original file removed successfully");
-        std::fs::copy(&temp_output, input_file)?;
-        println!("New sorted file copied successfully");
-        
-        // Verify the final file
-        if let Ok(metadata) = std::fs::metadata(input_file) {
-            println!("Final sorted file size: {} bytes", metadata.len());
-        }
-    } else {
-        return Err(io::Error::other(
-            "Temporary output file was not created successfully"
-        ));
-    }
-
-    Ok(())
+    // Replace original with sorted
+    remove_file(input_file).expect("Failed to remove original file");
+    copy(&temp_output, input_file).expect("Failed to copy sorted file back");
+    remove_file(temp_output).expect("Failed to remove temporary sorted file");
 }
 
-fn merge_chunks<P: AsRef<Path>>(chunk_files: &[P], output_file: &str, headers: csv::StringRecord) -> io::Result<()> {
+fn merge_chunks<P: AsRef<Path>>(
+    chunk_files: &[P],
+    output_file: &str,
+    headers: csv::StringRecord,
+) -> io::Result<()> {
+    assert!(!chunk_files.is_empty(), "No chunks to merge");
+
     let mut readers: Vec<csv::Reader<File>> = chunk_files
         .iter()
         .map(|path| {
             ReaderBuilder::new()
                 .delimiter(b'\t')
-                .has_headers(false)
+                .has_headers(true)
                 .from_path(path)
-                .unwrap()
+                .expect("Failed to open chunk file")
         })
         .collect();
 
     let mut writer = WriterBuilder::new()
         .delimiter(b'\t')
-        .from_path(output_file)?;
+        .from_path(output_file)
+        .expect("Failed to create output file");
 
-    // Write the header to the output file
     writer.write_record(&headers)?;
 
-    let mut current_records: Vec<Option<AnnotationLine>> = vec![None; readers.len()];
-    
-    // Initialize with first records
-    for (i, reader) in readers.iter_mut().enumerate() {
-        current_records[i] = reader.deserialize().next().and_then(|r| r.ok());
-    }
+    let mut current_records: Vec<Option<AnnotationLine>> = readers
+        .iter_mut()
+        .map(|r| r.deserialize::<AnnotationLine>().next().transpose())
+        .collect::<Result<_, _>>()
+        .expect("Failed to read initial records from chunks");
 
-    // Merge chunks
     while current_records.iter().any(|r| r.is_some()) {
         let min_idx = current_records
             .iter()
             .enumerate()
-            .filter(|(_, r)| r.is_some())
-            .min_by(|(_, a), (_, b)| {
-                let a = a.as_ref().unwrap();
-                let b = b.as_ref().unwrap();
-                (a.record_set_idx, a.record_idx).cmp(&(b.record_set_idx, b.record_idx))
+            .filter_map(|(i, r)| r.as_ref().map(|_| i))
+            .min_by_key(|&i| {
+                let record = current_records[i].as_ref().unwrap();
+                (record.record_set_idx, record.record_idx)
             })
-            .map(|(idx, _)| idx);
+            .expect("Failed to find next record");
 
-        if let Some(idx) = min_idx {
-            if let Some(record) = &current_records[idx] {
-                writer.write_record(&record.to_record())?;
-            }
-
-            current_records[idx] = readers[idx].deserialize().next().and_then(|r| r.ok());
+        if let Some(record) = current_records[min_idx].take() {
+            writer.write_record(&record.to_record())?;
+            current_records[min_idx] = readers[min_idx]
+                .deserialize::<AnnotationLine>()
+                .next()
+                .transpose()
+                .expect("Failed to deserialize next record");
         }
     }
 
     writer.flush()?;
     Ok(())
 }
-

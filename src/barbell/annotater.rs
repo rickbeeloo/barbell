@@ -101,7 +101,7 @@ impl<S: Strategy + Send + Sync + Clone> Demuxer<S> {
 
         // Write header
         let mut writer = self.writer.lock().unwrap();
-        writeln!(writer, "read\tlabel\tstart\tend\tedits\tdist.to.end\tread.len\trecord_set_idx\trecord_idx")
+        writeln!(writer, "read\tlabel\tstart\tend\tedits\tdist.to.end\tread.len\trecord_set_idx\trecord_idx\tcuts")
             .expect("Failed to write header");
         drop(writer);
 
@@ -121,9 +121,12 @@ impl<S: Strategy + Send + Sync + Clone> Demuxer<S> {
         println!("  • Tagged reads: {}", self.found.load(Ordering::Relaxed).to_string().green().bold());
         println!("  • Missed reads: {}\n", self.missed.load(Ordering::Relaxed).to_string().red().bold());
 
+        // Flush befor merge sort
+        self.writer.lock().unwrap().flush().expect("Failed to flush writer");
+
         //  Run merge sort on output file to get original order
         println!("  • Sorting output file (merge sort)");
-        merge_sort_files(output_file_path).expect("Failed to merge sort output file");
+        merge_sort_files(output_file_path);
     }
 }
 
@@ -144,7 +147,7 @@ impl<S: Strategy + Send + Sync + Clone> ParallelProcessor for Demuxer<S> {
             for m in matches {
                 writeln!(
                     writer,
-                    "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                    "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t-",
                     read_id,
                     m.match_str.stringify(),
                     m.start,
@@ -153,9 +156,11 @@ impl<S: Strategy + Send + Sync + Clone> ParallelProcessor for Demuxer<S> {
                     m.rel_dist_to_end,
                     read.len(),
                     record_set_idx,
-                    record_idx
+                    record_idx,
                 )?;
             }
+            
+        
         } else {
             let missed_count = self.missed.fetch_add(1, Ordering::Relaxed);
         }
@@ -166,11 +171,13 @@ impl<S: Strategy + Send + Sync + Clone> ParallelProcessor for Demuxer<S> {
             self.found_bar.set_message(format!("{}", self.found.load(Ordering::Relaxed)));
             self.missed_bar.set_message(format!("{}", self.missed.load(Ordering::Relaxed)));
         }
+
         
         Ok(())
     }
 
     fn on_batch_complete(&mut self) -> Result<()> {
+        // self.writer.lock().unwrap().flush().expect("Failed to flush writer");
         Ok(())
     }
 }

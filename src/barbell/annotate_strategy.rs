@@ -198,7 +198,7 @@ impl Strategy for SimpleStrategy {
                      .sum();
                  false_positives == 0
              })
-             .unwrap();
+             .expect("No parameter value found where we get zero false positives. Try making your sequences more specific, add more flanking regions such as adapters, primmers, etc.");
      
          println!("  • Selected: {}\n", best_param.to_string().bold());
          println!("Done! tuning took {} seconds ", start_time.elapsed().as_secs());
