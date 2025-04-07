@@ -82,8 +82,17 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         no_flanks: bool,
     },
+    
+    Inspect {
+        /// Input annotation file
+        #[arg(short = 'i', long)]
+        input: String,
+    },
+
     /// Plot results (not implemented yet)
     Plot,
+
+
 }
 
 fn main() {
@@ -144,6 +153,15 @@ fn main() {
             );
             
             println!("{}", "Trimming complete!".green());
+        }
+
+        Commands::Inspect { input } => {
+            println!("{}", "Starting inspection...".green());
+            
+            match barbell::inspect::inspect(input) {
+                Ok(_) => println!("{}", "Inspection complete!".green()),
+                Err(e) => eprintln!("{} {}", "Inspection failed:".red(), e),
+            }
         }
 
         Commands::Plot => {

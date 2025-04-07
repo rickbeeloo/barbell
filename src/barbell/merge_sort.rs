@@ -7,7 +7,7 @@ use tempfile::tempdir;
 
 use super::filter::AnnotationLine;
 
-const CHUNK_SIZE: usize = 1000;
+const CHUNK_SIZE: usize = 100000;
 
 pub fn merge_sort_files(input_file: &str) {
     let temp_dir = tempdir().expect("Failed to create temp directory");

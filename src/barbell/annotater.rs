@@ -132,7 +132,9 @@ impl<S: Strategy + Send + Sync + Clone> Demuxer<S> {
 
 impl<S: Strategy + Send + Sync + Clone> ParallelProcessor for Demuxer<S> {
     fn process_record<'a, Rf: MinimalRefRecord<'a>>(&mut self, record: Rf, record_set_idx: usize, record_idx: usize) -> Result<()> {
-        let read_id = record.ref_id().unwrap();
+        
+        //todo! look into why seq io sometimes not trimms all whitespaces 
+        let read_id = record.ref_id().unwrap().split_whitespace().next().unwrap();
         let read = record.ref_seq();
         
         let matches = self.demux_read(read, &self.query_groups);
