@@ -73,7 +73,7 @@ fn preprocess_cuts(annotations: &[AnnotationLine], seq_len: usize) -> Vec<Comple
     let mut cut_groups: HashMap<usize, Vec<(usize, usize, &Cut, &AnnotationLine)>> = HashMap::new();
     for anno in annotations {
         if let Some(cuts) = &anno.cuts {
-            println!("Cuts: {:?}", cuts);
+           // println!("Cuts: {:?}", cuts);
             for cut in cuts {
                 cut_groups.entry(cut.group_id)
                     .or_default()
@@ -89,7 +89,7 @@ fn preprocess_cuts(annotations: &[AnnotationLine], seq_len: usize) -> Vec<Comple
     for (i, (_, group)) in sorted_groups.iter().enumerate() {
         if group.len() == 2 {
             // We have two annotations so get start and end based on their cuts 
-            println!("Got two annotations");
+          //  println!("Got two annotations");
             let group1 = &group[0];
             let group2 = &group[1];
             
@@ -105,7 +105,7 @@ fn preprocess_cuts(annotations: &[AnnotationLine], seq_len: usize) -> Vec<Comple
                 CutDirection::After => group2.1,   // If second is After, use first's end
             };
 
-            println!("!!!!!!!!!!!!! Start: {}, End: {}", start, end);
+          //  println!("!!!!!!!!!!!!! Start: {}, End: {}", start, end);
 
             // Both annotations are relevant for this slice
             let annotations = vec![group1.3.clone(), group2.3.clone()];
@@ -116,7 +116,7 @@ fn preprocess_cuts(annotations: &[AnnotationLine], seq_len: usize) -> Vec<Comple
                 annotations,
             });
         } else if group.len() == 1 {
-            println!("Group length is 1");
+          //  println!("Group length is 1");
             let &(start, end, cut, anno) = &group[0];
             
             match cut.direction {
@@ -157,7 +157,7 @@ fn preprocess_cuts(annotations: &[AnnotationLine], seq_len: usize) -> Vec<Comple
                             .unwrap_or(0);
                         (next_group[min_start_idx].0, Some(next_group[min_start_idx].3.clone()))
                     } else {
-                        println!("No next group, should slice till end");
+                      //  println!("No next group, should slice till end");
                         (seq_len, None)
                     };
                     
@@ -167,7 +167,7 @@ fn preprocess_cuts(annotations: &[AnnotationLine], seq_len: usize) -> Vec<Comple
                         annotations.push(right);
                     }
 
-                    println!("Adding slice with start: {}, end: {}", start, slice_end);
+                    //println!("Adding slice with start: {}, end: {}", start, slice_end);
 
                     slices.push(CompleteSlice {
                         start,
@@ -193,7 +193,7 @@ pub fn process_read_and_anno(seq: &[u8], qual: &[u8], annotations: &[AnnotationL
     // Group slices by cut group ID
     for slice in &slices {
         //if slice.start < slice.end && slice.end <= seq_len {
-            println!(">>>> Start: {}, End: {}", slice.start, slice.end);
+          //  println!(">>>> Start: {}, End: {}", slice.start, slice.end);
             let trimmed_seq = seq[slice.start..slice.end].to_vec();
             let trimmed_qual = qual[slice.start..slice.end].to_vec();
 
@@ -334,7 +334,7 @@ pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_fol
 
     // Process the last group
     if let Some(last_read_id) = current_read_id {
-        println!("Processing last group");
+        // println!("Processing last group");
         while let Some(record) = reader.next() {
             let record = record.expect("Error reading record");
             total_reads += 1;
