@@ -1,12 +1,7 @@
+Fbarcode[fw, *, @left(0 to 250), >>]__Fbarcode[<<, rc, *, @right(0 to 250)]
 
+Fbarcode[fw, *, @left(0 to 250), >>]
+Fbarcode[rc, *, @right(0 to 250), <<]
 
-
-
-Rbarcode[rc, *, >> , @left(0 to 250)]
-Rbarcode[fw, *, << , @right(0 to 250)]
-
-Rbarcode[rc, *, >> , @left(0 to 250)]__Flank[fw, << , @right(0 to 250)]
-Flank[rc, >> , @left(0 to 250)]__Rbarcode[fw, *, << , @right(0 to 250)]
-
-Rbarcode[rc, *, >> , @left(0 to 250)]__Flank[rc, << , @right(0 to 250)]
-Rbarcode[fw, *, >> , @left(0 to 250)]__Flank[rc, << , @right(0 to 250)]
+Flank[fw, *, @left(0 to 250), >>]__Fbarcode[<<, rc, *, @right(0 to 250)]
+Fbarcode[fw, *, @left(0 to 250), >>]__Flank[<<, rc, *, @right(0 to 250)]

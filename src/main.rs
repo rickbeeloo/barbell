@@ -4,8 +4,6 @@ mod barbell;
 use barbell::reader::*;
 use barbell::annotater::*;
 use barbell::annotate_strategy::*;
-use barbell::filter;
-use barbell::trim;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -87,6 +85,10 @@ enum Commands {
         /// Input annotation file
         #[arg(short = 'i', long)]
         input: String,
+
+        /// Number of top N reads to inspect
+        #[arg(short = 'n', long, default_value_t = 10)]
+        top_n: usize,
     },
 
     /// Plot results (not implemented yet)
@@ -155,10 +157,10 @@ fn main() {
             println!("{}", "Trimming complete!".green());
         }
 
-        Commands::Inspect { input } => {
+        Commands::Inspect { input, top_n } => {
             println!("{}", "Starting inspection...".green());
             
-            match barbell::inspect::inspect(input) {
+            match barbell::inspect::inspect(input, *top_n) {
                 Ok(_) => println!("{}", "Inspection complete!".green()),
                 Err(e) => eprintln!("{} {}", "Inspection failed:".red(), e),
             }

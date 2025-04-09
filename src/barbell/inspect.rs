@@ -1,19 +1,15 @@
 use crate::barbell::pattern_assign::*;
-use crate::pattern_from_str;
+// use crate::pattern_from_str;
 use crate::barbell::filter::*;
-
-
-
 use std::collections::HashMap;
-use serde::Deserialize;
 use std::error::Error;
 use std::time::Instant;
-use indicatif::{ProgressBar, ProgressStyle};
 use colored::Colorize;
 
 const BUCKET_SIZE: usize = 250;
 
 pub fn get_group_structure(group: &[AnnotationLine]) -> String {
+    
     if group.is_empty() {
         return String::new();
     }
@@ -51,7 +47,6 @@ pub fn get_group_structure(group: &[AnnotationLine]) -> String {
             *label_map.entry(label.to_string()).or_insert(0) += 1;
         }
 
-
         // Get cut direction if present
         let cut = if let Some(cuts) = &annotation.cuts {
             if !cuts.is_empty() {
@@ -66,8 +61,16 @@ pub fn get_group_structure(group: &[AnnotationLine]) -> String {
             "".to_string()
         };
 
+        // Get match type matching pattern defined in filter
+        let match_type = match annotation.label.split('#').next_back().unwrap_or("Flank") {
+            "Flank" => "Flank",
+            "Fbar" => "Fbarcode",
+            "Rbar" => "Rbarcode",
+            _ => "Flank",
+        };
+
         format!("{}[{}, *{}, {}]", 
-            annotation.label.split('#').next_back().unwrap_or("Flank"),
+            match_type,
             annotation.label.split('#').nth(1).unwrap_or("fw"),
             cut,
             position
@@ -90,9 +93,9 @@ pub fn get_group_structure(group: &[AnnotationLine]) -> String {
    
 }
 
-pub fn inspect(annotated_file: &str) -> Result<(), Box<dyn Error>> {
+pub fn inspect(annotated_file: &str, top_n: usize) -> Result<(), Box<dyn Error>> {
     let start_time = Instant::now();
-
+ 
     println!("\n{}", "Inspecting".bold().underline());
     println!("  • Input:  {}", annotated_file.bold());
 
@@ -136,8 +139,8 @@ pub fn inspect(annotated_file: &str) -> Result<(), Box<dyn Error>> {
     // Show top 10 most common patterns
     let mut pattern_count_vec: Vec<(String, usize)> = pattern_count.into_iter().collect();
     pattern_count_vec.sort_by(|a, b| b.1.cmp(&a.1));
-    for (pattern, count) in pattern_count_vec.iter().take(10) {
-        println!("{}: {}", pattern, count);
+    for (pattern, count) in pattern_count_vec.iter().take(top_n) {
+        println!("{}\nCount: {}\n", pattern, count.to_string().green());
     }
     
     Ok(())

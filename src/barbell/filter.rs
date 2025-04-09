@@ -201,7 +201,7 @@ fn check_filter_pass(annotations: &mut [AnnotationLine], patterns: &[Pattern]) -
 
     // Track both the maximum number of matches and the cut positions
     let mut max_matches = 0;
-    let mut best_cut_positions: Option<Vec<Cut>> = None;
+    let mut best_cut_positions: Option<Vec<(usize, Cut)>> = None;
 
     for pattern in patterns {
         let (is_match, cut_positions) = match_pattern(&matches, pattern, read_len);
@@ -216,8 +216,13 @@ fn check_filter_pass(annotations: &mut [AnnotationLine], patterns: &[Pattern]) -
 
     // If we have a match and cut positions, update all annotations in the group
     if max_matches > 0 && best_cut_positions.is_some() {
-        for annotation in annotations.iter_mut() {
-            annotation.cuts = Some(best_cut_positions.clone().unwrap());
+        let cut_positions = best_cut_positions.unwrap();
+        for (i, cut) in cut_positions {
+            if let Some(existing_cuts) = &mut annotations[i].cuts {
+                existing_cuts.push(cut);
+            } else {
+                annotations[i].cuts = Some(vec![cut]);
+            }
         }
     }
 
@@ -243,11 +248,11 @@ mod tests {
             "read.len": 2374,
             "record_set_idx": 0,
             "record_idx": 0,
-            "cuts": "After(118)"
+            "cuts": "After(1)"
         });
         let annotation: AnnotationLine = serde_json::from_value(json_value).unwrap();
         println!("Annotation: {:?}", annotation);
-        assert_eq!(annotation.cuts.unwrap()[0], Cut::new(118, CutDirection::After));
+        assert_eq!(annotation.cuts.unwrap()[0], Cut::new(1, CutDirection::After));
 
         // Test multiple cuts with full line
         let json_value = json!({ 
