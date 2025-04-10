@@ -8,7 +8,7 @@
 
 We query our reads, using competitive alignments, for rapid barcodes and their flanks (see this file for the rapid barcodes: [rapid_barcodes.fasta](rapid_barcodes.fasta)).
 ```sh
-./barbell annotate -i <reads.fastq> -o annotations.txt -q rapid_barcodes.fasta
+./barbell annotate -i reads.fastq -o annotations.txt -q rapid_barcodes.fasta
 ```
 
 ### 2. Filter
@@ -22,6 +22,8 @@ We did notice that sometimes the same barcode is present twice at the left side,
 ```sh
 ./barbell filter -i annotations.txt -o filtered.txt -f rapid_filters.txt
 ```
+
+In the `rapid_filters.txt` we use `@left(-250 to 250)` as semi-global alignments can overlap. 
 
 ### 3. Trim
 
