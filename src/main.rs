@@ -156,7 +156,7 @@ fn main() {
                 !no_label,           // Invert the flags since the function expects positive logic
                 !no_orientation,
                 !no_flanks,
-                !sort_labels
+                *sort_labels
             );
             
             println!("{}", "Trimming complete!".green());
