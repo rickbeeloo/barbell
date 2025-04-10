@@ -224,9 +224,9 @@ impl SimpleStrategy {
         let mut barcodes: Vec<Match> = query_group.queries.iter()
             .filter_map(|query| {
 
-                println!("Query name: {:?}", query.id);
-                println!("Searching sequence: {:?}", String::from_utf8_lossy(query.seq.as_ref()));
-                println!("Read slice: {:?}", String::from_utf8_lossy(read_slice));
+                //println!("Query name: {:?}", query.id);
+                //println!("Searching sequence: {:?}", String::from_utf8_lossy(query.seq.as_ref()));
+               // println!("Read slice: {:?}", String::from_utf8_lossy(read_slice));
 
 
                 let result = search(query.seq.as_ref(), read_slice, self.q);
@@ -235,7 +235,7 @@ impl SimpleStrategy {
                 result.out.iter().min().and_then(|&min_score| {
                     if min_score <= threshold {
                         let rel_dist = rel_dist_to_end(flank.0 as isize, read.len());
-                        println!("Min score: {:?}", min_score);
+                        //println!("Min score: {:?}", min_score);
                         let match_str = EncodedMatchStr::new(
                             query_group.match_type.clone(),
                             query_group.orientation.clone(),
@@ -284,7 +284,7 @@ impl SimpleStrategy {
 
             // Check mask coverage and store results
             let (_, mask_passed, r_range) = flank.mask_covered(&path_positions, self.min_mask_available);
-            println!("R range covered: {:?}", r_range);
+            //println!("R range covered: {:?}", r_range);
 
             traced_ranges.push((alignment_range.0, alignment_range.1, res.out[min_idx]));
             passed_mask.push(mask_passed);
