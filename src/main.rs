@@ -80,7 +80,7 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         no_flanks: bool,
 
-        /// Disable sorting of labels in output filenames
+        /// Sort barcode labels in output filenames
         #[arg(long, default_value_t = false)]
         sort_labels: bool,
     },
