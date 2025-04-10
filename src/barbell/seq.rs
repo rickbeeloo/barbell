@@ -77,7 +77,7 @@ pub fn reverse_complement(seq: &[u8]) -> Vec<u8> {
 #[derive(Clone, Debug)]
 pub struct FlankSeq {
     pub seq: Vec<u8>,
-    mask_region: Option<(usize, usize)>,
+    pub mask_region: Option<(usize, usize)>,
 }
 
 
@@ -110,25 +110,40 @@ impl FlankSeq {
         self.mask_region.map_or(0, |(start, end)| end - start)
     }
 
-    pub fn mask_covered(&self, traceback_path: &[pa_types::Pos], min_frac: f32) -> (f32, bool) {
-
-        // println!("Mask region: {:?}", self.mask_region);
-        // If there is no mask, there is just one barcode, and hence no competition
-        // we can just say it matched 
+    pub fn mask_covered(&self, traceback_path: &[pa_types::Pos], min_frac: f32) -> (f32, bool, Option<(usize, usize)>) {
         let (mask_start, mask_end) = match self.mask_region {
             Some(region) => region,
-            None => return (100.0, true),
+            None => return (100.0, true, None),
         };
 
-        // We use the traceback to check if at least min_frac of the masstk region is covered
+        // Keep track of min and max r_pos that fall within the mask region
+        let mut min_r_pos = usize::MAX;
+        let mut max_r_pos = 0;
+
+        // Count positions and track r_pos range
         let positions_in_mask = traceback_path
             .iter()
-            .filter(|Pos(_, q_pos)| *q_pos as usize >= mask_start && (*q_pos as usize) < mask_end)
+            .filter(|Pos(r_pos, q_pos)| {
+                if *q_pos as usize >= mask_start && (*q_pos as usize) < mask_end {
+                    min_r_pos = min_r_pos.min(*r_pos as usize);
+                    max_r_pos = max_r_pos.max(*r_pos as usize);
+                    true
+                } else {
+                    false
+                }
+            })
             .count();
 
         let mask_length = mask_end - mask_start;
         let frac = (positions_in_mask as f32) / (mask_length as f32);
-        (frac, frac >= min_frac)
+        
+        let r_pos_range = if positions_in_mask > 0 {
+            Some((min_r_pos, max_r_pos))
+        } else {
+            None
+        };
+
+        (frac, frac >= min_frac, r_pos_range)
     }
 
     pub fn reverse_complement(&self) -> Self {

@@ -34,7 +34,7 @@ impl Strategy for SimpleStrategy {
         Self { 
             q: 0.4, 
             max_edit_fraction: 0.35, 
-            min_barcode_edit_diff: 6, 
+            min_barcode_edit_diff: 3, 
             min_mask_available: 0.5,
             filter_overlap: 0.9,
         }
@@ -215,15 +215,27 @@ impl SimpleStrategy {
     }
 
     fn find_valid_barcode(&self, flank: (usize, usize), read: &[u8], query_group: &QueryGroup) -> Option<Match> {
-        let read_slice = &read[flank.0..flank.1];
+        // Slice flank region from the read
+        let read_slice: &[u8] = &read[flank.0..flank.1];
+
+        // Within the flank region we now get the mask region 
+
+
         let mut barcodes: Vec<Match> = query_group.queries.iter()
             .filter_map(|query| {
+
+                println!("Query name: {:?}", query.id);
+                println!("Searching sequence: {:?}", String::from_utf8_lossy(query.seq.as_ref()));
+                println!("Read slice: {:?}", String::from_utf8_lossy(read_slice));
+
+
                 let result = search(query.seq.as_ref(), read_slice, self.q);
                 let threshold = (query.seq.len() as f32 * self.max_edit_fraction) as i32;
                 
                 result.out.iter().min().and_then(|&min_score| {
                     if min_score <= threshold {
                         let rel_dist = rel_dist_to_end(flank.0 as isize, read.len());
+                        println!("Min score: {:?}", min_score);
                         let match_str = EncodedMatchStr::new(
                             query_group.match_type.clone(),
                             query_group.orientation.clone(),
@@ -239,6 +251,7 @@ impl SimpleStrategy {
 
         self.select_best_match(&mut barcodes)
     }
+
 
     fn segregate_scores_in_alns(&self, flank: &FlankSeq, res: &SearchResult, threshold: i32) -> (Vec<bool>, Vec<(usize, usize, i32)>) {
         // println!("Threshold: {}", threshold);
@@ -270,7 +283,9 @@ impl SimpleStrategy {
             };
 
             // Check mask coverage and store results
-            let (_, mask_passed) = flank.mask_covered(&path_positions, self.min_mask_available);
+            let (_, mask_passed, r_range) = flank.mask_covered(&path_positions, self.min_mask_available);
+            println!("R range covered: {:?}", r_range);
+
             traced_ranges.push((alignment_range.0, alignment_range.1, res.out[min_idx]));
             passed_mask.push(mask_passed);
         }

@@ -255,14 +255,19 @@ pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_fol
     // Label formatting config
     let label_config = LabelConfig::new(add_labels, add_orientation, add_flank, sort_labels);
     
-    // Setup progress bar
-    let progress_bar = indicatif::ProgressBar::new_spinner();
+    // Count total reads first
+    let total_reads_count = reader.records().count();
+    // Reset reader position
+    reader = Reader::from_path(read_fastq_file).unwrap();
+
+    // Setup progress bar with total reads
+    let progress_bar = indicatif::ProgressBar::new(total_reads_count as u64);
     progress_bar.set_style(
-        ProgressStyle::with_template("{spinner:.blue} {prefix:<12} {msg:>6} {elapsed_precise}")
+        ProgressStyle::with_template("{spinner:.blue} {prefix:<12} [{bar:40.cyan/blue}] {pos}/{len} ({percent}%) {elapsed_precise}")
             .unwrap()
-            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+            .progress_chars("#>-")
     );
-    progress_bar.set_prefix("Processing:");
+    progress_bar.set_prefix("Processing");
 
     let mut total_reads = 0;
     let mut mapped_reads = 0;
@@ -297,6 +302,9 @@ pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_fol
                 while let Some(record) = reader.next() {
                     let record = record.expect("Error reading record");
                     total_reads += 1;
+                    progress_bar.inc(1);
+
+                    
                      
                     //todo! why we need this, seq io should handle this 
                     let record_id = clean_read_id(record.id().unwrap());
@@ -352,6 +360,7 @@ pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_fol
         while let Some(record) = reader.next() {
             let record = record.expect("Error reading record");
             total_reads += 1;
+            progress_bar.inc(1);
             
             if record.id().unwrap().as_bytes() == last_read_id.as_slice() {
                 mapped_reads += 1;
