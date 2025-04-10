@@ -15,12 +15,13 @@ pub struct LabelConfig {
     include_label: bool,
     include_orientation: bool,
     include_flank: bool,
+    sort_labels: bool,
 }
 
 impl LabelConfig {
 
-    pub fn new(include_label: bool, include_orientation: bool, include_flank: bool) -> Self {
-        Self { include_label, include_orientation, include_flank }
+    pub fn new(include_label: bool, include_orientation: bool, include_flank: bool, sort_labels: bool) -> Self {
+        Self { include_label, include_orientation, include_flank, sort_labels }
     }
 
     fn create_label(&self, annotations: &[AnnotationLine]) -> String {
@@ -29,7 +30,7 @@ impl LabelConfig {
             return "none".to_string();
         }
 
-        let label_parts: Vec<String> = annotations.iter()
+        let mut label_parts: Vec<String> = annotations.iter()
             .filter_map(|a| {
                 let encoded = EncodedMatchStr::unstringify(&a.label);
                 let label = encoded.label.unwrap_or_else(|| "Flank".to_string());
@@ -55,7 +56,10 @@ impl LabelConfig {
 
         if label_parts.is_empty() {
             "none".to_string()
-        } else {
+        } else if self.sort_labels {
+            label_parts.sort();
+            label_parts.join("__")
+        }  else {
             label_parts.join("__")
         }
     }
@@ -228,7 +232,7 @@ fn clean_read_id(id: &str) -> &str {
     id.split_whitespace().next().unwrap_or(id)
 }
 
-pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_folder: &str, add_labels: bool, add_orientation: bool, add_flank: bool) {
+pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_folder: &str, add_labels: bool, add_orientation: bool, add_flank: bool, sort_labels: bool) {
     
     let start_time = Instant::now();
 
@@ -249,7 +253,7 @@ pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_fol
     }
 
     // Label formatting config
-    let label_config = LabelConfig::new(add_labels, add_orientation, add_flank);
+    let label_config = LabelConfig::new(add_labels, add_orientation, add_flank, sort_labels);
     
     // Setup progress bar
     let progress_bar = indicatif::ProgressBar::new_spinner();

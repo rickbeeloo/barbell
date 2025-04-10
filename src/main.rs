@@ -79,6 +79,10 @@ enum Commands {
         /// Disable flank in output filenames
         #[arg(long, default_value_t = false)]
         no_flanks: bool,
+
+        /// Disable sorting of labels in output filenames
+        #[arg(long, default_value_t = false)]
+        sort_labels: bool,
     },
     
     Inspect {
@@ -142,7 +146,7 @@ fn main() {
             }
         }
 
-        Commands::Trimm { input, reads, output, no_label, no_orientation, no_flanks } => {
+        Commands::Trimm { input, reads, output, no_label, no_orientation, no_flanks, sort_labels } => {
             println!("{}", "Starting read trimming and sorting...".green());
             
             barbell::trim::trim_matches(
@@ -151,7 +155,8 @@ fn main() {
                 output,
                 !no_label,           // Invert the flags since the function expects positive logic
                 !no_orientation,
-                !no_flanks
+                !no_flanks,
+                !sort_labels
             );
             
             println!("{}", "Trimming complete!".green());
