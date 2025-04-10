@@ -18,11 +18,13 @@ pub struct LabelConfig {
 }
 
 impl LabelConfig {
+
     pub fn new(include_label: bool, include_orientation: bool, include_flank: bool) -> Self {
         Self { include_label, include_orientation, include_flank }
     }
 
     fn create_label(&self, annotations: &[AnnotationLine]) -> String {
+        
         if !self.include_label {
             return "none".to_string();
         }
@@ -96,16 +98,15 @@ fn preprocess_cuts(annotations: &[AnnotationLine], seq_len: usize) -> Vec<Comple
             // Get start position based on first group's cut direction
             let start = match &group1.2.direction {
                 CutDirection::Before => group1.0,  // If first is Before, use second's start
-                CutDirection::After => group1.1,   // If first is After, use first's start
+                CutDirection::After => group1.1,   // If first is After, use first's end
             };
             
             // Get end position based on second group's cut direction
             let end = match &group2.2.direction {
-                CutDirection::Before => group2.0,  // If second is Before, use second's end
-                CutDirection::After => group2.1,   // If second is After, use first's end
+                CutDirection::Before => group2.0,  // If second is Before, use start
+                CutDirection::After => group2.1,   // If second is After, use end
             };
 
-          //  println!("!!!!!!!!!!!!! Start: {}, End: {}", start, end);
 
             // Both annotations are relevant for this slice
             let annotations = vec![group1.3.clone(), group2.3.clone()];
@@ -129,6 +130,7 @@ fn preprocess_cuts(annotations: &[AnnotationLine], seq_len: usize) -> Vec<Comple
                             .max_by_key(|(_, (_, end, _, _))| end)
                             .map(|(idx, _)| idx)
                             .unwrap_or(0);
+                        // takes end and annotation
                         (prev_group[max_end_idx].1, Some(prev_group[max_end_idx].3.clone()))
                     } else {
                         (0, None)
@@ -142,11 +144,12 @@ fn preprocess_cuts(annotations: &[AnnotationLine], seq_len: usize) -> Vec<Comple
 
                     slices.push(CompleteSlice {
                         start: slice_start,
-                        end,
+                        end: start,
                         annotations,
                     });
                 },
                 CutDirection::After => {
+                    // println!("Cutting after: {}", end);
                     // Look right for end position and annotation
                     let (slice_end, right_anno) = if i < sorted_groups.len() - 1 {
                         let next_group = &sorted_groups[i+1].1;
@@ -155,9 +158,10 @@ fn preprocess_cuts(annotations: &[AnnotationLine], seq_len: usize) -> Vec<Comple
                             .min_by_key(|(_, (start, _, _, _))| start)
                             .map(|(idx, _)| idx)
                             .unwrap_or(0);
+                        // Takes the start and annotation
                         (next_group[min_start_idx].0, Some(next_group[min_start_idx].3.clone()))
                     } else {
-                      //  println!("No next group, should slice till end");
+                     //  println!("No next group, should slice till end");
                         (seq_len, None)
                     };
                     
@@ -167,10 +171,10 @@ fn preprocess_cuts(annotations: &[AnnotationLine], seq_len: usize) -> Vec<Comple
                         annotations.push(right);
                     }
 
-                    //println!("Adding slice with start: {}, end: {}", start, slice_end);
+                   // println!("Adding slice with start: {}, end: {}", end, slice_end);
 
                     slices.push(CompleteSlice {
-                        start,
+                        start: end,
                         end: slice_end,
                         annotations,
                     });
@@ -193,7 +197,17 @@ pub fn process_read_and_anno(seq: &[u8], qual: &[u8], annotations: &[AnnotationL
     // Group slices by cut group ID
     for slice in &slices {
         //if slice.start < slice.end && slice.end <= seq_len {
-          //  println!(">>>> Start: {}, End: {}", slice.start, slice.end);
+            // println!(">>>> Start: {}, End: {}", slice.start, slice.end);
+
+            if slice.start > slice.end {
+            //    println!("Skipping invalid positions for group {:?}: start={}, end={}", slice.annotations, slice.start, slice.end);
+                continue;
+            }
+
+            if slice.start == slice.end {
+                continue;
+            }
+
             let trimmed_seq = seq[slice.start..slice.end].to_vec();
             let trimmed_qual = qual[slice.start..slice.end].to_vec();
 
@@ -202,9 +216,7 @@ pub fn process_read_and_anno(seq: &[u8], qual: &[u8], annotations: &[AnnotationL
             let group_label = label_config.create_label(&label_matches);
             let read_suffix = format!("_{}", group_label);
             results.push((trimmed_seq, trimmed_qual, group_label, read_suffix));
-       // } else {
-        //     println!("Skipping invalid positions for group {:?}: start={}, end={}", slice.annotations, slice.start, slice.end);
-        // }
+
     }
 
     // println!("Results: {:?}", results);
@@ -281,12 +293,10 @@ pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_fol
                 while let Some(record) = reader.next() {
                     let record = record.expect("Error reading record");
                     total_reads += 1;
-                    
- 
+                     
                     //todo! why we need this, seq io should handle this 
                     let record_id = clean_read_id(record.id().unwrap());
 
-                    
                     if record_id.as_bytes() == prev_read_id.as_slice() {
                         mapped_reads += 1;
                         let results = process_read_and_anno(
@@ -359,7 +369,7 @@ pub fn trim_matches(filtered_match_file: &str, read_fastq_file: &str, output_fol
                     let writer = writers.entry(group.clone()).or_insert_with(|| {
                         let output_file = format!("{}/{}.trimmed.fastq", output_folder, group);
                         BufWriter::new(File::create(&output_file)
-                            .expect(&format!("Failed to create output file: {}", output_file)))
+                            .unwrap_or_else(|_| panic!("Failed to create output file: {}", output_file)))
                     });
                     
                     // Write FASTQ format
