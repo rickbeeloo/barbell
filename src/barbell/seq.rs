@@ -113,7 +113,7 @@ impl FlankSeq {
     pub fn mask_covered(&self, traceback_path: &[pa_types::Pos], min_frac: f32) -> (f32, bool, Option<(usize, usize)>) {
         let (mask_start, mask_end) = match self.mask_region {
             Some(region) => region,
-            None => return (100.0, true, None),
+            None => return (1.0, true, None),
         };
 
         // Keep track of min and max r_pos that fall within the mask region
@@ -169,7 +169,7 @@ impl FlankSeq {
         // Add prefix if present
         if let Some(p) = prefix {
             seq.extend_from_slice(p);
-            mask_start = seq.len();
+            mask_start = seq.len(); 
         }
         
         // Add mask region

@@ -55,13 +55,20 @@ impl Strategy for SimpleStrategy {
         
         for query in query_groups {
             let flank = query.flank.as_ref().expect("Flank sequence required");
-            let (passed_mask, locations) = self.locate_flank(flank, read);
+            let (passed_mask, locations, barcode_ranges) = self.locate_flank(flank, read);
 
-            for (passed, &(f_start, f_end, edit_dist)) in passed_mask.iter().zip(locations.iter()) {
+            for ((passed, &(f_start, f_end, edit_dist)), bar_range) in passed_mask.iter().zip(locations.iter()).zip(barcode_ranges.iter()) {
                 let rel_dist = rel_dist_to_end(f_start as isize, read.len());
+
+                // if *passed {
+                //     println!("Barcode slice: {:?}", String::from_utf8_lossy(&read[barcode_ranges[0].unwrap().0..barcode_ranges[0].unwrap().1]));
+                // }
                 
                 if *passed {
-                    if let Some(barcode) = self.find_valid_barcode((f_start, f_end), read, query) {
+
+                    // We only look  for the barcode in the mask region 
+                    let (bar_start, bar_end) = bar_range.unwrap();
+                    if let Some(barcode) = self.find_valid_barcode((f_start, f_end), (bar_start, bar_end), read, query, flank) {
                         all_matches.push(barcode);
                     } else {
                         all_matches.push(self.create_flank_match(f_start, f_end, edit_dist, rel_dist, query));
@@ -214,12 +221,9 @@ impl SimpleStrategy {
         Match::new(match_str, start, end, edits, rel_dist)
     }
 
-    fn find_valid_barcode(&self, flank: (usize, usize), read: &[u8], query_group: &QueryGroup) -> Option<Match> {
+    fn find_valid_barcode(&self, flank_range: (usize, usize), barcode_range: (usize, usize), read: &[u8], query_group: &QueryGroup, flank: &FlankSeq) -> Option<Match> {
         // Slice flank region from the read
-        let read_slice: &[u8] = &read[flank.0..flank.1];
-
-        // Within the flank region we now get the mask region 
-
+        let barcide_slice: &[u8] = &read[barcode_range.0.saturating_sub(10)..(barcode_range.1 + 10).min(read.len())];
 
         let mut barcodes: Vec<Match> = query_group.queries.iter()
             .filter_map(|query| {
@@ -228,20 +232,22 @@ impl SimpleStrategy {
                 //println!("Searching sequence: {:?}", String::from_utf8_lossy(query.seq.as_ref()));
                // println!("Read slice: {:?}", String::from_utf8_lossy(read_slice));
 
+                let (mask_start, mask_end) = flank.mask_region.unwrap();
+                let barcode_from_query  = query.seq[mask_start..mask_end].to_vec();
 
-                let result = search(query.seq.as_ref(), read_slice, self.q);
+                let result = search(&barcode_from_query, barcide_slice, self.q);
                 let threshold = (query.seq.len() as f32 * self.max_edit_fraction) as i32;
                 
                 result.out.iter().min().and_then(|&min_score| {
                     if min_score <= threshold {
-                        let rel_dist = rel_dist_to_end(flank.0 as isize, read.len());
-                        //println!("Min score: {:?}", min_score);
+                        let rel_dist = rel_dist_to_end(mask_start as isize, read.len());
+                        // println!("Min score: {:?}", min_score);
                         let match_str = EncodedMatchStr::new(
                             query_group.match_type.clone(),
                             query_group.orientation.clone(),
                             Some(query.id.clone())
                         );
-                        Some(Match::new(match_str, flank.0, flank.1, min_score, rel_dist))
+                        Some(Match::new(match_str, flank_range.0, flank_range.1, min_score, rel_dist))
                     } else {
                         None
                     }
@@ -253,7 +259,7 @@ impl SimpleStrategy {
     }
 
 
-    fn segregate_scores_in_alns(&self, flank: &FlankSeq, res: &SearchResult, threshold: i32) -> (Vec<bool>, Vec<(usize, usize, i32)>) {
+    fn segregate_scores_in_alns(&self, flank: &FlankSeq, res: &SearchResult, threshold: i32) -> (Vec<bool>, Vec<(usize, usize, i32)>, Vec<Option<(usize, usize)>>) {
         // println!("Threshold: {}", threshold);
 
         // Filter scores below threshold and collect positions with their edit distances
@@ -270,6 +276,7 @@ impl SimpleStrategy {
         // Pre-allocate vectors for results
         let mut traced_ranges = Vec::with_capacity(minima.len());
         let mut passed_mask = Vec::with_capacity(minima.len());
+        let mut barcode_ranges = Vec::with_capacity(minima.len());
 
         // Process each minimum to get alignment ranges and mask coverage
         for &min_idx in &minima {
@@ -283,17 +290,18 @@ impl SimpleStrategy {
             };
 
             // Check mask coverage and store results
-            let (_, mask_passed, r_range) = flank.mask_covered(&path_positions, self.min_mask_available);
-            //println!("R range covered: {:?}", r_range);
+            let (perc_passed, mask_passed, r_range) = flank.mask_covered(&path_positions, self.min_mask_available);
+            // println!("R range covered: {:?} with coverage {:?}", r_range, perc_passed);
 
             traced_ranges.push((alignment_range.0, alignment_range.1, res.out[min_idx]));
             passed_mask.push(mask_passed);
+            barcode_ranges.push(r_range);
         }
 
-        (passed_mask, traced_ranges)
+        (passed_mask, traced_ranges, barcode_ranges)
     }
 
-    fn locate_flank(&self, flank: &FlankSeq, read: &[u8]) -> (Vec<bool>, Vec<(usize, usize, i32)>) {
+    fn locate_flank(&self, flank: &FlankSeq, read: &[u8]) -> (Vec<bool>, Vec<(usize, usize, i32)>, Vec<Option<(usize, usize)>>) {
         // Perform semi-global alignment of flank, using q as gap penalty for prefix/suffix region
         let result = search(flank.seq.as_ref(), read, self.q);
 
@@ -307,9 +315,9 @@ impl SimpleStrategy {
         //threshold += half_mask as f32;
 
          // Use the threshold for filtering
-        let (passed_mask, locations) = self.segregate_scores_in_alns(flank, &result, threshold as i32);
+        let (passed_mask, locations, barcode_ranges) = self.segregate_scores_in_alns(flank, &result, threshold as i32);
 
-        (passed_mask, locations)
+        (passed_mask, locations, barcode_ranges)
     }
 
     fn select_best_match(&self, barcodes: &mut [Match]) -> Option<Match> {
