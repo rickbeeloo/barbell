@@ -240,7 +240,7 @@ impl SimpleStrategy {
                 
                 result.out.iter().min().and_then(|&min_score| {
                     if min_score <= threshold {
-                        let rel_dist = rel_dist_to_end(mask_start as isize, read.len());
+                        let rel_dist = rel_dist_to_end(((flank_range.0  + mask_start)).min(read.len())  as isize  , read.len());
                         // println!("Min score: {:?}", min_score);
                         let match_str = EncodedMatchStr::new(
                             query_group.match_type.clone(),

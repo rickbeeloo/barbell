@@ -1,0 +1,1 @@
+read	label	start	end	edits	dist.to.end	read.len	record_set_idx	record_idx	cuts
