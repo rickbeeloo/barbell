@@ -56,7 +56,7 @@ impl TransposedQueries {
     }
 
     // x86/x86_64 with AVX2
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
     unsafe fn new_x86_avx2(queries: Vec<&[u8]>) -> Self {
         let query_length = queries[0].len();
@@ -83,7 +83,7 @@ impl TransposedQueries {
     }
 
     // aarch64 with NEON
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[target_feature(enable = "neon")]
     unsafe fn new_aarch64_neon(queries: Vec<&[u8]>) -> Self {
         let query_length = queries[0].len();
@@ -151,7 +151,7 @@ pub fn simd_search(
 }
 
 // x86/x86_64 with AVX2
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
 unsafe fn align_x86_avx2(
     transposed: &TransposedQueries,
@@ -222,7 +222,7 @@ unsafe fn align_x86_avx2(
 }
 
 // aarch64 implementation with NEON
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[target_feature(enable = "neon")]
 unsafe fn align_aarch64_neon(
     transposed: &TransposedQueries,
