@@ -2,7 +2,7 @@ use crate::annotate::flank::*;
 use rand::Rng;
 use spinners::{Spinner, Spinners};
 use colored::Colorize;
-use crate::annotate::mutations::*;
+// use crate::annotate::mutations::*;
 use rayon::prelude::*;
 use std::sync::{Arc, Mutex};
 use pa_bitpacking::search::*;
@@ -128,69 +128,69 @@ pub fn tune_max_edits(flanks: &Vec<FlankGroup>, n: usize, fp_target: f64) -> u8 
     min_edit
 }
 
-pub fn tune_log_prob(flanks: &Vec<FlankGroup>, n: usize, fp_target: f64, error_rates: &ErrorRatesAffine) -> (f64, f64) {
-    let log_probs = Arc::new(Mutex::new(Vec::with_capacity(n)));
-    let top_two_pairs = Arc::new(Mutex::new(Vec::with_capacity(n)));
+// pub fn tune_log_prob(flanks: &Vec<FlankGroup>, n: usize, fp_target: f64, error_rates: &ErrorRatesAffine) -> (f64, f64) {
+//     let log_probs = Arc::new(Mutex::new(Vec::with_capacity(n)));
+//     let top_two_pairs = Arc::new(Mutex::new(Vec::with_capacity(n)));
 
-    let per_flank = n / flanks.len().max(1); // avoid div by zero
-    let counter = Arc::new(AtomicUsize::new(0));
+//     let per_flank = n / flanks.len().max(1); // avoid div by zero
+//     let counter = Arc::new(AtomicUsize::new(0));
 
-    let pb = ProgressBar::new(n as u64);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("{spinner:.blue} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")
-            .unwrap()
-            .progress_chars("##-"),
-    );
+//     let pb = ProgressBar::new(n as u64);
+//     pb.set_style(
+//         ProgressStyle::default_bar()
+//             .template("{spinner:.blue} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")
+//             .unwrap()
+//             .progress_chars("##-"),
+//     );
 
-    flanks.par_iter().for_each(|flank_group| {
-        let mut local_probs = Vec::with_capacity(per_flank);
-        let mut local_pairs = Vec::with_capacity(per_flank);
+//     flanks.par_iter().for_each(|flank_group| {
+//         let mut local_probs = Vec::with_capacity(per_flank);
+//         let mut local_pairs = Vec::with_capacity(per_flank);
 
-        let queries: Vec<&[u8]> = flank_group.flank_seq.mask_queries.iter().map(|q| q.as_ref()).collect();
-        if queries.is_empty() {
-            return;
-        }
+//         let queries: Vec<&[u8]> = flank_group.flank_seq.mask_queries.iter().map(|q| q.as_ref()).collect();
+//         if queries.is_empty() {
+//             return;
+//         }
 
-        for _ in 0..per_flank {
-            let query_len = queries[0].len();
-            let random_seq = generate_random_sequence(query_len + 10);
-            let probs = optimal_metric(&queries, &random_seq, error_rates);
+//         for _ in 0..per_flank {
+//             let query_len = queries[0].len();
+//             let random_seq = generate_random_sequence(query_len + 10);
+//             let probs = optimal_metric(&queries, &random_seq, error_rates);
 
-            if probs.len() >= 2 {
-                let mut sorted = probs.clone();
-                sorted.sort_by(|a, b| b.partial_cmp(a).unwrap_or(Equal));
-                let best = sorted[0];
-                let second_best = sorted[1];
+//             if probs.len() >= 2 {
+//                 let mut sorted = probs.clone();
+//                 sorted.sort_by(|a, b| b.partial_cmp(a).unwrap_or(Equal));
+//                 let best = sorted[0];
+//                 let second_best = sorted[1];
 
-                local_probs.push(best);
-                local_pairs.push((best, second_best));
-            }
+//                 local_probs.push(best);
+//                 local_pairs.push((best, second_best));
+//             }
 
-            let count = counter.fetch_add(1, Ordering::Relaxed);
-            if count < n {
-                pb.inc(1);
-            }
-        }
+//             let count = counter.fetch_add(1, Ordering::Relaxed);
+//             if count < n {
+//                 pb.inc(1);
+//             }
+//         }
 
-        log_probs.lock().unwrap().extend(local_probs);
-        top_two_pairs.lock().unwrap().extend(local_pairs);
-    });
+//         log_probs.lock().unwrap().extend(local_probs);
+//         top_two_pairs.lock().unwrap().extend(local_pairs);
+//     });
 
-    pb.finish_with_message("Done");
+//     pb.finish_with_message("Done");
 
-    let log_probs = Arc::try_unwrap(log_probs).unwrap().into_inner().unwrap();
-    let top_two_pairs = Arc::try_unwrap(top_two_pairs).unwrap().into_inner().unwrap();
+//     let log_probs = Arc::try_unwrap(log_probs).unwrap().into_inner().unwrap();
+//     let top_two_pairs = Arc::try_unwrap(top_two_pairs).unwrap().into_inner().unwrap();
 
-    let min_log_t = get_fp_threshold(log_probs.clone(), fp_target, TailSide::Right);
-    let diffs: Vec<f64> = top_two_pairs.into_iter()
-        .filter_map(|(best, second)| if best > min_log_t { Some(best - second) } else { None })
-        .collect();
+//     let min_log_t = get_fp_threshold(log_probs.clone(), fp_target, TailSide::Right);
+//     let diffs: Vec<f64> = top_two_pairs.into_iter()
+//         .filter_map(|(best, second)| if best > min_log_t { Some(best - second) } else { None })
+//         .collect();
 
-    let min_d_log = get_fp_threshold(diffs, fp_target, TailSide::Right);
+//     let min_d_log = get_fp_threshold(diffs, fp_target, TailSide::Right);
 
-    println!("Minimum log probability: {}", min_log_t);
-    println!("Minimum log distance: {}", min_d_log);
-    (min_log_t, min_d_log)
-}
+//     println!("Minimum log probability: {}", min_log_t);
+//     println!("Minimum log distance: {}", min_d_log);
+//     (min_log_t, min_d_log)
+// }
 

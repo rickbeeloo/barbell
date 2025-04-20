@@ -1,6 +1,5 @@
 use clap::{Parser, Subcommand};
 use colored::*;
-use barbell::annotate::mutations::ErrorRatesAffine;
 use barbell::annotate::search::BarMan;
 use barbell::filter::filter::*;
 use barbell::parallel::ParallelAnnotator;
