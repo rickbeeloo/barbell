@@ -125,7 +125,7 @@ pub fn optimal_metric(
     }
     
     // Pre-allocate result vector with the correct size
-    let mut results = Vec::with_capacity(queries.len());
+    let mut results: Vec<f64> = Vec::with_capacity(queries.len());
     
     #[cfg(target_feature = "avx2")]
     {
