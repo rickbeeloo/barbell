@@ -44,13 +44,13 @@ impl TransposedQueries {
         }
 
         #[cfg(target_arch = "aarch64")]
-        #[cfg(not(target_os = "macos"))]
-        #[target_feature(enable = "neon")]
         {
-            if std::arch::is_aarch64_feature_detected!("neon") {
-                unsafe { Self::new_aarch64_neon(queries) }
-            } else {
-                panic!("NEON support is required for aarch64 architecture");
+            // Remove the not(target_os = "macos") condition
+            #[target_feature(enable = "neon")]
+            unsafe {
+                // macOS on ARM (Apple Silicon) always supports NEON
+                // so no need to check with is_aarch64_feature_detected
+                return Self::new_aarch64_neon(queries);
             }
         }
 
@@ -131,10 +131,21 @@ pub fn simd_search(
     
     #[cfg(target_arch = "aarch64")]
     {
-        if std::arch::is_aarch64_feature_detected!("neon") {
-            unsafe { align_aarch64_neon(transposed, target) }
-        } else {
-            panic!("NEON support is required for aarch64 architecture");
+        // On Apple Silicon (macOS), NEON is always available
+        // so we can directly call the function
+        #[cfg(target_os = "macos")]
+        unsafe {
+            return align_aarch64_neon(transposed, target);
+        }
+        
+        // For other aarch64 platforms, check for NEON support
+        #[cfg(not(target_os = "macos"))]
+        {
+            if std::arch::is_aarch64_feature_detected!("neon") {
+                unsafe { align_aarch64_neon(transposed, target) }
+            } else {
+                panic!("NEON support is required for aarch64 architecture");
+            }
         }
     }
     
