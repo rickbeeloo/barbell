@@ -1,14 +1,13 @@
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use std::arch::x86_64::*;
 
-#[cfg(target_arch = "aarch64")]
-use std::arch::aarch64::*;
-
-// This configuration applies for x86 architectures.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub const MAX_QUERIES: usize = 32;
 
-// This configuration applies for aarch64 architecture.
+
+#[cfg(target_arch = "aarch64")]
+use std::arch::aarch64::*;
+
 #[cfg(target_arch = "aarch64")]
 pub const MAX_QUERIES: usize = 16;
 
@@ -45,11 +44,7 @@ impl TransposedQueries {
 
         #[cfg(target_arch = "aarch64")]
         {
-            // Remove the not(target_os = "macos") condition
-            #[target_feature(enable = "neon")]
             unsafe {
-                // macOS on ARM (Apple Silicon) always supports NEON
-                // so no need to check with is_aarch64_feature_detected
                 return Self::new_aarch64_neon(queries);
             }
         }
