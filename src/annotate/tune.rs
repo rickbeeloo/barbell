@@ -9,7 +9,7 @@ use pa_bitpacking::search::*;
 use std::cmp::Ordering::Equal;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use short_edits_rs::{TransposedQueries, simd_search};
+use crate::simdedits::simd::{TransposedQueries, simd_search};
 
 pub fn generate_random_sequence(length: usize) -> Vec<u8> {
     let mut rng = rand::thread_rng();

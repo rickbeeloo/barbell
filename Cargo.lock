@@ -99,7 +99,6 @@ dependencies = [
  "seq_io_parallel",
  "serde",
  "serde_json",
- "short-edits-rs",
  "spinners",
  "tempfile",
 ]
@@ -1098,14 +1097,6 @@ dependencies = [
  "memchr",
  "ryu",
  "serde",
-]
-
-[[package]]
-name = "short-edits-rs"
-version = "0.1.0"
-source = "git+ssh://git@github.com/rickbeeloo/short-edits-rs.git?branch=nano#99eca259dba0eef73c1ff2bfd7adff150b0a3fc8"
-dependencies = [
- "rand",
 ]
 
 [[package]]

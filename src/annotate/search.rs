@@ -7,7 +7,7 @@ use pa_bitpacking::search::*;
 use std::time::Instant;
 use crate::types::*;
 use crate::annotate::tune::*;
-use short_edits_rs::{TransposedQueries, simd_search};
+use crate::simdedits::simd::{TransposedQueries, simd_search};
 
 #[derive(Clone)]
 pub struct BarMan {

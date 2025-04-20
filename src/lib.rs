@@ -6,3 +6,4 @@ pub mod types;
 pub mod trim;
 pub mod parallel;
 pub mod inspect;
+pub mod simdedits;
