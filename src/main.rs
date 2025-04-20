@@ -1,9 +1,12 @@
 use clap::{Parser, Subcommand};
 use colored::*;
-mod barbell;
-use barbell::reader::*;
-use barbell::annotater::*;
-use barbell::annotate_strategy::*;
+use barbell::annotate::mutations::ErrorRatesAffine;
+use barbell::annotate::search::BarMan;
+use barbell::filter::filter::*;
+use barbell::parallel::ParallelAnnotator;
+use barbell::read::reader::*;
+use barbell::inspect::inspect::*;
+use barbell::trim::trim::*;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -22,19 +25,23 @@ enum Commands {
 
         /// Number of threads
         #[arg(short = 't', long, default_value_t = 5)]
-        threads: u32,
-
-        /// Enable autotuning
-        #[arg(long)]
-        tune: bool,
+        threads: usize,
 
         /// Output file path
-        #[arg(short = 'o', long)]
+        #[arg(short = 'o', long, default_value = "output.csv")]
         output: String,
 
         /// Query files (comma-separated paths)
         #[arg(short = 'q', long)]
         queries: String,
+
+        /// Tuning
+        #[arg(long, default_value_t = false)]
+        tune: bool,
+
+        /// Target false positive rate
+        #[arg(long, default_value_t = 0.00001)] // 1/100K
+        fp_target: f64,
     },
     /// Filter annotation files based on pattern
     Filter {
@@ -46,133 +53,116 @@ enum Commands {
         #[arg(short = 'o', long, required = true)]
         output: String,
 
-        /// Pattern string to filter by
-        #[arg(short = 'p', long, conflicts_with = "file", required_unless_present = "file")]
-        pattern: Option<String>,
-
         /// File containing patterns to filter by
-        #[arg(short = 'f', long, conflicts_with = "pattern", required_unless_present = "pattern")]
-        file: Option<String>,
+        #[arg(short = 'f', long, required = true)]
+        file: String,
     },
     /// Trim and sort reads based on filtered annotations
-    Trimm {
+    Trim {
+       /// Input filtered annotation file
+       #[arg(short = 'i', long)]
+       input: String,
+
+       /// Read FASTQ file
+       #[arg(short = 'r', long)]
+       reads: String,
+
+       /// Output file path for sorted reads
+       #[arg(short = 'o', long)]
+       output: String,
+
+       /// Disable label in output filenames
+       #[arg(long, default_value_t = false)]
+       no_label: bool,
+
+       /// Disable orientation in output filenames
+       #[arg(long, default_value_t = false)]
+       no_orientation: bool,
+
+       /// Disable flank in output filenames
+       #[arg(long, default_value_t = false)]
+       no_flanks: bool,
+
+       /// Sort barcode labels in output filenames
+       #[arg(long, default_value_t = false)]
+       sort_labels: bool,
+    },
+
+    /// View most common patterns in annotation
+    Inspect {
         /// Input filtered annotation file
         #[arg(short = 'i', long)]
         input: String,
 
-        /// Read FASTQ file
-        #[arg(short = 'r', long)]
-        reads: String,
-
-        /// Output file path for sorted reads
-        #[arg(short = 'o', long)]
-        output: String,
-
-        /// Disable label in output filenames
-        #[arg(long, default_value_t = false)]
-        no_label: bool,
-
-        /// Disable orientation in output filenames
-        #[arg(long, default_value_t = false)]
-        no_orientation: bool,
-
-        /// Disable flank in output filenames
-        #[arg(long, default_value_t = false)]
-        no_flanks: bool,
-
-        /// Sort barcode labels in output filenames
-        #[arg(long, default_value_t = false)]
-        sort_labels: bool,
-    },
-    
-    Inspect {
-        /// Input annotation file
-        #[arg(short = 'i', long)]
-        input: String,
-
-        /// Number of top N reads to inspect
+        /// Top N
         #[arg(short = 'n', long, default_value_t = 10)]
         top_n: usize,
-    },
-
-    /// Plot results (not implemented yet)
-    Plot,
-
-
+    }
 }
 
 fn main() {
-    // Add debug prints
-    eprintln!("Starting program");
-    eprintln!("Current directory: {:?}", std::env::current_dir().unwrap());
-    
     print_banner();
-    eprintln!("Banner printed");
     
     let cli = Cli::parse();
-    eprintln!("CLI parsed");
 
     match &cli.command {
-        Commands::Annotate { input, threads, tune, output, queries } => {
+        Commands::Annotate { 
+            input, 
+            threads, 
+            output, 
+            queries,
+            tune,
+            fp_target,
+        } => {
             println!("{}", "Starting annotation...".green());
             
             // Split comma-separated query paths into Vec<String>
-            let query_paths: Vec<&str> = queries.split(',')
-                .map(|s| s.trim())
+            let query_files: Vec<String> = queries.split(',')
+                .map(|s| s.trim().to_string())
                 .collect();
             
-            let groups = read_queries(query_paths, None);
+            let query_files_refs: Vec<&str> = query_files.iter().map(|s| s.as_str()).collect();
+            let groups = read_queries(query_files_refs);
             
-            let mut demuxer = Demuxer::new(SimpleStrategy::default());
-            demuxer.demux_fastq(input, &groups, *tune, *threads, output);
+            let mut bar_searcher = BarMan::new(
+                groups, 
+                0.4, 
+                0.4, // Will be tuned when --tune
+                0.9,
+                *fp_target,
+                0 // Will be tuned when --tune
+            );
+            if *tune {
+                bar_searcher.auto_tune_parmas();
+            }            
+            let mut parallel_annotator = ParallelAnnotator::new(bar_searcher);
             
-            println!("{}", "Annotation complete!".green());
-        }
+            match parallel_annotator.process_fastq(input, output, *threads) {
+                Ok(_) => println!("{}", "Annotation complete!".green()),
+                Err(e) => println!("{} {}", "Error during processing:".red(), e),
+            }
+        },
 
-        Commands::Filter { input, output, pattern, file } => {
+        Commands::Filter { input, output, file } => {
             println!("{}", "Starting filtering...".green());
             
-            let result = if let Some(pattern) = pattern {
-                barbell::filter::filter_from_pattern_str(input, &pattern, output)
-            } else if let Some(file) = file {
-                barbell::filter::filter_from_text_file(input, &file, output)
-            } else {
-                unreachable!("Clap ensures either pattern or file is provided")
-            };
-
-            match result {
-                Ok(_) => println!("{}", "Filtering complete!".green()),
-                Err(e) => eprintln!("{} {}", "Filtering failed:".red(), e),
+            match filter_from_text_file(input, file, output) {
+                Ok(_) => println!("{}", "Filtering successful!".green()),
+                Err(e) => println!("{} {}", "Filtering failed:".red(), e),
             }
-        }
+        },
 
-        Commands::Trimm { input, reads, output, no_label, no_orientation, no_flanks, sort_labels } => {
-            println!("{}", "Starting read trimming and sorting...".green());
-            
-            barbell::trim::trim_matches(
-                input, 
-                reads, 
-                output,
-                !no_label,           // Invert the flags since the function expects positive logic
-                !no_orientation,
-                !no_flanks,
-                *sort_labels
-            );
-            
-            println!("{}", "Trimming complete!".green());
-        }
+        Commands::Trim { input, reads, output, no_label, no_orientation, no_flanks, sort_labels } => {
+            trim_matches(input, reads, output, !no_label, !no_orientation, !no_flanks, *sort_labels);
+        },
 
         Commands::Inspect { input, top_n } => {
-            println!("{}", "Starting inspection...".green());
+            println!("{}", "Inspecting...".green());
             
-            match barbell::inspect::inspect(input, *top_n) {
+            match inspect(input, *top_n) {
                 Ok(_) => println!("{}", "Inspection complete!".green()),
-                Err(e) => eprintln!("{} {}", "Inspection failed:".red(), e),
+                Err(e) => println!("{} {}", "Inspection failed:".red(), e),
             }
-        }
-
-        Commands::Plot => {
-            println!("{}", "Plot functionality not implemented yet".yellow());
         }
     }
 }
