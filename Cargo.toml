@@ -5,6 +5,8 @@ name = "barbell"
 version = "0.1.6"
 edition = "2024"
 
+repository = "https://github.com/rickbeeloo/barbell-sg"
+
 [lib]
 name = "barbell"
 path = "src/lib.rs"
@@ -40,3 +42,8 @@ rustflags = ["-C", "target-feature=+avx2"]
 # Also enable them for debug builds
 [profile.dev]
 rustflags = ["-C", "target-feature=+avx2"]
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
