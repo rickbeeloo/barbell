@@ -107,8 +107,14 @@ mod aarch64 {
     pub const MAX_QUERIES: usize = 16;
     pub type SimdVector = uint8x16_t;
 
+    #[cfg(target_os = "macos")] // NEON is always available on Apple Silicon right?
+    pub fn has_neon() -> bool { 
+        true
+    }
+
+    #[cfg(not(target_os = "macos"))]
     pub fn has_neon() -> bool {
-        is_aarch64_feature_detected!("neon")
+        true // We probably should use some runtime check for NEON on other aarch64 platforms
     }
 
     #[target_feature(enable = "neon")]
@@ -234,8 +240,10 @@ impl TransposedQueries {
 
         #[cfg(target_arch = "aarch64")]
         {
-            unsafe {
-                return new_simd(queries);
+            if has_neon() {
+                unsafe { new_simd(queries) }
+            } else {
+                panic!("NEON support is required for aarch64 architecture");
             }
         }
 
@@ -268,7 +276,6 @@ pub fn simd_search(transposed: &TransposedQueries, target: &[u8]) -> Vec<u8> {
 fn fallback_search(_transposed: &TransposedQueries, _target: &[u8]) -> Vec<u8> {
     panic!("Fallback search is not implemented.");
 }
-
 
 #[cfg(test)]
 mod tests {
