@@ -43,6 +43,8 @@ impl TransposedQueries {
         }
         
         #[cfg(target_arch = "aarch64")]
+        #[cfg(not(target_os = "macos"))]
+        #[target_feature(enable = "neon")]
         {
             if std::arch::is_aarch64_feature_detected!("neon") {
                 unsafe { Self::new_aarch64_neon(queries) }
