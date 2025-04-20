@@ -31,17 +31,8 @@ serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0.98"
 tempfile = "3.2"
 
-
 [dev-dependencies]
 serde_json = "1.0"
-
-# Enable advanced CPU features by default
-[profile.release]
-rustflags = ["-C", "target-feature=+avx2"]
-
-# Also enable them for debug builds
-[profile.dev]
-rustflags = ["-C", "target-feature=+avx2"]
 
 # The profile that 'dist' will build with
 [profile.dist]
