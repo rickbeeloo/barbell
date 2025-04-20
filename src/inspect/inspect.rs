@@ -1,9 +1,5 @@
-use crate::pattern::pattern::*;
-// use crate::pattern_from_str;
-use crate::filter::filter::*;
 use std::collections::HashMap;
 use std::error::Error;
-use std::time::Instant;
 use colored::Colorize;
 use crate::types::*;
 
@@ -94,8 +90,6 @@ pub fn get_group_structure(group: &[Match]) -> String {
 }
 
 pub fn inspect(annotated_file: &str, top_n: usize) -> Result<(), Box<dyn Error>> {
-    let start_time = Instant::now();
- 
     println!("\n{}", "Inspecting".bold().underline());
     println!("  • Input:  {}", annotated_file.bold());
 

@@ -1,9 +1,5 @@
 use seq_io::fasta::{Reader,Record};
 use colored::Colorize;
-use crate::annotate::flank::*;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::path::Path;
 use crate::types::{MatchType, Orientation};
 use crate::annotate::flank::FlankGroup;
 
@@ -27,9 +23,8 @@ fn read_fasta(path: &str) -> (Vec<Vec<u8>>, Vec<String>) {
 }
 
 
-pub fn read_queries(fasta_files: Vec<&str>, min_flank_length: Option<usize>) -> Vec<FlankGroup> {
+pub fn read_queries(fasta_files: Vec<&str>) -> Vec<FlankGroup> {
     let mut flank_queries = Vec::new();
-    let min_flank_length = min_flank_length.unwrap_or(1);
     
     // For now we just support up to 2 fasta files, as single barcode and dual barcode
     // would it make sense to support more files?

@@ -20,7 +20,6 @@ pub fn merge_sort_files(input_file: &str) {
         .from_path(input_file)
         .expect("Failed to open input file");
 
-    let headers = reader.headers().expect("Failed to read headers").clone();
     let mut chunk_count = 0;
 
     loop {
@@ -56,7 +55,7 @@ pub fn merge_sort_files(input_file: &str) {
     }
 
     let temp_output = format!("{}_sorted", input_file);
-    merge_chunks(&chunk_files, &temp_output, headers).expect("Failed to merge chunks");
+    merge_chunks(&chunk_files, &temp_output).expect("Failed to merge chunks");
 
     // Replace original with sorted
     remove_file(input_file).expect("Failed to remove original file");
@@ -67,7 +66,6 @@ pub fn merge_sort_files(input_file: &str) {
 fn merge_chunks<P: AsRef<Path>>(
     chunk_files: &[P],
     output_file: &str,
-    headers: csv::StringRecord,
 ) -> io::Result<()> {
     assert!(!chunk_files.is_empty(), "No chunks to merge");
 

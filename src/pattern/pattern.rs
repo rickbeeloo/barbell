@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use crate::types::*;
-use crate::annotate::search::*;
 
 
 
@@ -165,7 +164,6 @@ fn check_relative_position(
 ) -> bool {
     if let Some(relative_to) = &pattern_element.relative_to {
         let m_start = m.start as isize;
-        let m_end = m.end as isize;
         match relative_to {
             RelativePosition::Left => {
                 let (left_bound, right_bound) = pattern_element.range;
@@ -232,7 +230,7 @@ pub fn match_pattern(matches: &[Match], pattern: &Pattern) -> (bool, Vec<(usize,
         return (false, vec![]);
     }
 
-    for (i, pattern_element) in pattern.elements.iter().enumerate() {
+    for pattern_element in pattern.elements.iter() {
         if current_match_idx >= matches.len() {
             return (false, vec![]);
         }
@@ -391,449 +389,407 @@ macro_rules! pattern_from_str {
 
 
 
-// mod tests {
+mod tests {
 
-//     use super::*;
+    use super::*;
 
-//     #[test]
-//     fn test_pattern_macro() {
-//         let pattern = pattern_from_str!(
-//             "Fbarcode[fw, *, @left(0 to 250)]__Flank[fw, @prev_left(5 to 100)]__Rbarcode[?1, fw, @right(0 to 20)]"
-//         );
-//         assert_eq!(pattern.elements.len(), 3);
-//         assert_eq!(
-//             pattern,
-//             Pattern {
-//                 elements: vec![
-//                     PatternElement {
-//                         match_type: MatchType::Fbarcode,
-//                         orientation: Some(Orientation::Forward),
-//                         label: None,
-//                         placeholder: None,
-//                         range: (0, 250),
-//                         relative_to: Some(RelativePosition::Left),
-//                         cuts: None
-//                     },
-//                     PatternElement {
-//                         match_type: MatchType::Flank,
-//                         orientation: Some(Orientation::Forward),
-//                         label: None,
-//                         placeholder: None,
-//                         range: (5, 100),
-//                         relative_to: Some(RelativePosition::PrevLeft),
-//                         cuts: None,
-//                     },
-//                     PatternElement {
-//                         match_type: MatchType::Rbarcode,
-//                         orientation: Some(Orientation::Forward),
-//                         label: None,
-//                         placeholder: Some(1),
-//                         range: (0, 20),
-//                         relative_to: Some(RelativePosition::Right),
-//                         cuts: None
-//                     }
-//                 ]
-//             }
-//         );
-//     }
+    #[test]
+    fn test_pattern_macro() {
+        let pattern = pattern_from_str!(
+            "Fbarcode[fw, *, @left(0 to 250)]__Flank[fw, @prev_left(5 to 100)]__Rbarcode[?1, fw, @right(0 to 20)]"
+        );
+        assert_eq!(pattern.elements.len(), 3);
+        assert_eq!(
+            pattern,
+            Pattern {
+                elements: vec![
+                    PatternElement {
+                        match_type: MatchType::Fbarcode,
+                        orientation: Some(Orientation::Forward),
+                        label: None,
+                        placeholder: None,
+                        range: (0, 250),
+                        relative_to: Some(RelativePosition::Left),
+                        cuts: None
+                    },
+                    PatternElement {
+                        match_type: MatchType::Flank,
+                        orientation: Some(Orientation::Forward),
+                        label: None,
+                        placeholder: None,
+                        range: (5, 100),
+                        relative_to: Some(RelativePosition::PrevLeft),
+                        cuts: None,
+                    },
+                    PatternElement {
+                        match_type: MatchType::Rbarcode,
+                        orientation: Some(Orientation::Forward),
+                        label: None,
+                        placeholder: Some(1),
+                        range: (0, 20),
+                        relative_to: Some(RelativePosition::Right),
+                        cuts: None
+                    }
+                ]
+            }
+        );
+    }
 
-//     #[test]
-//     fn test_distance_to_left_end() {
-//        // let pattern = pattern_from_str!("Fbarcode[fw, *, @left(0-250)]");
+    #[test]
+    fn test_distance_to_left_end() {
+       // let pattern = pattern_from_str!("Fbarcode[fw, *, @left(0-250)]");
+        let pattern = pattern_from_str!("Fbarcode[fw, *, @left(0 to 250)]");
 
+        let mut matches = vec![
+            Match {
+                label: EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("XXX".to_string())),
+                start: 0,  // <- important part for test
+                end: 100,  // <- important part for test
+                edit_dist: None,
+                rel_dist_to_end: 0,
+                read: Some("@Nothing".to_string()),
+                read_len: Some(500),
+                cuts: Some(vec![]),
+                record_set_idx: None,
+                record_idx: None,
+            },
+        ];
 
-//         let pattern = pattern_from_str!("Fbarcode[fw, *, @left(0 to 250)]");
-
-//         let mut matches = vec![
-//             Match {
-//                 match_str: EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("XXX".to_string())),
-//                 start: 0,
-//                 end: 100,
-//                 edits: 0,
-//                 rel_dist_to_end: 0,
-//             },
-//         ];
-
-//         matches[0].start = 0;
-//         let (is_match, cut_positions) = match_pattern(&matches, &pattern, 500);
-//         assert!(is_match);
+        matches[0].start = 0;
+        let (is_match, _) = match_pattern(&matches, &pattern);
+        assert!(is_match);
       
 
-//         matches[0].start = 100;
-//         let (is_match, cut_positions) = match_pattern(&matches, &pattern, 500);
-//         assert!(is_match);
+        matches[0].start = 100;
+        let (is_match, _) = match_pattern(&matches, &pattern);
+        assert!(is_match);
 
 
-//         matches[0].start = 250;
-//         let (is_match, cut_positions) = match_pattern(&matches, &pattern, 500);
-//         assert!(is_match);
+        matches[0].start = 250;
+        let (is_match, _) = match_pattern(&matches, &pattern);
+        assert!(is_match);
 
 
-//         matches[0].start = 251;
-//         let (is_match, cut_positions) = match_pattern(&matches, &pattern, 500);
-//         assert!(!is_match);
+        matches[0].start = 251;
+        let (is_match, _) = match_pattern(&matches, &pattern);
+        assert!(!is_match);
        
-//     }
+    }
 
-//     #[test]
-//     fn test_distance_to_right_end() {
-//         let pattern = pattern_from_str!("Fbarcode[fw, *, @right(0 to 250)]");
+
+    #[test]
+    fn test_distance_to_right_end() {
+        let pattern = pattern_from_str!("Fbarcode[fw, *, @right(0 to 250)]");
        
-//         let mut matches = vec![ 
-//             Match {
-//                 match_str: EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("XXX".to_string())),
-//                 start: 0,
-//                 end: 100,
-//                 edits: 0,
-//                 rel_dist_to_end: 0,
-//             },
-//         ];
+        let mut matches = vec![
+            Match {
+                label: EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("XXX".to_string())),
+                start: 0,  // <- important part for test
+                end: 100,  // <- important part for test
+                edit_dist: None,
+                rel_dist_to_end: 0,
+                read: Some("@Nothing".to_string()),
+                read_len: Some(500),
+                cuts: Some(vec![]),
+                record_set_idx: None,
+                record_idx: None,
+            },
+        ];
 
-//         matches[0].start = 500;
-//         let (is_match, cut_positions) = match_pattern(&matches, &pattern, 500);
-//         assert!(is_match);
+        matches[0].start = 500;
+        let (is_match, _) = match_pattern(&matches, &pattern);
+        assert!(is_match);
 
-//         matches[0].start = 450;
-//         let (is_match, cut_positions) = match_pattern(&matches, &pattern, 500);
-//         assert!(is_match);
+        matches[0].start = 450;
+        let (is_match, _) = match_pattern(&matches, &pattern);
+        assert!(is_match);
 
-//         matches[0].start = 250;
-//         let (is_match, cut_positions) = match_pattern(&matches, &pattern, 500);
-//         assert!(is_match);
+        matches[0].start = 250;
+        let (is_match, _) = match_pattern(&matches, &pattern);
+        assert!(is_match);
 
-//         matches[0].start = 249;
-//         let (is_match, cut_positions) = match_pattern(&matches, &pattern, 500);
-//         assert!(!is_match);
+        matches[0].start = 249;
+        let (is_match, _) = match_pattern(&matches, &pattern);
+        assert!(!is_match);
 
-//     }
+    }
 
-    // #[test]
-    // fn test_distance_to_prev_left() {
-    //     let pattern = pattern_from_str!("Fbarcode[fw, *, @left(0 to 250)]__Flank[fw, @prev_left(5 to 100)]");
-    //     println!("Pattern: {:?}", pattern);
+    #[test]
+    fn test_distance_to_prev_left() {
+        let pattern = pattern_from_str!("Fbarcode[fw, *, @left(0 to 250)]__Flank[fw, @prev_left(5 to 100)]");
+        println!("Pattern: {:?}", pattern);
 
-    //     let mut matches = vec![
-    //         Match {
-    //             match_str: EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("XXX".to_string())),
-    //             start: 0,
-    //             end: 100,
-    //             edits: 0,
-    //             rel_dist_to_end: 0,
-    //         },
-    //         Match {
-    //             match_str: EncodedMatchStr::new(MatchType::Flank, Orientation::Forward, None),
-    //             start: 100,
-    //             end: 200,
-    //             edits: 0,
-    //             rel_dist_to_end: 0,
-    //         },
-    //     ];
+        let mut matches = vec![
+            Match {
+                label: EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("XXX".to_string())),
+                start: 0,  // <- important part for test
+                end: 100,  // <- important part for test
+                edit_dist: None,
+                rel_dist_to_end: 0,
+                read: Some("@Nothing".to_string()),
+                read_len: Some(500),
+                cuts: Some(vec![]),
+                record_set_idx: None,
+                record_idx: None,
+            },
+            Match {
+                label: EncodedMatchStr::new(MatchType::Flank, Orientation::Forward, Some("XXX".to_string())),
+                start: 100,  // <- important part for test
+                end: 200,  // <- important part for test
+                edit_dist: None,
+                rel_dist_to_end: 0,
+                read: Some("@Nothing".to_string()),
+                read_len: Some(500),
+                cuts: Some(vec![]),
+                record_set_idx: None,
+                record_idx: None,
+            },
+        ];
         
+
+        // Should not pass, 
+        matches[1].start = 50;
+        let (is_match, _) = match_pattern(&matches, &pattern);
+        assert!(!is_match);
+
+        // Same start as previous match, does not satisfy min distance of 5
+        matches[1].start = 100;
+        let (is_match, _) = match_pattern(&matches, &pattern);
+        assert!(!is_match);
+
+        // Should pass, just satisfies min distance of 5
+        matches[1].start = 105;
+        let (is_match, _) = match_pattern(&matches, &pattern);
+        assert!(is_match);
+
+        // Should still pass, but maxing out
+        matches[1].start = 200;
+        let (is_match, _) = match_pattern(&matches, &pattern);
+        assert!(is_match);
+
+        // Should not pass anymore, too far away
+        matches[1].start = 201;
+        let (is_match, _) = match_pattern(&matches, &pattern);
+        assert!(!is_match);
         
+    }
 
-    //     // Should not pass, 
-    //     matches[1].start = 50;
-    //     let is_match = match_pattern(&matches, &pattern, 500);
-    //     assert!(!is_match);
 
-    //     // Same start as previous match, does not satisfy min distance of 5
-    //     matches[1].start = 100;
-    //     let is_match = match_pattern(&matches, &pattern, 500);
-    //     assert!(!is_match);
+    #[test]
+    fn test_placeholder() {
+        // Means any label for front, but the last label should be the same as the first label
+        let pattern = pattern_from_str!("Fbarcode[fw, ?1, @left(0 to 250)]__Rbarcode[fw, ?1, @right(0 to 250)]");
+        println!("Pattern: {:?}", pattern);
+        let mut matches = vec![
+            Match {
+                label: EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("XXX".to_string())),
+                                                                                       //   Same label
+                start: 0, 
+                end: 100,  
+                edit_dist: None,
+                rel_dist_to_end: 0,
+                read: Some("@Nothing".to_string()),
+                read_len: Some(250),
+                cuts: Some(vec![]),
+                record_set_idx: None,
+                record_idx: None,
+            },
+            Match {
+                label: EncodedMatchStr::new(MatchType::Rbarcode, Orientation::Forward, Some("XXX".to_string())),
+                                                                                         //   Same label
+                start: 100,  
+                end: 200,  
+                edit_dist: None,
+                rel_dist_to_end: 0,
+                read: Some("@Nothing".to_string()),
+                read_len: Some(250),
+                cuts: Some(vec![]),
+                record_set_idx: None,
+                record_idx: None,
+            },
+        ];
 
-    //     // Should pass, just satisfies min distance of 5
-    //     matches[1].start = 105;
-    //     let is_match = match_pattern(&matches, &pattern, 500);
-    //     assert!(is_match);
 
-    //     // Should still pass, but maxing out
-    //     matches[1].start = 200;
-    //     let is_match = match_pattern(&matches, &pattern, 500);
-    //     assert!(is_match);
+        let (is_match, _) = match_pattern(&matches, &pattern);
+        assert!(is_match);
 
-    //     // Should not pass anymore, too far away
-    //     matches[1].start = 201;
-    //     let is_match = match_pattern(&matches, &pattern, 500);
-    //     assert!(!is_match);
+        // Edit to different labels
+        matches[1].label = EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("yyyy".to_string()));
+
+        let (is_match, _) = match_pattern(&matches, &pattern);
+        assert!(!is_match);
         
-    // }
+    }
 
 
-//     #[test]
-//     fn test_placeholder() {
-//         // Means any label for front, but the last label should be the same as the first label
-//         let pattern = pattern_from_str!("Fbarcode[fw, ?1, @left(0 to 250)]__Rbarcode[fw, ?1, @right(0 to 250)]");
-//         println!("Pattern: {:?}", pattern);
+    #[test]
+    fn test_stringify_unstringify() {
+        let m1 = EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("XXX".to_string()));
+        let m1_str = m1.stringify();
+        assert_eq!(m1_str, "XXX#fw#Fbarcode");
+        let m1_unstr = EncodedMatchStr::unstringify(&m1_str);
+        assert_eq!(m1, m1_unstr);
+    }
 
-//         let matches_samme_label = vec![
-//             Match {
-//                 match_str: EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("XXX".to_string())),
-//                 start: 0,
-//                 end: 100,
-//                 edits: 0,
-//                 rel_dist_to_end: 0,
-//             },
-//             Match {
-//                 match_str: EncodedMatchStr::new(MatchType::Rbarcode, Orientation::Forward, Some("XXX".to_string())),
-//                 start: 450,
-//                 end: 500,
-//                 edits: 0,
-//                 rel_dist_to_end: 0,
-//             },
-//         ];
-
-//         let matches_different_label = vec![
-//             Match {
-//                 match_str: EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("XXX".to_string())),
-//                 start: 0,
-//                 end: 100,
-//                 edits: 0,
-//                 rel_dist_to_end: 0,
-//             },
-//             Match {
-//                 match_str: EncodedMatchStr::new(MatchType::Rbarcode, Orientation::Forward, Some("YYY".to_string())),
-//                 start: 450,
-//                 end: 500,   
-//                 edits: 0,
-//                 rel_dist_to_end: 0,
-//             },
-//         ];
-
-//         let (is_match, cut_positions) = match_pattern(&matches_samme_label, &pattern, 500);
-//         assert!(is_match);
-
-
-//         let (is_match, cut_positions) = match_pattern(&matches_different_label, &pattern, 500);
-//         assert!(!is_match);
+    #[test]
+    fn test_pattern_with_cuts_default_fallback() {
+        let pattern = pattern_from_str!(
+            "Fbarcode[fw, *, >>, @left(0 to 250)]__Flank[fw, <<, @prev_left(5 to 100)]"
+        );
         
-//     }
+        let matches = vec![
+            Match {
+                label: EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("XXX".to_string())),
+                start: 0, 
+                end: 10,  
+                edit_dist: None,
+                rel_dist_to_end: 0,
+                read: Some("@Nothing".to_string()),
+                read_len: Some(250),
+                cuts: Some(vec![]),
+                record_set_idx: None,
+                record_idx: None,
+            },
+            Match {
+                label: EncodedMatchStr::new(MatchType::Flank, Orientation::Forward, None),
+                start: 15,  
+                end: 20,  
+                edit_dist: None,
+                rel_dist_to_end: 0,
+                read: Some("@Nothing".to_string()),
+                read_len: Some(250),
+                cuts: Some(vec![]),
+                record_set_idx: None,
+                record_idx: None,
+            },
+        ];
 
+        let (is_match, cut_positions) = match_pattern(&matches, &pattern);
+        assert!(is_match);
+        assert_eq!(cut_positions, 
+            // Cut at index 0 group 0 After, cut at index 1 group 0, Before
+            vec![
+                (0, Cut::new(0, CutDirection::After)), 
+                (1, Cut::new(0, CutDirection::Before))
+            ]
+        ); 
+    }
 
-//     #[test]
-//     fn test_stringify_unstringify() {
-//         let m1 = EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("XXX".to_string()));
-//         let m1_str = m1.stringify();
-//         assert_eq!(m1_str, "XXX#fw#Fbar");
-//         let m1_unstr = EncodedMatchStr::unstringify(&m1_str);
-//         assert_eq!(m1, m1_unstr);
-//     }
-
-//     #[test]
-//     fn test_match_type_validation() {
-//         let pattern = pattern_from_str!(
-//             "Fbarcode[fw, ?1, @left(0 to 250)]__Fbarcode[fw, ?1, @prev_left(-100 to 200)]"
-//         );
+    #[test]
+    fn test_pattern_with_cuts_single_group() {
+        let pattern = pattern_from_str!(
+            "Fbarcode[fw, *, >>1, @left(0 to 250)]__Flank[fw, <<1, @prev_left(5 to 100)]"
+        );
         
-//         let matches = vec![
-//             Match {
-//                 match_str: EncodedMatchStr::new(
-//                     MatchType::Fbarcode,
-//                     Orientation::Forward,
-//                     Some("barcode47".to_string())
-//                 ),
-//                 start: 0,
-//                 end: 100,
-//                 edits: 24,
-//                 rel_dist_to_end: 1,
-//             },
-//             Match {
-//                 match_str: EncodedMatchStr::new(
-//                     MatchType::Flank,  // This should cause the match to fail
-//                     Orientation::Forward,
-//                     None
-//                 ),
-//                 start: 47,
-//                 end: 161,
-//                 edits: 24,
-//                 rel_dist_to_end: 47,
-//             },
-//         ];
+        let matches = vec![
+            Match {
+                label: EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("XXX".to_string())),
+                start: 0, 
+                end: 10,  
+                edit_dist: None,
+                rel_dist_to_end: 0,
+                read: Some("@Nothing".to_string()),
+                read_len: Some(250),
+                cuts: Some(vec![]),
+                record_set_idx: None,
+                record_idx: None,
+            },
+            Match {
+                label: EncodedMatchStr::new(MatchType::Flank, Orientation::Forward, None),
+                start: 15,  
+                end: 20,  
+                edit_dist: None,
+                rel_dist_to_end: 0,
+                read: Some("@Nothing".to_string()),
+                read_len: Some(250),
+                cuts: Some(vec![]),
+                record_set_idx: None,
+                record_idx: None,
+            },
+        ];
 
-//         let (is_match, cut_positions) = match_pattern(&matches, &pattern, 500);
-//         assert!(!is_match, "Pattern should not match because second element is Flank when Fbarcode is required");
-//     }
+        let (is_match, cut_positions) = match_pattern(&matches, &pattern);
+        assert!(is_match);
+        assert_eq!(cut_positions, vec![
+            (0, Cut::new(1, CutDirection::After)), 
+            (1, Cut::new(1, CutDirection::Before))
+        ]); 
+    }
 
-//     #[test]
-//     fn test_pattern_with_cuts_default_fallback() {
-//         let pattern = pattern_from_str!(
-//             "Fbarcode[fw, *, >>, @left(0 to 250)]__Flank[fw, <<, @prev_left(5 to 100)]"
-//         );
+
+    #[test]
+    fn test_pattern_with_multiple_cuts_fallback() {
+        let pattern = pattern_from_str!(
+            "Fbarcode[fw, *, >>1, @left(0 to 250)]__Flank[fw, <<1, @prev_left(5 to 100)]__Rbarcode[fw, *, <<2, @right(0 to 20)]"
+        );
         
-//         let matches = vec![
-//             Match {
-//                 match_str: EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("XXX".to_string())),
-//                 start: 10,
-//                 end: 30,
-//                 edits: 0,
-//                 rel_dist_to_end: 0,
-//             },
-//             Match {
-//                 match_str: EncodedMatchStr::new(MatchType::Flank, Orientation::Forward, None),
-//                 start: 40,
-//                 end: 60,
-//                 edits: 0,
-//                 rel_dist_to_end: 0,
-//             },
-//         ];
+        let matches = vec![
+            Match {
+                label: EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("XXX".to_string())),
+                start: 0, 
+                end: 10,  
+                edit_dist: None,
+                rel_dist_to_end: 0,
+                read: Some("@Nothing".to_string()),
+                read_len: Some(50),
+                cuts: Some(vec![]),
+                record_set_idx: None,
+                record_idx: None,
+            },
+            Match {
+                label: EncodedMatchStr::new(MatchType::Flank, Orientation::Forward, None),
+                start: 15,  
+                end: 20,  
+                edit_dist: None,
+                rel_dist_to_end: 0,
+                read: Some("@Nothing".to_string()),
+                read_len: Some(50),
+                cuts: Some(vec![]),
+                record_set_idx: None,
+                record_idx: None,
+            },
+            Match {
+                label: EncodedMatchStr::new(MatchType::Rbarcode, Orientation::Forward, Some("YYY".to_string())),
+                start: 30, 
+                end: 40,  
+                edit_dist: None,
+                rel_dist_to_end: 0,
+                read: Some("@Nothing".to_string()),
+                read_len: Some(50),
+                cuts: Some(vec![]),
+                record_set_idx: None,
+                record_idx: None,
+            },
+        ];
 
-//         let (is_match, cut_positions) = match_pattern(&matches, &pattern, 500);
-//         assert!(is_match);
-//         assert_eq!(cut_positions, 
-//             vec![
-//                 (0, Cut::new(0, CutDirection::After)), 
-//                 (1, Cut::new(0, CutDirection::Before))
-//             ]
-//         ); 
-//     }
+        let (is_match, cut_positions) = match_pattern(&matches, &pattern);
+        assert!(is_match);
+        assert_eq!(cut_positions, 
+            vec![
+                (0, Cut::new(1, CutDirection::After)), 
+                (1, Cut::new(1, CutDirection::Before)), 
+                (2, Cut::new(2, CutDirection::Before))
+            ]
 
-//     #[test]
-//     fn test_pattern_with_cuts_single_group() {
-//         let pattern = pattern_from_str!(
-//             "Fbarcode[fw, *, >>1, @left(0 to 250)]__Flank[fw, <<1, @prev_left(5 to 100)]"
-//         );
-        
-//         let matches = vec![
-//             Match {
-//                 match_str: EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("XXX".to_string())),
-//                 start: 10,
-//                 end: 30,
-//                 edits: 0,
-//                 rel_dist_to_end: 0,
-//             },
-//             Match {
-//                 match_str: EncodedMatchStr::new(MatchType::Flank, Orientation::Forward, None),
-//                 start: 40,
-//                 end: 60,
-//                 edits: 0,
-//                 rel_dist_to_end: 0,
-//             },
-//         ];
+        );
+    }
 
-//         let (is_match, cut_positions) = match_pattern(&matches, &pattern, 500);
-//         assert!(is_match);
-//         assert_eq!(cut_positions, vec![
-//             (0, Cut::new(1, CutDirection::After)), 
-//             (1, Cut::new(1, CutDirection::Before))
-//         ]); 
-//     }
+    #[test]
+    fn test_cut_from_string() {
+        let cut_str = "After(1)";
+        let cut = Cut::from_string(cut_str).unwrap();
+        assert_eq!(cut, Cut::new(1, CutDirection::After));
 
-//     #[test]
-//     fn test_pattern_with_multiple_cuts_fallback() {
-//         let pattern = pattern_from_str!(
-//             "Fbarcode[fw, *, >>1, @left(0 to 250)]__Flank[fw, <<1, @prev_left(5 to 100)]__Rbarcode[fw, *, <<2, @right(0 to 20)]"
-//         );
-        
-//         let matches = vec![
-//             Match {
-//                 match_str: EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("XXX".to_string())),
-//                 start: 10,
-//                 end: 30,
-//                 edits: 0,
-//                 rel_dist_to_end: 0,
-//             },
-//             Match {
-//                 match_str: EncodedMatchStr::new(MatchType::Flank, Orientation::Forward, None),
-//                 start: 40,
-//                 end: 60,
-//                 edits: 0,
-//                 rel_dist_to_end: 0,
-//             },
-//             Match {
-//                 match_str: EncodedMatchStr::new(MatchType::Rbarcode, Orientation::Forward, Some("YYY".to_string())),
-//                 start: 60,
-//                 end: 80,
-//                 edits: 0,
-//                 rel_dist_to_end: 0,
-//             },
-//         ];
-//         let (is_match, cut_positions) = match_pattern(&matches, &pattern, 80);
-//         assert!(is_match);
-//         assert_eq!(cut_positions, 
-//             vec![
-//                 (0, Cut::new(1, CutDirection::After)), 
-//                 (1, Cut::new(1, CutDirection::Before)), 
-//                 (2, Cut::new(2, CutDirection::Before))
-//             ]
+        let cut_str = "Before(2)";
+        let cut = Cut::from_string(cut_str).unwrap();
+        assert_eq!(cut, Cut::new(2, CutDirection::Before));
 
-//         );
-//     }
+        // Test invalid input
+        assert!(Cut::from_string("Invalid").is_none());
+        assert!(Cut::from_string("After(abc)").is_none());
+    }
 
-//     #[test]
-//     fn test_cut_from_string() {
-//         let cut_str = "After(1)";
-//         let cut = Cut::from_string(cut_str).unwrap();
-//         assert_eq!(cut, Cut::new(1, CutDirection::After));
 
-//         let cut_str = "Before(2)";
-//         let cut = Cut::from_string(cut_str).unwrap();
-//         assert_eq!(cut, Cut::new(2, CutDirection::Before));
-
-//         // Test invalid input
-//         assert!(Cut::from_string("Invalid").is_none());
-//         assert!(Cut::from_string("After(abc)").is_none());
-//     }
-
-//     #[test]
-//     fn test_pattern_with_multiple_cuts() {
-//         let pattern = pattern_from_str!(
-//             "Fbarcode[>>1, fw]__Flank[<<1, >>2, fw]__Rbarcode[<<2, fw]"
-//         );
-
-//         let matches = vec![
-//             Match::new(
-//                 EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, None),
-//                 0,
-//                 3,
-//                 0,
-//                 0,
-//             ),
-//             Match::new(
-//                 EncodedMatchStr::new(MatchType::Flank, Orientation::Forward, None),
-//                 6,
-//                 10,
-//                 0,
-//                 0,
-//             ),
-//             Match::new(
-//                 EncodedMatchStr::new(MatchType::Rbarcode, Orientation::Forward, None),
-//                 15,
-//                 30,
-//                 0,
-//                 0,
-//             ),
-//         ];
-
-//         let seq = b"ACGTACGTACGTACGTACGTACGT";  // Example sequence
-
-//         // Test pattern matching
-//         let (is_match, cut_positions) = match_pattern(&matches, &pattern, seq.len());
-//         assert!(is_match);
-        
-//         // Verify the cuts
-//         assert_eq!(cut_positions.len(), 4);
-        
-//         // Check each cut has the correct ID, position and direction
-//         assert_eq!(cut_positions[0].0, 0);
-//         assert_eq!(cut_positions[0].1.direction, CutDirection::After);
-//         assert_eq!(cut_positions[0].1.group_id, 1);
-        
-//         assert_eq!(cut_positions[1].0, 1);
-//         assert_eq!(cut_positions[1].1.direction, CutDirection::Before);
-//         assert_eq!(cut_positions[1].1.group_id, 1);
-        
-//         assert_eq!(cut_positions[2].0, 1);
-//         assert_eq!(cut_positions[2].1.direction, CutDirection::After);
-//         assert_eq!(cut_positions[2].1.group_id, 2);
-        
-//         // // Test apply_cuts function
-//         // let result = apply_cuts(seq, qual, &cut_positions);
-//         // assert!(result.is_some());
-        
-//         // // The sequence should be from positions 2 to 3 (cut group 1)
-//         // let (trimmed_seq, trimmed_qual) = result.unwrap();
-//         // assert_eq!(trimmed_seq, &seq[2..3]);
-//     }
-
-// }
+}
 
 

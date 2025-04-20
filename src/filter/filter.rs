@@ -1,12 +1,9 @@
 use crate::pattern::pattern::*;
 use crate::pattern_from_str;
-use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::time::Instant;
 use indicatif::ProgressStyle;
 use colored::Colorize;
-use csv::Writer;
-use std::fs::File;
 use crate::types::*;
 
 

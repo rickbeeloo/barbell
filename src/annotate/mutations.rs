@@ -1,6 +1,42 @@
 pub const MAX_LEN: usize = 50;
 
-use crate::annotate::simd::simd_metric;
+use crate::annotate::simd::simd_metric_affine;
+
+
+#[derive(Debug, Clone)]
+pub struct ErrorRatesAffine {
+    pub match_probability: f64,
+    pub substitution:      f64,
+    pub ins_open:          f64,
+    pub ins_extend:        f64,
+    pub del_open:          f64,
+    pub del_extend:        f64,
+}
+
+impl ErrorRatesAffine {
+    pub fn new(substitution: f64, ins_open: f64, ins_extend: f64, del_open: f64, del_extend: f64) -> Self {
+        if substitution <= 0.0 || ins_open <= 0.0 || ins_extend <= 0.0 || del_open <= 0.0 || del_extend <= 0.0 {
+            panic!("Probabilities must be positive");
+        }
+        if substitution + ins_open  + del_open >= 1.0 {
+            panic!("Error probabilities should sum up to <= 1.0");
+        }
+        let match_probability = 1.0 - (substitution + ins_open + del_open);
+        ErrorRatesAffine {
+            substitution: substitution.ln(),
+            ins_open: ins_open.ln(),
+            ins_extend: ins_extend.ln(),
+            del_open: del_open.ln(),
+            del_extend: del_extend.ln(),
+            match_probability: match_probability.ln(),
+        }
+    }
+
+    pub fn default() -> Self {
+        ErrorRatesAffine::new(0.01, 0.01, 0.05, 0.1, 0.05)
+    }
+}
+
 
 #[derive(Debug, Clone)]
 pub struct ErrorRates {
@@ -81,7 +117,7 @@ pub fn metric(query: &[u8], target: &[u8], error_rates: &ErrorRates) -> f64 {
 pub fn optimal_metric(
     queries: &[&[u8]],
     target: &[u8],
-    error_rates: &ErrorRates
+    error_rates: &ErrorRatesAffine
 ) -> Vec<f64> {
     // Early return for empty queries
     if queries.is_empty() {
@@ -98,7 +134,7 @@ pub fn optimal_metric(
             for chunk in queries.chunks(16) {
                 // For each chunk, we need to create a properly sized slice
                 unsafe {
-                    let chunk_result = simd_metric(
+                    let chunk_result = simd_metric_affine(
                         chunk,
                         target,
                         chunk[0].len(), // All queries should have the same length
@@ -115,11 +151,12 @@ pub fn optimal_metric(
             return results;
         }
     }
-    
+
+    vec![] 
     // Fallback to scalar implementation if SIMD is not available
-    queries.iter()
-        .map(|q| metric(q, target, error_rates))
-        .collect()
+    // queries.iter()
+    //     .map(|q| metric(q, target, error_rates))
+    //     .collect()
 }
 
 

@@ -1,14 +1,12 @@
 use clap::{Parser, Subcommand};
 use colored::*;
-use nano_bar::annotate::mutations::ErrorRates;
-use nano_bar::annotate::search::BarMan;
-use nano_bar::annotate::*;
-use nano_bar::filter::filter::*;
-use nano_bar::parallel::ParallelAnnotator;
-use nano_bar::read::reader::*;
-use nano_bar::inspect::inspect::*;
-use nano_bar::trim::trim::*;
-use std::env;
+use barbell::annotate::mutations::ErrorRatesAffine;
+use barbell::annotate::search::BarMan;
+use barbell::filter::filter::*;
+use barbell::parallel::ParallelAnnotator;
+use barbell::read::reader::*;
+use barbell::inspect::inspect::*;
+use barbell::trim::trim::*;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -41,24 +39,8 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         tune: bool,
 
-        /// Insertion error rate
-        #[arg(long, default_value_t = 0.03)]
-        ins_error: f64,
-
-        /// Deletion error rate
-        #[arg(long, default_value_t = 0.1)]
-        del_error: f64,
-
-        /// Substitution error rate
-        #[arg(long, default_value_t = 0.03)]
-        sub_error: f64,
-
-        /// Log probability cutoff (use '=' for negative values, e.g. --log-prob-cutoff=-21.0)
-        #[arg(long, allow_negative_numbers = true, default_value_t = -10.0)]
-        log_prob_cutoff: f64,
-
         /// Target false positive rate
-        #[arg(long, default_value_t = 0.00001)]
+        #[arg(long, default_value_t = 0.00001)] // 1/100K
         fp_target: f64,
     },
     /// Filter annotation files based on pattern
@@ -106,7 +88,7 @@ enum Commands {
        sort_labels: bool,
     },
 
-    // View most common patterns in annotation
+    /// View most common patterns in annotation
     Inspect {
         /// Input filtered annotation file
         #[arg(short = 'i', long)]
@@ -129,12 +111,8 @@ fn main() {
             threads, 
             output, 
             queries,
-            ins_error,
-            del_error,
-            sub_error,
-            log_prob_cutoff,
             tune,
-            fp_target
+            fp_target,
         } => {
             println!("{}", "Starting annotation...".green());
             
@@ -144,26 +122,19 @@ fn main() {
                 .collect();
             
             let query_files_refs: Vec<&str> = query_files.iter().map(|s| s.as_str()).collect();
-            let groups = read_queries(query_files_refs, None);
+            let groups = read_queries(query_files_refs);
             
-            let errors = ErrorRates::new(*ins_error, *del_error, *sub_error);
             let mut bar_searcher = BarMan::new(
                 groups, 
                 0.4, 
-                errors,
                 0.4, // Will be tuned when --tune
-                0.5,
-                *log_prob_cutoff, 
                 0.9,
-                *fp_target
+                *fp_target,
+                0 // Will be tuned when --tune
             );
             if *tune {
                 bar_searcher.auto_tune_parmas();
-            }
-
-            //REMOVE
-            //bar_searcher.posterior_threshold = -21.0;
-            
+            }            
             let mut parallel_annotator = ParallelAnnotator::new(bar_searcher);
             
             match parallel_annotator.process_fastq(input, output, *threads) {
@@ -198,12 +169,12 @@ fn main() {
 
 fn print_banner() {
     println!("{}", r#"
-    ███╗   ██╗ █████╗ ███╗   ██╗ ██████╗     ██████╗  █████╗ ██████╗ 
-    ████╗  ██║██╔══██╗████╗  ██║██╔═══██╗    ██╔══██╗██╔══██╗██╔══██╗
-    ██╔██╗ ██║███████║██╔██╗ ██║██║   ██║    ██████╔╝███████║██████╔╝
-    ██║╚██╗██║██╔══██║██║╚██╗██║██║   ██║    ██╔══██╗██╔══██║██╔══██╗
-    ██║ ╚████║██║  ██║██║ ╚████║╚██████╔╝    ██████╔╝██║  ██║██║  ██║
-    ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝     ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
+    ██████╗  █████╗ ██████╗ ██████╗ ███████╗██╗     ██╗     
+    ██╔══██╗██╔══██╗██╔══██╗██╔══██╗██╔════╝██║     ██║     
+    ██████╔╝███████║██████╔╝██████╔╝█████╗  ██║     ██║     
+    ██╔══██╗██╔══██║██╔══██╗██╔══██╗██╔══╝  ██║     ██║     
+    ██████╔╝██║  ██║██║  ██║██████╔╝███████╗███████╗███████╗
+    ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚══════╝╚══════╝
     "#.blue());
     println!("{}",
         "        [===]------------------------------------------[===]        "

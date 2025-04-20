@@ -435,7 +435,6 @@ mod tests {
                 end: 8,
                 label: EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("Fbar".to_string())),
                 cuts: Some(vec![Cut::new(0, CutDirection::After)]),
-                log_prob: None,
                 edit_dist: None,
                 rel_dist_to_end: 0,
                 record_set_idx: None,
@@ -449,7 +448,6 @@ mod tests {
                 end: 16,
                 label: EncodedMatchStr::new(MatchType::Rbarcode, Orientation::Forward, Some("Rbar".to_string())),
                 cuts: Some(vec![Cut::new(0, CutDirection::Before)]),
-                log_prob: None,
                 edit_dist: None,
                 rel_dist_to_end: 0,
                 record_set_idx: None,
@@ -469,76 +467,3 @@ mod tests {
         assert_eq!(group_label, "Fbar_fw__Rbar_fw");
     }
 }
-//     #[test]
-//     fn test_multiple_cuts() {
-//         let seq = b"CCCCCCCCAAAAACCCCCCCCCTTT";
-//         let qual = b"________IIII____________";
-
-//         let annotations = vec![
-//             AnnotationLine {
-//                 read: "read2".to_string(),
-//                 start: 4,
-//                 end: 8,
-//                 label: "Fbar#fw#Fbar".to_string(),
-//                 cuts: Some(vec![Cut::new(1, CutDirection::After)]),
-//                 dist_to_end: 0,
-//                 edits: 0,
-//                 record_set_idx: 0,
-//                 record_idx: 0,
-//                 read_len: seq.len(),
-//             },
-//             AnnotationLine {
-//                 read: "read2".to_string(),
-//                 start: 12,
-//                 end: 16,
-//                 label: "Rbar#fw#Rbar".to_string(),
-//                 cuts: Some(vec![Cut::new(1, CutDirection::Before)]),
-//                 dist_to_end: 0,
-//                 edits: 0,
-//                 record_set_idx: 0,
-//                 record_idx: 0,
-//                 read_len: seq.len(),
-//             },
-//             AnnotationLine {
-//                 read: "read2".to_string(),
-//                 start: 18,
-//                 end: 22,
-//                 label: "Fbar#fw#Fbar".to_string(),
-//                 cuts: Some(vec![Cut::new(2, CutDirection::After)]),
-//                 dist_to_end: 0,
-//                 edits: 0,
-//                 record_set_idx: 0,
-//                 record_idx: 0,
-//                 read_len: seq.len(),
-//             },
-//             AnnotationLine {
-//                 read: "read2".to_string(),
-//                 start: 24,
-//                 end: 28,
-//                 label: "Rbar#fw#Rbar".to_string(),
-//                 cuts: Some(vec![Cut::new(2, CutDirection::Before)]),
-//                 dist_to_end: 0,
-//                 edits: 0,
-//                 record_set_idx: 0,
-//                 record_idx: 0,
-//                 read_len: seq.len(),
-//             },
-//         ];
-
-//         let label_config = LabelConfig::new(true, true, true);
-//         let results = process_read_and_anno(seq, qual, &annotations, &label_config);
-
-//         println!("results: {:?}", results);
-//         assert_eq!(results.len(), 2);
-
-//         let (trimmed_seq1, trimmed_qual1, group_label1, _) = &results[0];
-//         assert_eq!(trimmed_seq1, b"AAAA");
-//         assert_eq!(trimmed_qual1, b"IIII");
-//         assert_eq!(group_label1, "Fbar_fw__Rbar_fw");
-
-//         let (trimmed_seq2, trimmed_qual2, group_label2, _) = &results[1];
-//         assert_eq!(trimmed_seq2, b"ACGTACGT");
-//         assert_eq!(trimmed_qual2, b"IIIIIIII");
-//         assert_eq!(group_label2, "Fbar_fw__Rbar_fw");
-//     }
-// }

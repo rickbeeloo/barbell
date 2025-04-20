@@ -1,7 +1,7 @@
 use crate::annotate::search::BarMan;
 use crate::annotate::merge_sort::merge_sort_files;
 
-use seq_io::fastq::{Reader as FastqReader};
+use seq_io::fastq::Reader as FastqReader;
 use seq_io_parallel::{MinimalRefRecord, ParallelProcessor, ParallelReader};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -78,7 +78,7 @@ impl ParallelAnnotator {
 
         // Write header
         let mut writer = self.writer.lock().unwrap();
-        writeln!(writer, "read\tlabel\tstart\tend\tlog_prob\tedit_dist\tread_len\trel_dist_to_end\trecord_set_idx\trecord_idx\tcuts")?;
+        writeln!(writer, "read\tlabel\tstart\tend\tedit_dist\tread_len\trel_dist_to_end\trecord_set_idx\trecord_idx\tcuts")?;
         drop(writer);
 
         // Process reads
@@ -121,23 +121,22 @@ impl ParallelProcessor for ParallelAnnotator {
         // Update total counter
         let total_count = self.total.fetch_add(1, Ordering::Relaxed);
         
-        // Get the writer lock FIRST, exactly like in your old code
+        // Get the writer lock
         let mut writer = self.writer.lock().unwrap();
         
         if !matches.is_empty() {
             // Update found counter
             self.found.fetch_add(1, Ordering::Relaxed);
             
-            // Directly write each match using writeln! just like your old code
+            // Serialize would be nicer but it has to reinit the wirter all the time in the thread?
             for m in &matches {
                 writeln!(
                     writer,
-                    "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t-",
+                    "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t-",
                     read_id,
                     m.label.stringify(),
                     m.start,
                     m.end,
-                    m.log_prob.unwrap_or(0.0),
                     m.edit_dist.unwrap_or(0),
                     read.len(),
                     m.rel_dist_to_end,

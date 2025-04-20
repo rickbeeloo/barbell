@@ -27,7 +27,7 @@ pub struct Cut {
     pub direction: CutDirection,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Match {
     #[serde(default)]
     pub read: Option<String>,
@@ -35,8 +35,6 @@ pub struct Match {
     pub label: EncodedMatchStr,
     pub start: usize,
     pub end: usize,
-    #[serde(serialize_with = "serialize_log_prob")]
-    pub log_prob: Option<f64>,
     pub edit_dist: Option<i32>,
     #[serde(default)]
     pub read_len: Option<usize>,
@@ -51,7 +49,7 @@ pub struct Match {
 }
 
 // We can implement Eq because we're using approximate equality for floats
-impl Eq for Match {}
+// impl Eq for Match {}
 
 impl Match {
     
@@ -59,7 +57,6 @@ impl Match {
         label: EncodedMatchStr,
         start: usize,
         end: usize,
-        log_prob: Option<f64>,
         edit_dist: Option<i32>,
         rel_dist_to_end: isize, // negative for close to the right end
     ) -> Self {
@@ -67,7 +64,6 @@ impl Match {
             label,
             start,
             end,
-            log_prob,
             edit_dist,
             rel_dist_to_end,
             // Below only modified before writing to csv so we can serialize/deserialize easily
@@ -203,14 +199,13 @@ where
     Ok(EncodedMatchStr::unstringify(&s))
 }
 
-fn serialize_log_prob<S>(val: &Option<f64>, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_log_prob<S>(val: &Option<u8>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
     match val {
         Some(x) => {
-            let rounded = (x * 1000.0).round() / 1000.0;
-            serializer.serialize_some(&rounded)
+            serializer.serialize_some(x)
         }
         None => serializer.serialize_none(),
     }
