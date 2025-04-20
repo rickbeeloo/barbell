@@ -13,6 +13,7 @@ installers = []
 targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu"]
 # Compress the binary
 compress = "gz"
+
 # Ubunut release
 [dist.github-custom-runners]
 global = "ubuntu-latest"

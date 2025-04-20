@@ -4,20 +4,21 @@ use std::arch::x86_64::*;
 #[cfg(target_arch = "aarch64")]
 use std::arch::aarch64::*;
 
+// This configuration applies for x86 architectures.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub const MAX_QUERIES: usize = 32;
 
+// This configuration applies for aarch64 architecture.
 #[cfg(target_arch = "aarch64")]
 pub const MAX_QUERIES: usize = 16;
 
-// Define a SIMD vector type that's architecture-dependent
+// Define SIMD types per architecture
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub type SimdVector = __m256i;
 
 #[cfg(target_arch = "aarch64")]
 pub type SimdVector = uint8x16_t;
 
-// By transposing the queries, we can do a row-wise DP update for all queries in parallel
 #[derive(Debug)]
 pub struct TransposedQueries {
     pub vectors: Vec<SimdVector>,
@@ -32,7 +33,7 @@ impl TransposedQueries {
             queries.iter().all(|q| q.len() == queries[0].len()),
             "All queries must have the same length"
         );
-        
+
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
             if is_x86_feature_detected!("avx2") {
@@ -41,7 +42,7 @@ impl TransposedQueries {
                 panic!("AVX2 support is required for x86/x86_64 architecture");
             }
         }
-        
+
         #[cfg(target_arch = "aarch64")]
         #[cfg(not(target_os = "macos"))]
         #[target_feature(enable = "neon")]
@@ -52,14 +53,14 @@ impl TransposedQueries {
                 panic!("NEON support is required for aarch64 architecture");
             }
         }
-        
+
         #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
         {
             panic!("Unsupported architecture");
         }
     }
 
-    // x86/x86_64  with AVX2
+    // x86/x86_64 with AVX2
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[target_feature(enable = "avx2")]
     unsafe fn new_x86_avx2(queries: Vec<&[u8]>) -> Self {
