@@ -41,6 +41,10 @@ enum Commands {
         /// Target false positive rate
         #[arg(long, default_value_t = 0.00001)] // 1/100K
         fp_target: f64,
+
+        /// Number of tuning runs
+        #[arg(long, default_value_t = 10_000_000)]
+        tune_runs: usize,
     },
     /// Filter annotation files based on pattern
     Filter {
@@ -112,6 +116,7 @@ fn main() {
             queries,
             tune,
             fp_target,
+            tune_runs,
         } => {
             println!("{}", "Starting annotation...".green());
             
@@ -129,7 +134,8 @@ fn main() {
                 0.4, // Will be tuned when --tune
                 0.9,
                 *fp_target,
-                0 // Will be tuned when --tune
+                0, // Will be tuned when --tune
+                *tune_runs,
             );
             if *tune {
                 bar_searcher.auto_tune_parmas();

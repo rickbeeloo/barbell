@@ -1,6 +1,5 @@
 use crate::types::MatchType;
 use crate::annotate::flank::{FlankGroup, FlankSeq};
-use crate::annotate::mutations::*;
 use rand::Rng;
 use colored::Colorize;
 use pa_bitpacking::search::*;
@@ -18,17 +17,18 @@ pub struct BarMan {
     pub filter_overlap: f32, // filter overlapping matches
     pub fp_target: f64, // target false positive rate
     pub edit_distance_thresholds: Vec<i32>,
+    pub n_tune_runs: usize,
 }
 
 
 impl BarMan {
 
-    const LOG_PROB_TUNE_RUNS: usize = 1_000_000;
+    // const LOG_PROB_TUNE_RUNS: usize = 1_000_000;
 
     pub fn new(queries: Vec<FlankGroup>, q: f32, min_mask_available: f32, 
-        filter_overlap: f32, fp_target: f64, max_edits: u8) -> Self {
+        filter_overlap: f32, fp_target: f64, max_edits: u8, n_tune_runs: usize) -> Self {
         Self { queries, q, min_mask_available, filter_overlap, 
-            fp_target, max_edits, edit_distance_thresholds: Vec::new() }
+            fp_target, max_edits, edit_distance_thresholds: Vec::new(), n_tune_runs }
     }
 
     fn create_barcode_match(&self, f_start: usize, f_end: usize, edits: u8, rel_dist: isize, query: &FlankGroup, mask_index: usize) -> Match {
@@ -97,7 +97,7 @@ impl BarMan {
         println!("  • Test sequences: {}\n", "10,000".dimmed());
 
         // Tune edit distance thresholds
-        self.edit_distance_thresholds = tune_edit_distance(&self.queries, Self::LOG_PROB_TUNE_RUNS, self.fp_target);
+        self.edit_distance_thresholds = tune_edit_distance(&self.queries, self.n_tune_runs, self.fp_target);
 
         // Pretty print each threshold
         println!("{}", "Edit distance thresholds:".green().bold());
@@ -106,7 +106,7 @@ impl BarMan {
         }
 
         if self.max_edits == 0 {
-            self.max_edits = tune_max_edits(&self.queries, Self::LOG_PROB_TUNE_RUNS, self.fp_target);
+            self.max_edits = tune_max_edits(&self.queries, self.n_tune_runs, self.fp_target);
         }
 
 
