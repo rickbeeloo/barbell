@@ -131,7 +131,7 @@ fn main() {
             let mut bar_searcher = BarMan::new(
                 groups, 
                 0.4, 
-                0.4, // Will be tuned when --tune
+                0.4, 
                 0.9,
                 *fp_target,
                 0, // Will be tuned when --tune
