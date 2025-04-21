@@ -262,7 +262,7 @@ impl BarMan {
             }
         }
 
-        if lowest_edits - second_lowest_edits >= self.max_edits {
+        if lowest_edits < self.max_edits {
             Some((lowest_idx, lowest_edits))
         } else {
             None

@@ -4,11 +4,8 @@ use spinners::{Spinner, Spinners};
 use colored::Colorize;
 // use crate::annotate::mutations::*;
 use rayon::prelude::*;
-use std::sync::{Arc, Mutex};
 use pa_bitpacking::search::*;
 use std::cmp::Ordering::Equal;
-use indicatif::{ProgressBar, ProgressStyle};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::simdedits::simd::{TransposedQueries, simd_search};
 
 pub fn generate_random_sequence(length: usize) -> Vec<u8> {
@@ -112,44 +109,44 @@ pub fn tune_max_edits(flanks: &Vec<FlankGroup>, n: usize, fp_target: f64) -> u8 
         mask_transposed_queries.push(TransposedQueries::new(group.to_vec()));
     }
 
-    let min_diff: Vec<u8> = (0..n).into_par_iter()
-    .map(|_| {
-        let random_seq = generate_random_sequence(mask_query_slices[0].len() + 10);
-        let mut edits = mask_transposed_queries
-            .iter()
-            .flat_map(|tq| simd_search(tq, &random_seq))
-            .collect::<Vec<_>>();
+    // let min_diff: Vec<u8> = (0..n).into_par_iter()
+    // .map(|_| {
+    //     let random_seq = generate_random_sequence(mask_query_slices[0].len() + 10);
+    //     let mut edits = mask_transposed_queries
+    //         .iter()
+    //         .flat_map(|tq| simd_search(tq, &random_seq))
+    //         .collect::<Vec<_>>();
         
-        edits.sort_unstable(); // Sort to get the top two
-        if edits.len() >= 2 {
-            edits[1].saturating_sub(edits[0]) // difference between top 2
-        } else {
-            0 // fallback in case there's only one result
-        }
-    })
-    .collect();
+    //     edits.sort_unstable(); // Sort to get the top two
+    //     if edits.len() >= 2 {
+    //         edits[1].saturating_sub(edits[0]) // difference between top 2
+    //     } else {
+    //         0 // fallback in case there's only one result
+    //     }
+    // })
+    // .collect();
 
-    let min_edit_diff = get_fp_threshold(min_diff, fp_target, TailSide::Right);
-    sp.stop();
-
-    min_edit_diff
-
-    // // This loop can be parallelized
-    // let min_edits: Vec<u8> = (0..n).into_par_iter()
-    //     .map(|_| {
-    //         let random_seq = generate_random_sequence(mask_query_slices[0].len() + 10);
-    //         let edits = mask_transposed_queries
-    //             .iter()
-    //             .flat_map(|tq| simd_search(tq, &random_seq))
-    //             .collect::<Vec<_>>();
-    //         *edits.iter().min().unwrap()
-    //     })
-    //     .collect();
-
-    // let min_edit = get_fp_threshold(min_edits, fp_target, TailSide::Left);
+    // let min_edit_diff = get_fp_threshold(min_diff, fp_target, TailSide::Right);
     // sp.stop();
 
-    // min_edit
+    // min_edit_diff
+
+    // This loop can be parallelized
+    let min_edits: Vec<u8> = (0..n).into_par_iter()
+        .map(|_| {
+            let random_seq = generate_random_sequence(mask_query_slices[0].len() + 10);
+            let edits = mask_transposed_queries
+                .iter()
+                .flat_map(|tq| simd_search(tq, &random_seq))
+                .collect::<Vec<_>>();
+            *edits.iter().min().unwrap()
+        })
+        .collect();
+
+    let min_edit = get_fp_threshold(min_edits, fp_target, TailSide::Left);
+    sp.stop();
+
+    min_edit
 }
 
 // pub fn tune_log_prob(flanks: &Vec<FlankGroup>, n: usize, fp_target: f64, error_rates: &ErrorRatesAffine) -> (f64, f64) {

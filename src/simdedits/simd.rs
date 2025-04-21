@@ -15,7 +15,11 @@ mod x86 {
 
         let target_length = target.len();
         let one = _mm256_set1_epi8(1);
+        let two = _mm256_set1_epi8(2);
         let row_size = target_length + 1;
+
+        let sub_or_ins_cost = two; // double the cost for substitutions and insertions
+        let del_ext_cost = one;    // extension of deletions stays at cost 1
 
         let mut dp = vec![_mm256_setzero_si256(); row_size * 2];
         let base_ptr = dp.as_mut_ptr();
@@ -36,11 +40,11 @@ mod x86 {
                     let tj = target[j - 1 + k];
                     let tv = _mm256_set1_epi8(tj as i8);
                     let eq = _mm256_cmpeq_epi8(qv, tv);
-                    let sub = _mm256_andnot_si256(eq, one);
-
+                    let sub = _mm256_andnot_si256(eq, sub_or_ins_cost);
+                    
                     let d = _mm256_add_epi8(prev.add(j - 1 + k).read(), sub);
-                    let u = _mm256_add_epi8(prev.add(j + k).read(), one);
-                    let l = _mm256_add_epi8(curr.add(j - 1 + k).read(), one);
+                    let u = _mm256_add_epi8(prev.add(j + k).read(), sub_or_ins_cost);
+                    let l = _mm256_add_epi8(curr.add(j - 1 + k).read(), del_ext_cost);
                     let m1 = _mm256_min_epu8(d, u);
                     let mc = _mm256_min_epu8(m1, l);
 
@@ -56,10 +60,10 @@ mod x86 {
             while j <= target_length {
                 let tv = _mm256_set1_epi8(target[j - 1] as i8);
                 let eq = _mm256_cmpeq_epi8(qv, tv);
-                let sub = _mm256_andnot_si256(eq, one);
+                let sub = _mm256_andnot_si256(eq, sub_or_ins_cost);
                 let d = _mm256_add_epi8(prev.add(j - 1).read(), sub);
-                let u = _mm256_add_epi8(prev.add(j).read(), one);
-                let l = _mm256_add_epi8(curr.add(j - 1).read(), one);
+                let u = _mm256_add_epi8(prev.add(j).read(), sub_or_ins_cost);
+                let l = _mm256_add_epi8(curr.add(j - 1).read(), del_ext_cost);
                 let m1 = _mm256_min_epu8(d, u);
                 let mc = _mm256_min_epu8(m1, l);
                 curr.add(j).write(mc);
