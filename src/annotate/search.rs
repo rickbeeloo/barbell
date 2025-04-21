@@ -66,7 +66,6 @@ impl BarMan {
             let query_cut_off = self.edit_distance_thresholds[q_i];
             let (passed_mask, locations, barcode_ranges) = self.locate_flank(flank, read, query_cut_off);
 
-            println!("passed_mask: {:?}", passed_mask);
             for ((passed, &(f_start, f_end, edit_dist)), bar_range) in passed_mask.iter().zip(locations.iter()).zip(barcode_ranges.iter()) {
                 let rel_dist = rel_dist_to_end(f_start as isize, read.len());
                 if *passed {
@@ -237,8 +236,6 @@ impl BarMan {
         // We use the mutation rates to check which barcode is more probable and what it's posterior probability is
         // assuming equal priors 
 
-        println!("Barcode slice: {:?}", String::from_utf8_lossy(barcode_slice));
-
         // Group mask filters in batches of 32, and encode in TransposedQueries
         let mut mask_transposed_queries = Vec::with_capacity(mask_fillers.len() / 32);
         for group in mask_fillers.chunks(32) {
@@ -265,8 +262,6 @@ impl BarMan {
             }
         }
 
-        println!("lowest_edits: {}", lowest_edits);
-        println!("second_lowest_edits: {}", second_lowest_edits);
         if lowest_edits < self.max_edits {
             Some((lowest_idx, lowest_edits))
         } else {
