@@ -173,7 +173,7 @@ impl BarMan {
         }
 
         // For each group, prefer Barcode over Flank
-        // For barcode we select max log prob, for flanks min edits
+        // For barcode and flank we select lowest edit distance
         let final_matches: Vec<Match> = groups.into_iter()
         .map(|group| {
             group.iter()
@@ -230,11 +230,19 @@ impl BarMan {
         (passed_mask, traced_ranges, barcode_ranges)
     }
 
-     
+
+    fn softmax_with_temperature(scores: Vec<u8>, temperature: f64) -> Vec<f64> {
+        let scores_f64: Vec<f64> = scores.iter().map(|&score| -(score as f64)).collect();
+        let max_score = scores_f64.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let scores_shifted: Vec<f64> = scores_f64.iter().map(|&score| score - max_score).collect();
+        let exp_scores: Vec<f64> = scores_shifted.iter().map(|&score| (score / temperature).exp()).collect();
+        let sum_exp_scores: f64 = exp_scores.iter().sum();
+        let softmax_scores: Vec<f64> = exp_scores.iter().map(|&exp_score| exp_score / sum_exp_scores).collect();
+        softmax_scores
+    }
+
     // return the index of the best match and the posterior probability
     fn check_barcode(&self, barcode_slice: &[u8], mask_fillers: &[&[u8]]) -> Option<(usize, u8)> {
-        // We use the mutation rates to check which barcode is more probable and what it's posterior probability is
-        // assuming equal priors 
 
         // Group mask filters in batches of 32, and encode in TransposedQueries
         let mut mask_transposed_queries = Vec::with_capacity(mask_fillers.len() / 32);
@@ -251,22 +259,27 @@ impl BarMan {
         let mut lowest_edits = u8::MAX;
         let mut lowest_idx = usize::MAX;
         let mut second_lowest_edits = u8::MAX;
-
+        //let mut second_lowest_idx = usize::MAX;
         for (idx, edit) in edits.iter().enumerate() {
             if edit < &lowest_edits {
                 second_lowest_edits = lowest_edits;
+                //second_lowest_idx = lowest_idx;
                 lowest_edits = *edit;
                 lowest_idx = idx;
             } else if edit < &second_lowest_edits {
                 second_lowest_edits = *edit;
+                //second_lowest_idx = idx;
             }
         }
 
-        if lowest_edits < self.max_edits {
+
+        let softmax_scores = Self::softmax_with_temperature(edits, 1.0);
+        if softmax_scores.iter().any(|&score| score >= 0.8) {
             Some((lowest_idx, lowest_edits))
         } else {
             None
         }
+
     }
     
 

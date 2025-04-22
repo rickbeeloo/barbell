@@ -490,6 +490,15 @@ mod tests {
         assert_eq!(edits, vec![4,6]);
     }
 
+    #[test]
+    pub fn test_barcode() {
+        let barcode = b"AACTAGGCACAGCGAGTCTTGGTT";
+        let target = b"GGGGGGGTACGCACGCTCAGCAGTTCTTGGTTGGGGGG";
+        let simd_query_set = TransposedQueries::new(vec![barcode]);
+        let edits = unsafe { x86::align_x86_avx2(&simd_query_set, target) };
+        assert_eq!(edits, vec![17]);
+    }
+
     fn random_dna(len: usize) -> Vec<u8> {
         let mut rng = rand::thread_rng();
         let dna: Vec<u8> = (0..len).map(|_| {
