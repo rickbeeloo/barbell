@@ -209,13 +209,3 @@ where
     let s = String::deserialize(deserializer)?;
     Ok(EncodedMatchStr::unstringify(&s))
 }
-
-fn serialize_log_prob<S>(val: &Option<u8>, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    match val {
-        Some(x) => serializer.serialize_some(x),
-        None => serializer.serialize_none(),
-    }
-}

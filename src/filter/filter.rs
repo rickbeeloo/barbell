@@ -46,7 +46,6 @@ pub fn filter(
     let mut current_read_id: Option<String> = None;
     let mut current_group: Vec<BarbellMatch> = Vec::new();
 
-    println!("Started deser");
     for result in reader.deserialize() {
         let record: BarbellMatch = result?;
 

@@ -75,15 +75,8 @@ impl Cut {
 }
 
 fn check_match_type_and_label(m: &BarbellMatch, pattern_element: &PatternElement) -> bool {
-    // println!("Checking match type: {:?} against pattern type: {:?}",
-    //     m.match_str.match_type, pattern_element.match_type);
-
     // First check if match types are exactly equal
     if m.label.match_type != pattern_element.match_type {
-        // println!(
-        //     "Match type mismatch: {:?} != {:?}",
-        //     m.match_str.match_type, pattern_element.match_type
-        // );
         return false;
     }
 
@@ -187,10 +180,6 @@ fn check_relative_position(
                     let left_bound = prev_end_pos.saturating_add(pattern_element.range.0);
                     let right_bound = prev_end_pos.saturating_add(pattern_element.range.1);
                     if m_start < left_bound || m_start > right_bound {
-                        // println!(
-                        //     "PrevLeft gap mismatch: m.start {} not in [{}, {}]",
-                        //     m_start, left_bound, right_bound
-                        // );
                         return false;
                     }
                 }

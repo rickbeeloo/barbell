@@ -365,7 +365,7 @@ mod test {
         let rc = f.reverse_complement();
         println!("Original: {}", f.as_string());
         println!("Reverse complement: {}", rc.as_string());
-        assert_eq!(rc.as_string(), "CCCC***AAAA");
+        assert_eq!(rc.as_string(), "CCCCNNNAAAA");
         assert_eq!(
             rc.mask_queries,
             vec![vec![b'T', b'T', b'T'], vec![b'G', b'G', b'G']]

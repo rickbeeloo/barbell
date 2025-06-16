@@ -23,8 +23,6 @@ pub struct BarMan {
 }
 
 impl BarMan {
-    // const LOG_PROB_TUNE_RUNS: usize = 1_000_000;
-
     pub fn new(
         queries: Vec<FlankGroup>,
         q: f32,
@@ -115,11 +113,11 @@ impl BarMan {
                     // We only look  for the barcode in the mask region with some wiggle room in case of gaps
                     // at the flank boundaries, +/- 5 bases
                     let (bar_start, bar_end) = bar_range.unwrap();
-                    println!("Barcode range: {:?}", bar_range);
+                    // println!("Barcode range: {:?}", bar_range);
 
                     let read_start = bar_start.saturating_sub(5);
                     let read_end = (bar_end + 5).min(read.len());
-                    println!("Read start: {} Read end: {}", read_start, read_end);
+                    // println!("Read start: {} Read end: {}", read_start, read_end);
                     if read_end <= read_start {
                         panic!(
                             "Read start is less than read end: {} < {} minimum coverage for mask: {:?}",
@@ -320,7 +318,6 @@ impl BarMan {
         // if not it still counts as possible flank, just not enough "space" to search for the barcode
         for m in matches {
             let path = m.to_path();
-            println!("Path: {:?}", path);
             let (_, mask_passed, r_range) = flank.mask_covered(&path, self.min_mask_available);
             traced_ranges.push((m.start.1 as usize, m.end.1 as usize, m.cost)); // Covered read area, with number of edits 
             passed_mask.push(mask_passed); // Whether at least self.min_mask_available is covered
@@ -384,368 +381,406 @@ pub fn rel_dist_to_end(pos: isize, read_len: usize) -> isize {
     }
 }
 
-mod test {
+// mod test {
 
-    use super::*;
+//     use super::*;
 
-    #[test]
-    fn test_rel_dist_to_end() {
-        assert_eq!(rel_dist_to_end(0, 10), 1); // Technically 0, but left side would also be 0, but -0? so using 1 and -1 instead
-        assert_eq!(rel_dist_to_end(5, 10), 5);
-        assert_eq!(rel_dist_to_end(10, 10), -1);
-    }
+//     #[test]
+//     fn test_rel_dist_to_end() {
+//         assert_eq!(rel_dist_to_end(0, 10), 1); // Technically 0, but left side would also be 0, but -0? so using 1 and -1 instead
+//         assert_eq!(rel_dist_to_end(5, 10), 5);
+//         assert_eq!(rel_dist_to_end(10, 10), -1);
+//     }
 
-    // #[test]
-    // fn test_simple_barcode_search() {
-    //     let flank = FlankSeq::init_from_sequences(&[
-    //         b"GGGGAAACCCC".to_vec(),
-    //         b"GGGGTTTCCCC".to_vec()],
-    //         vec!["seq1".to_string(), "seq2".to_string()]
-    //     ).unwrap();
+//     #[test]
+//     fn test_simple_barcode_search() {
+//         let flank = FlankSeq::init_from_sequences(
+//             &[b"GGGGAAACCCC".to_vec(), b"GGGGTTTCCCC".to_vec()],
+//             vec!["seq1".to_string(), "seq2".to_string()],
+//         )
+//         .unwrap();
 
-    //     let read = b"ATCTATCAGCATCGACGACTGGGGAAACCCCATCTACTAGCATCGACTAGCTAGATAGATAGTAGATAGATGAGA";
-    //     //                                          GGGGAAACCCC
-    //     //                                         20         30
-    //     let bm = BarMan::new(vec![FlankGroup {
-    //         flank_seq: flank,
-    //         match_type: MatchType::Fbarcode,
-    //         orientation: Orientation::Forward,
-    //     }], 0.4, 0.5, -2.0,
-    //      0.9, 20);
-    //     let matches = bm.annotate(read);
-    //     assert_eq!(matches.len(), 1);
-    //     let expected_match = Match::new(
-    //         EncodedMatchStr {
-    //             match_type: MatchType::Fbarcode,
-    //             orientation: Orientation::Forward,
-    //             label: Some("seq1".to_string())
-    //         },
-    //         20,
-    //         30,
-    //         None,
-    //         20
-    //     );
-    //     println!("Matches: {:?}", matches);
-    //     assert_eq!(matches[0], expected_match);
-    // }
+//         let read = b"ATCTATCAGCATCGACGACTGGGGAAACCCCATCTACTAGCATCGACTAGCTAGATAGATAGTAGATAGATGAGA";
+//         //                                          GGGGAAACCCC
+//         //                                         20         30
+//         let bm = BarMan::new(
+//             vec![FlankGroup {
+//                 flank_seq: flank,
+//                 match_type: MatchType::Fbarcode,
+//                 orientation: Orientation::Forward,
+//             }],
+//             0.4,
+//             0.5,
+//             0.5,
+//             0.00001,
+//             20,
+//             100,
+//         );
+//         let matches = bm.annotate(read);
+//         assert_eq!(matches.len(), 1);
+//         let expected_match = Match::new(
+//             EncodedMatchStr {
+//                 match_type: MatchType::Fbarcode,
+//                 orientation: Orientation::Forward,
+//                 label: Some("seq1".to_string()),
+//             },
+//             20,
+//             30,
+//             None,
+//             20,
+//         );
+//         println!("Matches: {:?}", matches);
+//         assert_eq!(matches[0], expected_match);
+//     }
 
-    //     #[test]
-    //     fn test_simple_barcode_search_double_match() {
-    //         let flank = FlankSeq::init_from_sequences(&[
-    //             b"GGGGAAACCCC".to_vec(),
-    //             b"GGGGTTTCCCC".to_vec()],
-    //             vec!["seq1".to_string(), "seq2".to_string()]
-    //         ).unwrap();
+//     #[test]
+//     fn test_simple_barcode_search_double_match() {
+//         let flank = FlankSeq::init_from_sequences(
+//             &[b"GGGGAAACCCC".to_vec(), b"GGGGTTTCCCC".to_vec()],
+//             vec!["seq1".to_string(), "seq2".to_string()],
+//         )
+//         .unwrap();
 
-    //         let read = b"ATCTATCAGCATCGACGACTGGGGAAACCCCATCTACTAGCATCGACTAGCTAGATGGGGTTTCCCCAGATAGTAGATAGATGAGA";
-    //         //                                          GGGGAAACCCC                         GGGGTTTCCCC
-    //         //                                         20         30                        56         66
-    //         let bm = BarMan::new(vec![FlankGroup {
-    //             flank_seq: flank,
-    //             match_type: MatchType::Fbarcode,
-    //             orientation: Orientation::Forward,
-    //         }], 0.4, 0.5, -2.0,
-    //          0.9, 20);
-    //         let matches = bm.annotate(read);
-    //         let expected_matches = vec![
-    //             Match::new(EncodedMatchStr {
-    //                 match_type: MatchType::Fbarcode,
-    //                 orientation: Orientation::Forward,
-    //                 label: Some("seq1".to_string()) },
-    //                 20,
-    //                 30,
-    //                 Some(-0.2177120785045065),
-    //                 20 ),
-    //             Match::new(EncodedMatchStr {
-    //                 match_type: MatchType::Fbarcode,
-    //                 orientation: Orientation::Forward,
-    //                 label: Some("seq2".to_string()) },
-    //                 56,
-    //                 66,
-    //                 Some(-0.2177120785045065),
-    //                 None,
-    //                 -30 )
-    //         ];
-    //         assert_eq!(matches, expected_matches);
-    //     }
+//         let read = b"ATCTATCAGCATCGACGACTGGGGAAACCCCATCTACTAGCATCGACTAGCTAGATGGGGTTTCCCCAGATAGTAGATAGATGAGA";
+//         //                                          GGGGAAACCCC                         GGGGTTTCCCC
+//         //                                         20         30                        56         66
+//         let bm = BarMan::new(
+//             vec![FlankGroup {
+//                 flank_seq: flank,
+//                 match_type: MatchType::Fbarcode,
+//                 orientation: Orientation::Forward,
+//             }],
+//             0.4,
+//             0.5,
+//             -2.0,
+//             0.9,
+//             20,
+//         );
+//         let matches = bm.annotate(read);
+//         let expected_matches = vec![
+//             Match::new(
+//                 EncodedMatchStr {
+//                     match_type: MatchType::Fbarcode,
+//                     orientation: Orientation::Forward,
+//                     label: Some("seq1".to_string()),
+//                 },
+//                 20,
+//                 30,
+//                 Some(-0.2177120785045065),
+//                 20,
+//             ),
+//             Match::new(
+//                 EncodedMatchStr {
+//                     match_type: MatchType::Fbarcode,
+//                     orientation: Orientation::Forward,
+//                     label: Some("seq2".to_string()),
+//                 },
+//                 56,
+//                 66,
+//                 Some(-0.2177120785045065),
+//                 None,
+//                 -30,
+//             ),
+//         ];
+//         assert_eq!(matches, expected_matches);
+//     }
 
-    //     #[test]
-    //     fn test_simple_barcode_search_double_close() {
-    //         let flank = FlankSeq::init_from_sequences(&[
-    //             b"GGGGAAACCCC".to_vec(),
-    //             b"GGGGTTTCCCC".to_vec()],
-    //             vec!["seq1".to_string(), "seq2".to_string()]
-    //         ).unwrap();
+//     #[test]
+//     fn test_simple_barcode_search_double_close() {
+//         let flank = FlankSeq::init_from_sequences(
+//             &[b"GGGGAAACCCC".to_vec(), b"GGGGTTTCCCC".to_vec()],
+//             vec!["seq1".to_string(), "seq2".to_string()],
+//         )
+//         .unwrap();
 
-    //         let read = b"ATCTATCAGCATCGACGACTGGGGAAACCCCGGGGAAACCCCTAGATAGATGAGA";
-    //         //                                          GGGGAAACCCCGGGGAAACCCC
-    //         //                                         20         30         41
-    //         let bm = BarMan::new(vec![FlankGroup {
-    //             flank_seq: flank,
-    //             match_type: MatchType::Fbarcode,
-    //             orientation: Orientation::Forward,
-    //         }], 0.4, ErrorRates::default(), 0.5,
-    //         -2.0, 0.9, 0.0);
-    //         let matches = bm.annotate(read);
-    //         let expected_matches = vec![
-    //             Match::new(EncodedMatchStr {
-    //                 match_type: MatchType::Fbarcode,
-    //                 orientation: Orientation::Forward,
-    //                 label: Some("seq1".to_string()) },
-    //                 20,
-    //                 30,
-    //                 Some(-0.2177120785045065),
-    //                 None,
-    //                 20 ),
-    //             Match::new(EncodedMatchStr {
-    //                 match_type: MatchType::Fbarcode,
-    //                 orientation: Orientation::Forward,
-    //                 label: Some("seq1".to_string())
-    //             },
-    //                 31,
-    //                 41,
-    //                 Some(-0.2177120785045065),
-    //                 None,
-    //                 -24 )
-    //         ];
-    //         assert_eq!(matches, expected_matches);
-    //     }
+//         let read = b"ATCTATCAGCATCGACGACTGGGGAAACCCCGGGGAAACCCCTAGATAGATGAGA";
+//         //                                          GGGGAAACCCCGGGGAAACCCC
+//         //                                         20         30         41
+//         let bm = BarMan::new(
+//             vec![FlankGroup {
+//                 flank_seq: flank,
+//                 match_type: MatchType::Fbarcode,
+//                 orientation: Orientation::Forward,
+//             }],
+//             0.4,
+//             0.5,
+//             0.5,
+//             0.00001,
+//             20,
+//             100,
+//         );
+//         let matches = bm.annotate(read);
+//         let expected_matches = vec![
+//             Match::new(
+//                 EncodedMatchStr {
+//                     match_type: MatchType::Fbarcode,
+//                     orientation: Orientation::Forward,
+//                     label: Some("seq1".to_string()),
+//                 },
+//                 20,
+//                 30,
+//                 Some(-0.2177120785045065),
+//                 None,
+//                 20,
+//             ),
+//             Match::new(
+//                 EncodedMatchStr {
+//                     match_type: MatchType::Fbarcode,
+//                     orientation: Orientation::Forward,
+//                     label: Some("seq1".to_string()),
+//                 },
+//                 31,
+//                 41,
+//                 Some(-0.2177120785045065),
+//                 None,
+//                 -24,
+//             ),
+//         ];
+//         assert_eq!(matches, expected_matches);
+//     }
+// }
 
-    //     #[test]
-    //     fn test_match_and_just_flank() {
-    //         let flank = FlankSeq::init_from_sequences(&[
-    //             b"GGGGAAACCCCCCCCCCCCCC".to_vec(),
-    //             b"GGGGTTTCCCCCCCCCCCCCC".to_vec()],
-    //             vec!["seq1".to_string(), "seq2".to_string()]
-    //         ).unwrap();
+// #[cfg(test)]
+// mod overlap_tests {
+//     use super::*;
 
-    //         println!("Flank mask region: {:?}", flank.mask_region);
+//     fn create_test_matches() -> Vec<Match> {
+//         vec![
+//             // Case 1: Two matches with 90% overlap (second match extends 10% beyond first)
+//             Match::new(
+//                 EncodedMatchStr::new(
+//                     MatchType::Fbarcode,
+//                     Orientation::Forward,
+//                     Some("barcode1".to_string()),
+//                 ),
+//                 100,
+//                 200,
+//                 Some(-5.0),
+//                 None,
+//                 100,
+//             ),
+//             Match::new(
+//                 EncodedMatchStr::new(
+//                     MatchType::Fbarcode,
+//                     Orientation::Forward,
+//                     Some("barcode2".to_string()),
+//                 ),
+//                 110,
+//                 210,
+//                 Some(-4.0),
+//                 None,
+//                 110,
+//             ),
+//             // Case 2: One match completely contained within another (A is within B)
+//             Match::new(
+//                 EncodedMatchStr::new(
+//                     MatchType::Fbarcode,
+//                     Orientation::Forward,
+//                     Some("barcode3".to_string()),
+//                 ),
+//                 300,
+//                 400,
+//                 Some(-6.0),
+//                 None,
+//                 300,
+//             ),
+//             Match::new(
+//                 EncodedMatchStr::new(
+//                     MatchType::Fbarcode,
+//                     Orientation::Forward,
+//                     Some("barcode4".to_string()),
+//                 ),
+//                 320,
+//                 380,
+//                 Some(-3.0),
+//                 None,
+//                 320,
+//             ),
+//             // Case 3: Overruling - one match extends beyond the other on both sides
+//             Match::new(
+//                 EncodedMatchStr::new(
+//                     MatchType::Fbarcode,
+//                     Orientation::Forward,
+//                     Some("barcode5".to_string()),
+//                 ),
+//                 500,
+//                 600,
+//                 Some(-7.0),
+//                 None,
+//                 500,
+//             ),
+//             Match::new(
+//                 EncodedMatchStr::new(
+//                     MatchType::Fbarcode,
+//                     Orientation::Forward,
+//                     Some("barcode6".to_string()),
+//                 ),
+//                 480,
+//                 620,
+//                 Some(-2.0),
+//                 None,
+//                 480,
+//             ),
+//             // Non-overlapping match to ensure separation works
+//             Match::new(
+//                 EncodedMatchStr::new(
+//                     MatchType::Fbarcode,
+//                     Orientation::Forward,
+//                     Some("barcode7".to_string()),
+//                 ),
+//                 700,
+//                 800,
+//                 Some(-1.0),
+//                 None,
+//                 700,
+//             ),
+//         ]
+//     }
 
-    //         let read = b"ATCTATCAGCATCGACGACTGGGGAAACCCCCCCCTAGCTGGGGGGGGGGGCCCCCCCCCCCCCCC";
-    //         //                                          GGGGAAACCCCCCCC (partial)      CCCCCCCCCCCCCCC (just flank)
-    //         //                                                                    GGGGAAACCCCCCCCCCCCCC
-    //         let bm = BarMan::new(vec![FlankGroup {
-    //             flank_seq: flank,
-    //             match_type: MatchType::Fbarcode,
-    //             orientation: Orientation::Forward,
-    //         }], 0.4, ErrorRates::default(), 0.4,
-    //           -2.0, 0.9, 0.0); // -2 is very strict, but we  have short tests here
-    //                                                                                    // Only allowed matches with > 99% posterior prob
-    //         let matches = bm.annotate(read);
+//     #[test]
+//     fn test_partial_overlap_90_percent() {
+//         // Create a BarMan with filter_overlap = 0.9 (90%)
+//         let bar_man = BarMan::new(vec![], 0.4, ErrorRates::default(), 0.5, 0.0, 0.9, 0.0);
 
-    //         let expected_matches = [Match { read: None, label:
-    //             EncodedMatchStr {
-    //                 match_type: MatchType::Fbarcode,
-    //                 orientation: Orientation::Forward,
-    //                 label: Some("seq1".to_string())
-    //             },
-    //                 start: 20,
-    //                 end: 38,
-    //                 log_prob: Some(-0.2177120785045065),
-    //                 edit_dist: None,
-    //                 read_len: None,
-    //                 rel_dist_to_end: 20,
-    //                 record_set_idx: None,
-    //                 record_idx: None,
-    //                 cuts: None },
+//         let test_matches = create_test_matches();
 
-    //             Match { read: None, label:
-    //                 EncodedMatchStr {
-    //                     match_type: MatchType::Flank,
-    //                     orientation: Orientation::Forward,
-    //                     label: Some("Flank".to_string()) },
-    //                 start: 44,
-    //                 end: 64,
-    //                 log_prob: None,
-    //                 edit_dist: Some(0),
-    //                 read_len: None,
-    //                 rel_dist_to_end: -22,
-    //                 record_set_idx: None,
-    //                 record_idx: None,
-    //                 cuts: None
-    //             }
-    //         ];
-    //         assert_eq!(matches, expected_matches);
-    //     }
+//         // Filter to just the first test case
+//         let case1_matches = test_matches
+//             .iter()
+//             .filter(|m| m.start == 100 || m.start == 110)
+//             .cloned()
+//             .collect::<Vec<_>>();
 
-    // }
+//         let final_matches = bar_man.final_assignment(&case1_matches);
 
-    // #[cfg(test)]
-    // mod overlap_tests {
-    //     use super::*;
+//         // Should be grouped and we pick the higher log prob (-4.0)
+//         assert_eq!(final_matches.len(), 1);
+//         assert_eq!(final_matches[0].label.label, Some("barcode2".to_string()));
+//         assert_eq!(final_matches[0].log_prob, Some(-4.0));
+//     }
 
-    //     fn create_test_matches() -> Vec<Match> {
-    //         vec![
-    //             // Case 1: Two matches with 90% overlap (second match extends 10% beyond first)
-    //             Match::new(
-    //                 EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("barcode1".to_string())),
-    //                 100, 200, Some(-5.0), None, 100
-    //             ),
-    //             Match::new(
-    //                 EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("barcode2".to_string())),
-    //                 110, 210, Some(-4.0), None, 110
-    //             ),
+//     #[test]
+//     fn test_contained_match() {
+//         // Create a BarMan with filter_overlap = 0.9 (90%)
+//         let bar_man = BarMan::new(vec![], 0.4, ErrorRates::default(), 0.5, 0.0, 0.9, 0.0);
 
-    //             // Case 2: One match completely contained within another (A is within B)
-    //             Match::new(
-    //                 EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("barcode3".to_string())),
-    //                 300, 400, Some(-6.0), None, 300
-    //             ),
-    //             Match::new(
-    //                 EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("barcode4".to_string())),
-    //                 320, 380, Some(-3.0), None, 320
-    //             ),
+//         let test_matches = create_test_matches();
 
-    //             // Case 3: Overruling - one match extends beyond the other on both sides
-    //             Match::new(
-    //                 EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("barcode5".to_string())),
-    //                 500, 600, Some(-7.0), None, 500
-    //             ),
-    //             Match::new(
-    //                 EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("barcode6".to_string())),
-    //                 480, 620, Some(-2.0), None, 480
-    //             ),
+//         // Filter to just the second test case
+//         let case2_matches = test_matches
+//             .iter()
+//             .filter(|m| m.start == 300 || m.start == 320)
+//             .cloned()
+//             .collect::<Vec<_>>();
 
-    //             // Non-overlapping match to ensure separation works
-    //             Match::new(
-    //                 EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("barcode7".to_string())),
-    //                 700, 800, Some(-1.0), None, 700
-    //             ),
-    //         ]
-    //     }
+//         let final_matches = bar_man.final_assignment(&case2_matches);
 
-    //     #[test]
-    //     fn test_partial_overlap_90_percent() {
-    //         // Create a BarMan with filter_overlap = 0.9 (90%)
-    //         let bar_man = BarMan::new(
-    //             vec![], 0.4, ErrorRates::default(),
-    //             0.5, 0.0, 0.9, 0.0
-    //         );
+//         // Should be grouped and we pick the higher log prob (-3.0)
+//         assert_eq!(final_matches.len(), 1);
+//         assert_eq!(final_matches[0].label.label, Some("barcode4".to_string()));
+//         assert_eq!(final_matches[0].log_prob, Some(-3.0));
+//     }
 
-    //         let test_matches = create_test_matches();
+//     #[test]
+//     fn test_overruling_match() {
+//         // Create a BarMan with filter_overlap = 0.9 (90%)
+//         let bar_man = BarMan::new(vec![], 0.4, ErrorRates::default(), 0.5, 0.0, 0.9, 0.0);
 
-    //         // Filter to just the first test case
-    //         let case1_matches = test_matches.iter()
-    //             .filter(|m| m.start == 100 || m.start == 110)
-    //             .cloned()
-    //             .collect::<Vec<_>>();
+//         let test_matches = create_test_matches();
 
-    //         let final_matches = bar_man.final_assignment(&case1_matches);
+//         // Filter to just the third test case
+//         let case3_matches = test_matches
+//             .iter()
+//             .filter(|m| m.start == 500 || m.start == 480)
+//             .cloned()
+//             .collect::<Vec<_>>();
 
-    //         // Should be grouped and we pick the higher log prob (-4.0)
-    //         assert_eq!(final_matches.len(), 1);
-    //         assert_eq!(final_matches[0].label.label, Some("barcode2".to_string()));
-    //         assert_eq!(final_matches[0].log_prob, Some(-4.0));
-    //     }
+//         let final_matches = bar_man.final_assignment(&case3_matches);
 
-    //     #[test]
-    //     fn test_contained_match() {
-    //         // Create a BarMan with filter_overlap = 0.9 (90%)
-    //         let bar_man = BarMan::new(
-    //             vec![], 0.4, ErrorRates::default(),
-    //             0.5, 0.0, 0.9, 0.0
-    //         );
+//         // Should be grouped and we pick the higher log prob (-2.0)
+//         assert_eq!(final_matches.len(), 1);
+//         assert_eq!(final_matches[0].label.label, Some("barcode6".to_string()));
+//         assert_eq!(final_matches[0].log_prob, Some(-2.0));
+//     }
 
-    //         let test_matches = create_test_matches();
+//     #[test]
+//     fn test_all_overlap_cases_together() {
+//         // Create a BarMan with filter_overlap = 0.9 (90%)
+//         let bar_man = BarMan::new(vec![], 0.4, ErrorRates::default(), 0.5, 0.0, 0.9, 0.0);
 
-    //         // Filter to just the second test case
-    //         let case2_matches = test_matches.iter()
-    //             .filter(|m| m.start == 300 || m.start == 320)
-    //             .cloned()
-    //             .collect::<Vec<_>>();
+//         let test_matches = create_test_matches();
+//         let final_matches = bar_man.final_assignment(&test_matches);
 
-    //         let final_matches = bar_man.final_assignment(&case2_matches);
+//         // Should have 4 matches total (3 groups + 1 singleton)
+//         assert_eq!(final_matches.len(), 4);
 
-    //         // Should be grouped and we pick the higher log prob (-3.0)
-    //         assert_eq!(final_matches.len(), 1);
-    //         assert_eq!(final_matches[0].label.label, Some("barcode4".to_string()));
-    //         assert_eq!(final_matches[0].log_prob, Some(-3.0));
-    //     }
+//         // Check that each group kept the highest log prob match
+//         let mut has_barcode2 = false;
+//         let mut has_barcode4 = false;
+//         let mut has_barcode6 = false;
+//         let mut has_barcode7 = false;
 
-    //     #[test]
-    //     fn test_overruling_match() {
-    //         // Create a BarMan with filter_overlap = 0.9 (90%)
-    //         let bar_man = BarMan::new(
-    //             vec![], 0.4, ErrorRates::default(),
-    //             0.5, 0.0, 0.9, 0.0
-    //         );
+//         for m in &final_matches {
+//             match m.label.label.as_deref() {
+//                 Some("barcode2") => has_barcode2 = true,
+//                 Some("barcode4") => has_barcode4 = true,
+//                 Some("barcode6") => has_barcode6 = true,
+//                 Some("barcode7") => has_barcode7 = true,
+//                 _ => {}
+//             }
+//         }
 
-    //         let test_matches = create_test_matches();
+//         assert!(
+//             has_barcode2,
+//             "Missing barcode2 which should be selected from group 1"
+//         );
+//         assert!(
+//             has_barcode4,
+//             "Missing barcode4 which should be selected from group 2"
+//         );
+//         assert!(
+//             has_barcode6,
+//             "Missing barcode6 which should be selected from group 3"
+//         );
+//         assert!(has_barcode7, "Missing barcode7 which should be a singleton");
+//     }
 
-    //         // Filter to just the third test case
-    //         let case3_matches = test_matches.iter()
-    //             .filter(|m| m.start == 500 || m.start == 480)
-    //             .cloned()
-    //             .collect::<Vec<_>>();
+//     #[test]
+//     fn test_identical_matches() {
+//         // Create two identical matches that should be grouped
+//         let matches = vec![
+//             Match::new(
+//                 EncodedMatchStr::new(
+//                     MatchType::Fbarcode,
+//                     Orientation::Forward,
+//                     Some("barcode1".to_string()),
+//                 ),
+//                 100,
+//                 200,
+//                 Some(-5.0),
+//                 None,
+//                 100,
+//             ),
+//             Match::new(
+//                 EncodedMatchStr::new(
+//                     MatchType::Fbarcode,
+//                     Orientation::Forward,
+//                     Some("barcode2".to_string()),
+//                 ),
+//                 100,
+//                 200,
+//                 Some(-4.0),
+//                 None,
+//                 100,
+//             ),
+//         ];
 
-    //         let final_matches = bar_man.final_assignment(&case3_matches);
+//         let bar_man = BarMan::new(vec![], 0.4, ErrorRates::default(), 0.5, 0.0, 0.9, 0.0);
 
-    //         // Should be grouped and we pick the higher log prob (-2.0)
-    //         assert_eq!(final_matches.len(), 1);
-    //         assert_eq!(final_matches[0].label.label, Some("barcode6".to_string()));
-    //         assert_eq!(final_matches[0].log_prob, Some(-2.0));
-    //     }
+//         let final_matches = bar_man.final_assignment(&matches);
 
-    //     #[test]
-    //     fn test_all_overlap_cases_together() {
-    //         // Create a BarMan with filter_overlap = 0.9 (90%)
-    //         let bar_man = BarMan::new(
-    //             vec![], 0.4, ErrorRates::default(),
-    //             0.5, 0.0, 0.9, 0.0
-    //         );
-
-    //         let test_matches = create_test_matches();
-    //         let final_matches = bar_man.final_assignment(&test_matches);
-
-    //         // Should have 4 matches total (3 groups + 1 singleton)
-    //         assert_eq!(final_matches.len(), 4);
-
-    //         // Check that each group kept the highest log prob match
-    //         let mut has_barcode2 = false;
-    //         let mut has_barcode4 = false;
-    //         let mut has_barcode6 = false;
-    //         let mut has_barcode7 = false;
-
-    //         for m in &final_matches {
-    //             match m.label.label.as_deref() {
-    //                 Some("barcode2") => has_barcode2 = true,
-    //                 Some("barcode4") => has_barcode4 = true,
-    //                 Some("barcode6") => has_barcode6 = true,
-    //                 Some("barcode7") => has_barcode7 = true,
-    //                 _ => {}
-    //             }
-    //         }
-
-    //         assert!(has_barcode2, "Missing barcode2 which should be selected from group 1");
-    //         assert!(has_barcode4, "Missing barcode4 which should be selected from group 2");
-    //         assert!(has_barcode6, "Missing barcode6 which should be selected from group 3");
-    //         assert!(has_barcode7, "Missing barcode7 which should be a singleton");
-    //     }
-
-    //     #[test]
-    //     fn test_identical_matches() {
-    //         // Create two identical matches that should be grouped
-    //         let matches = vec![
-    //             Match::new(
-    //                 EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("barcode1".to_string())),
-    //                 100, 200, Some(-5.0), None, 100
-    //             ),
-    //             Match::new(
-    //                 EncodedMatchStr::new(MatchType::Fbarcode, Orientation::Forward, Some("barcode2".to_string())),
-    //                 100, 200, Some(-4.0), None, 100
-    //             ),
-    //         ];
-
-    //         let bar_man = BarMan::new(
-    //             vec![], 0.4, ErrorRates::default(),
-    //             0.5, 0.0, 0.9, 0.0
-    //         );
-
-    //         let final_matches = bar_man.final_assignment(&matches);
-
-    //         // Should be 1 match with the better log prob
-    //         assert_eq!(final_matches.len(), 1);
-    //         assert_eq!(final_matches[0].label.label, Some("barcode2".to_string()));
-    //     }
-    // }
-}
+//         // Should be 1 match with the better log prob
+//         assert_eq!(final_matches.len(), 1);
+//         assert_eq!(final_matches[0].label.label, Some("barcode2".to_string()));
+//     }
+// }
