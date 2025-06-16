@@ -127,7 +127,8 @@ impl FlankSeq {
         // Count positions and track r_pos range
         let positions_in_mask = traceback_path
             .iter()
-            .filter(|Pos(r_pos, q_pos)| {
+            .filter(|Pos(q_pos, r_pos)| {
+                // Q and R is swapped in sassy
                 if *q_pos as usize >= mask_start && (*q_pos as usize) <= mask_end {
                     // less than or euqal, as inclusive range
                     min_r_pos = min_r_pos.min(*r_pos as usize);

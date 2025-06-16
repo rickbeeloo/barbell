@@ -115,8 +115,18 @@ impl BarMan {
                     // We only look  for the barcode in the mask region with some wiggle room in case of gaps
                     // at the flank boundaries, +/- 5 bases
                     let (bar_start, bar_end) = bar_range.unwrap();
-                    let barcode_slice =
-                        &read[bar_start.saturating_sub(5)..(bar_end + 5).min(read.len())];
+                    println!("Barcode range: {:?}", bar_range);
+
+                    let read_start = bar_start.saturating_sub(5);
+                    let read_end = (bar_end + 5).min(read.len());
+                    println!("Read start: {} Read end: {}", read_start, read_end);
+                    if read_end <= read_start {
+                        panic!(
+                            "Read start is less than read end: {} < {} minimum coverage for mask: {:?}",
+                            read_start, read_end, self.min_mask_available
+                        );
+                    }
+                    let barcode_slice = &read[read_start..read_end];
 
                     // If there are barcode matches, we save all of them as such
                     let barcode_matches = self.check_barcodes(&mut searcher, barcode_slice, &flank);
@@ -310,6 +320,7 @@ impl BarMan {
         // if not it still counts as possible flank, just not enough "space" to search for the barcode
         for m in matches {
             let path = m.to_path();
+            println!("Path: {:?}", path);
             let (_, mask_passed, r_range) = flank.mask_covered(&path, self.min_mask_available);
             traced_ranges.push((m.start.1 as usize, m.end.1 as usize, m.cost)); // Covered read area, with number of edits 
             passed_mask.push(mask_passed); // Whether at least self.min_mask_available is covered
