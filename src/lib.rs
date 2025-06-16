@@ -1,9 +1,8 @@
 pub mod annotate;
-pub mod read;
 pub mod filter;
-pub mod pattern;
-pub mod types;
-pub mod trim;
-pub mod parallel;
 pub mod inspect;
-pub mod simdedits;
+pub mod parallel;
+pub mod pattern;
+pub mod read;
+pub mod trim;
+pub mod types;

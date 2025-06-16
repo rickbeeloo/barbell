@@ -1,13 +1,16 @@
 use crate::pattern::pattern::*;
 use crate::pattern_from_str;
+use crate::types::*;
+use colored::Colorize;
+use indicatif::ProgressStyle;
 use std::error::Error;
 use std::time::Instant;
-use indicatif::ProgressStyle;
-use colored::Colorize;
-use crate::types::*;
 
-
-pub fn filter(annotated_file: &str, output_file: &str, filters: Vec<Pattern>) -> Result<(), Box<dyn Error>> {
+pub fn filter(
+    annotated_file: &str,
+    output_file: &str,
+    filters: Vec<Pattern>,
+) -> Result<(), Box<dyn Error>> {
     let start_time = Instant::now();
 
     println!("\n{}", "Filtering".bold().underline());
@@ -20,7 +23,7 @@ pub fn filter(annotated_file: &str, output_file: &str, filters: Vec<Pattern>) ->
     progress_bar.set_style(
         ProgressStyle::with_template("{spinner:.blue} {prefix:<12} {msg:>6} {elapsed_precise}")
             .unwrap()
-            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
     );
     progress_bar.set_prefix("Processing:");
 
@@ -38,14 +41,14 @@ pub fn filter(annotated_file: &str, output_file: &str, filters: Vec<Pattern>) ->
     // Counters
     let mut total_reads = 0;
     let mut kept_reads = 0;
-    
+
     // Process reads one group at a time
     let mut current_read_id: Option<String> = None;
-    let mut current_group: Vec<Match> = Vec::new();
+    let mut current_group: Vec<BarbellMatch> = Vec::new();
 
     println!("Started deser");
     for result in reader.deserialize() {
-        let record: Match = result?;
+        let record: BarbellMatch = result?;
 
         if let Some(read_id) = &current_read_id {
             if read_id != record.read.as_ref().unwrap() {
@@ -64,11 +67,11 @@ pub fn filter(annotated_file: &str, output_file: &str, filters: Vec<Pattern>) ->
             current_read_id = Some(record.read.clone().unwrap());
             total_reads += 1;
         }
-        
+
         current_group.push(record);
         progress_bar.set_message(format!("{}", total_reads));
     }
-    
+
     // Process the last group
     if !current_group.is_empty() && check_filter_pass(&mut current_group, &filters) {
         kept_reads += 1;
@@ -76,34 +79,54 @@ pub fn filter(annotated_file: &str, output_file: &str, filters: Vec<Pattern>) ->
             writer.serialize(annotation)?;
         }
     }
-    
+
     writer.flush()?;
     progress_bar.finish_with_message("Done!");
 
     println!("\n{}", "Summary".bold().underline());
-    println!("  • Time: {} seconds", start_time.elapsed().as_secs().to_string().bold());
+    println!(
+        "  • Time: {} seconds",
+        start_time.elapsed().as_secs().to_string().bold()
+    );
     println!("  • Total reads: {}", total_reads.to_string().bold());
     println!("  • Kept reads: {}", kept_reads.to_string().green().bold());
-    println!("  • Removed reads: {}\n", (total_reads - kept_reads).to_string().red().bold());
+    println!(
+        "  • Removed reads: {}\n",
+        (total_reads - kept_reads).to_string().red().bold()
+    );
 
     Ok(())
 }
 
-pub fn filter_from_pattern_str(annotated_file: &str, pattern_str: &str, output_file: &str) -> Result<(), Box<dyn Error>> {
+pub fn filter_from_pattern_str(
+    annotated_file: &str,
+    pattern_str: &str,
+    output_file: &str,
+) -> Result<(), Box<dyn Error>> {
     // use pattern macro to convert pattern_str to pattern
     let pattern = pattern_from_str!(pattern_str);
     filter(annotated_file, output_file, vec![pattern])
 }
 
-pub fn filter_from_text_file(annotated_file: &str, text_file: &str, output_file: &str) -> Result<(), Box<dyn Error>> {
+pub fn filter_from_text_file(
+    annotated_file: &str,
+    text_file: &str,
+    output_file: &str,
+) -> Result<(), Box<dyn Error>> {
     // read the text file into a vector of strings
     let patterns = std::fs::read_to_string(text_file)?;
-    let patterns = patterns.split("\n").map(|s| s.trim()).collect::<Vec<&str>>();
-    let patterns = patterns.iter().map(|s| pattern_from_str!(s)).collect::<Vec<Pattern>>();
+    let patterns = patterns
+        .split("\n")
+        .map(|s| s.trim())
+        .collect::<Vec<&str>>();
+    let patterns = patterns
+        .iter()
+        .map(|s| pattern_from_str!(s))
+        .collect::<Vec<Pattern>>();
     filter(annotated_file, output_file, patterns)
 }
 
-fn check_filter_pass(annotations: &mut [Match], patterns: &[Pattern]) -> bool {
+fn check_filter_pass(annotations: &mut [BarbellMatch], patterns: &[Pattern]) -> bool {
     // Track both the maximum number of matches and the cut positions
     let mut max_matches = 0;
     let mut best_cut_positions: Option<Vec<(usize, Cut)>> = None;

@@ -1,11 +1,11 @@
-use std::fs::{File, remove_file, copy};
+use std::fs::{File, copy, remove_file};
 use std::io;
 use std::path::{Path, PathBuf};
 
 use csv::{ReaderBuilder, WriterBuilder};
 use tempfile::tempdir;
 
-use crate::types::Match;
+use crate::types::BarbellMatch;
 
 const CHUNK_SIZE: usize = 100000;
 
@@ -23,7 +23,7 @@ pub fn merge_sort_files(input_file: &str) {
     let mut chunk_count = 0;
 
     loop {
-        let chunk: Vec<Match> = reader
+        let chunk: Vec<BarbellMatch> = reader
             .deserialize()
             .take(CHUNK_SIZE)
             .collect::<Result<_, _>>()
@@ -63,10 +63,7 @@ pub fn merge_sort_files(input_file: &str) {
     remove_file(temp_output).expect("Failed to remove temporary sorted file");
 }
 
-fn merge_chunks<P: AsRef<Path>>(
-    chunk_files: &[P],
-    output_file: &str,
-) -> io::Result<()> {
+fn merge_chunks<P: AsRef<Path>>(chunk_files: &[P], output_file: &str) -> io::Result<()> {
     assert!(!chunk_files.is_empty(), "No chunks to merge");
 
     let mut readers: Vec<csv::Reader<File>> = chunk_files
@@ -86,9 +83,9 @@ fn merge_chunks<P: AsRef<Path>>(
         .from_path(output_file)
         .expect("Failed to create output file");
 
-    let mut current_records: Vec<Option<Match>> = readers
+    let mut current_records: Vec<Option<BarbellMatch>> = readers
         .iter_mut()
-        .map(|r| r.deserialize::<Match>().next().transpose())
+        .map(|r| r.deserialize::<BarbellMatch>().next().transpose())
         .collect::<Result<_, _>>()
         .expect("Failed to read initial records from chunks");
 
@@ -106,7 +103,7 @@ fn merge_chunks<P: AsRef<Path>>(
         if let Some(record) = current_records[min_idx].take() {
             writer.serialize(record)?;
             current_records[min_idx] = readers[min_idx]
-                .deserialize::<Match>()
+                .deserialize::<BarbellMatch>()
                 .next()
                 .transpose()
                 .expect("Failed to deserialize next record");

@@ -1,15 +1,18 @@
-use crate::annotate::search::BarMan;
 use crate::annotate::merge_sort::merge_sort_files;
+use crate::annotate::search::BarMan;
 
+use anyhow::Result;
+use colored::Colorize;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use sassy::profiles::Iupac;
+use sassy::search::Searcher;
 use seq_io::fastq::Reader as FastqReader;
 use seq_io_parallel::{MinimalRefRecord, ParallelProcessor, ParallelReader};
-use std::sync::{Arc, Mutex};
+use std::io::{BufWriter, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::io::{Write, BufWriter};
+use std::sync::{Arc, Mutex};
+use std::thread_local;
 use std::time::Instant;
-use indicatif::{ProgressBar, ProgressStyle, MultiProgress};
-use colored::Colorize;
-use anyhow::Result;
 
 #[derive(Clone)]
 pub struct ParallelAnnotator {
@@ -23,6 +26,10 @@ pub struct ParallelAnnotator {
     missed_bar: Arc<ProgressBar>,
 }
 
+thread_local! {
+    static THREAD_SEARCHER: std::cell::RefCell<Option<Searcher<Iupac>>> = std::cell::RefCell::new(None);
+}
+
 impl ParallelAnnotator {
     pub fn new(bar_man: BarMan) -> Self {
         let multi_progress = MultiProgress::new();
@@ -34,17 +41,19 @@ impl ParallelAnnotator {
         total_bar.set_style(
             ProgressStyle::with_template("{spinner:.blue} {prefix:<12} {msg:>6} {elapsed_precise}")
                 .unwrap()
-                .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+                .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
         );
         found_bar.set_style(
-            ProgressStyle::with_template("{spinner:.green} {prefix:<12} {msg:>6} {elapsed_precise}")
-                .unwrap()
-                .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+            ProgressStyle::with_template(
+                "{spinner:.green} {prefix:<12} {msg:>6} {elapsed_precise}",
+            )
+            .unwrap()
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
         );
         missed_bar.set_style(
             ProgressStyle::with_template("{spinner:.red} {prefix:<12} {msg:>6} {elapsed_precise}")
                 .unwrap()
-                .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+                .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
         );
 
         total_bar.set_prefix("Total:");
@@ -53,7 +62,9 @@ impl ParallelAnnotator {
 
         Self {
             bar_man: Arc::new(bar_man),
-            writer: Arc::new(Mutex::new(BufWriter::new(std::fs::File::create("/dev/null").unwrap()))),
+            writer: Arc::new(Mutex::new(BufWriter::new(
+                std::fs::File::create("/dev/null").unwrap(),
+            ))),
             total: Arc::new(AtomicUsize::new(0)),
             found: Arc::new(AtomicUsize::new(0)),
             missed: Arc::new(AtomicUsize::new(0)),
@@ -63,7 +74,12 @@ impl ParallelAnnotator {
         }
     }
 
-    pub fn process_fastq(&mut self, fastq_file: &str, output_file: &str, threads: usize) -> Result<()> {
+    pub fn process_fastq(
+        &mut self,
+        fastq_file: &str,
+        output_file: &str,
+        threads: usize,
+    ) -> Result<()> {
         let start_time = Instant::now();
 
         println!("\n{}", "Configuration".bold().underline());
@@ -78,7 +94,10 @@ impl ParallelAnnotator {
 
         // Write header
         let mut writer = self.writer.lock().unwrap();
-        writeln!(writer, "read\tlabel\tstart\tend\tedit_dist\tread_len\trel_dist_to_end\trecord_set_idx\trecord_idx\tcuts")?;
+        writeln!(
+            writer,
+            "read\tlabel\tstart\tend\tedit_dist\tread_len\trel_dist_to_end\trecord_set_idx\trecord_idx\tcuts"
+        )?;
         drop(writer);
 
         // Process reads
@@ -91,10 +110,26 @@ impl ParallelAnnotator {
         self.missed_bar.finish_with_message("Done!");
 
         println!("\n{}", "Summary".bold().underline());
-        println!("  • Time: {} seconds", start_time.elapsed().as_secs().to_string().bold());
-        println!("  • Total reads: {}", self.total.load(Ordering::Relaxed).to_string().bold());
-        println!("  • Tagged reads: {}", self.found.load(Ordering::Relaxed).to_string().green().bold());
-        println!("  • Missed reads: {}\n", self.missed.load(Ordering::Relaxed).to_string().red().bold());
+        println!(
+            "  • Time: {} seconds",
+            start_time.elapsed().as_secs().to_string().bold()
+        );
+        println!(
+            "  • Total reads: {}",
+            self.total.load(Ordering::Relaxed).to_string().bold()
+        );
+        println!(
+            "  • Tagged reads: {}",
+            self.found
+                .load(Ordering::Relaxed)
+                .to_string()
+                .green()
+                .bold()
+        );
+        println!(
+            "  • Missed reads: {}\n",
+            self.missed.load(Ordering::Relaxed).to_string().red().bold()
+        );
 
         // Flush before closing
         self.writer.lock().unwrap().flush()?;
@@ -103,31 +138,46 @@ impl ParallelAnnotator {
         println!("\n{}", "Merge sort".bold().underline());
         let start_time = Instant::now();
         merge_sort_files(output_file);
-        println!("  • Time: {} seconds", start_time.elapsed().as_secs().to_string().bold());
+        println!(
+            "  • Time: {} seconds",
+            start_time.elapsed().as_secs().to_string().bold()
+        );
 
         Ok(())
     }
 }
 
 impl ParallelProcessor for ParallelAnnotator {
-    fn process_record<'a, Rf: MinimalRefRecord<'a>>(&mut self, record: Rf, record_set_idx: usize, record_idx: usize) -> Result<()> {
+    fn process_record<'a, Rf: MinimalRefRecord<'a>>(
+        &mut self,
+        record: Rf,
+        record_set_idx: usize,
+        record_idx: usize,
+    ) -> Result<()> {
+        // Initialize thread-local searcher if not already done
+        THREAD_SEARCHER.with(|searcher| {
+            if searcher.borrow().is_none() {
+                *searcher.borrow_mut() = Some(self.bar_man.create_searcher());
+            }
+        });
+
         // Parse the read ID and sequence
         let read_id = record.ref_id().unwrap().split_whitespace().next().unwrap();
         let read = record.ref_seq();
-        
-        // Annotate the read
+
+        // Annotate the read using thread-local searcher
         let matches = self.bar_man.annotate(read);
-        
+
         // Update total counter
         let total_count = self.total.fetch_add(1, Ordering::Relaxed);
-        
+
         // Get the writer lock
         let mut writer = self.writer.lock().unwrap();
-        
+
         if !matches.is_empty() {
             // Update found counter
             self.found.fetch_add(1, Ordering::Relaxed);
-            
+
             // Serialize would be nicer but it has to reinit the wirter all the time in the thread?
             for m in &matches {
                 writeln!(
@@ -147,17 +197,19 @@ impl ParallelProcessor for ParallelAnnotator {
         } else {
             self.missed.fetch_add(1, Ordering::Relaxed);
         }
-        
+
         // Release the lock when done
         drop(writer);
-        
+
         // Update progress bars periodically
         if total_count % 100 == 0 {
             self.total_bar.set_message(format!("{}", total_count));
-            self.found_bar.set_message(format!("{}", self.found.load(Ordering::Relaxed)));
-            self.missed_bar.set_message(format!("{}", self.missed.load(Ordering::Relaxed)));
+            self.found_bar
+                .set_message(format!("{}", self.found.load(Ordering::Relaxed)));
+            self.missed_bar
+                .set_message(format!("{}", self.missed.load(Ordering::Relaxed)));
         }
-        
+
         Ok(())
     }
 
@@ -166,4 +218,4 @@ impl ParallelProcessor for ParallelAnnotator {
         // self.writer.lock().unwrap().flush()?;
         Ok(())
     }
-} 
+}
