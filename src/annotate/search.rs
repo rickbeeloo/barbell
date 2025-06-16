@@ -6,8 +6,6 @@ use colored::Colorize;
 use rand::Rng;
 use sassy::profiles::*;
 use sassy::search::*;
-use std::cell::RefCell;
-use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
 #[derive(Clone)]

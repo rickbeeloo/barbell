@@ -34,6 +34,10 @@ enum Commands {
         #[arg(short = 'q', long)]
         queries: String,
 
+        /// Group names for query files (comma-separated, like "fbar", or "fbar,rbar" for two files)
+        #[arg(short = 'g', long)]
+        group_names: String,
+
         /// Tuning
         #[arg(long, default_value_t = false)]
         tune: bool,
@@ -114,6 +118,7 @@ fn main() {
             threads,
             output,
             queries,
+            group_names,
             tune,
             fp_target,
             tune_runs,
@@ -124,8 +129,12 @@ fn main() {
             let query_files: Vec<String> =
                 queries.split(',').map(|s| s.trim().to_string()).collect();
 
+            let group_names: Vec<String> = group_names
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect();
             let query_files_refs: Vec<&str> = query_files.iter().map(|s| s.as_str()).collect();
-            let groups = read_queries(query_files_refs);
+            let groups = read_queries(query_files_refs, group_names);
 
             let mut bar_searcher = BarMan::new(
                 groups, 0.4, 0.4, 0.9, *fp_target, 0, // Will be tuned when --tune

@@ -344,6 +344,8 @@ pub fn get_flanks(
 mod test {
 
     use super::*;
+    use sassy::profiles::*;
+    use sassy::search::*;
 
     fn first_lowest_index(edits: &[i32]) -> usize {
         let min_edits = edits.iter().min().unwrap();
@@ -372,34 +374,33 @@ mod test {
         );
     }
 
-    // #[test]
-    // fn test_mask_covered_range() {
-    //     //  We now where the mask, is, AAAA/TTTT
-    //     let t = b"GGGGAAACCCC";
-    //     let f = FlankSeq::init_from_sequences(
-    //         &[b"GGGGAAACCCC".to_vec(), b"GGGGTTTCCCC".to_vec()],
-    //         vec!["seq1".to_string(), "seq2".to_string()],
-    //     )
-    //     .unwrap();
+    #[test]
+    fn test_mask_covered_range() {
+        //  We now where the mask, is, AAAA/TTTT
+        let t = b"GGGGAAACCCC";
+        let f: FlankSeq = FlankSeq::init_from_sequences(
+            &[b"GGGGAAACCCC".to_vec(), b"GGGGTTTCCCC".to_vec()],
+            vec!["seq1".to_string(), "seq2".to_string()],
+        )
+        .unwrap();
 
-    //     let s = search(&f.seq, t, 0.4);
-    //     let first_lowest_index = first_lowest_index(&s.out);
-    //     let traceback = s.trace(first_lowest_index);
-    //     let (_, _, r_range) = f.mask_covered(&traceback.1[..], 1.0);
-
-    //     // The mask should be positions 4,5,6 in the sequence (AAA)
-    //     // And since this is an exact match, the r_range should match these positions
-    //     let (start, end) = r_range.unwrap();
-    //     assert_eq!(start, 4);
-    //     assert_eq!(end, 6);
-
-    //     // Verify these positions in the target sequence contain the mask
-    //     assert_eq!(&t[start..=end], b"AAA");
-    // }
+        let mut searcher = Searcher::<Iupac>::new_fwd_with_overhang(0.4);
+        let matches = searcher.search(&f.seq, t, t.len());
+        for m in matches.iter() {
+            println!("Match: {} {} edits {}", m.start, m.end, m.cost);
+        }
+        let lowest_edits_match = matches.iter().min_by_key(|m| m.cost).unwrap();
+        let path = lowest_edits_match.to_path();
+        let (_, _, r_range) = f.mask_covered(&path, 1.0);
+        let (start, end) = r_range.unwrap();
+        assert_eq!(start, 4);
+        assert_eq!(end, 6);
+        assert_eq!(&t[start..=end], b"AAA");
+    }
 
     // #[test]
     // fn test_mask_partial_coverage() {
-    //     //  We now where the mask, is, AAAA/TTTT
+    //     //  We know where the mask, is, AAAA/TTTT
     //     let t = b"AAAAACCCC";
     //     let f = FlankSeq::init_from_sequences(
     //         &[b"GGGGAAAAAAAAACCCC".to_vec(), b"GGGGTTTTTTTTTCCCC".to_vec()],
@@ -407,11 +408,19 @@ mod test {
     //     )
     //     .unwrap();
 
-    //     let s = search(&f.seq, t, 0.4);
-    //     let first_lowest_index = first_lowest_index(&s.out);
-    //     let traceback = s.trace(first_lowest_index);
-    //     let (_, _, r_range) = f.mask_covered(&traceback.1[..], 1.0);
+    //     let mut searcher = Searcher::<Iupac>::new_fwd_with_overhang(0.4);
+    //     println!("Query: {:?}", String::from_utf8_lossy(&f.seq));
+    //     println!("Target: {:?}", String::from_utf8_lossy(t));
+    //     let matches = searcher.search(&f.seq, t, t.len());
+    //     for m in matches.iter() {
+    //         println!("Match: {} {} edits {}", m.start, m.end, m.cost);
+    //     }
+    //     let lowest_edits_match = matches.iter().min_by_key(|m| m.cost).unwrap();
+    //     let path = lowest_edits_match.to_path();
+    //     println!("Prefix: {:?}", String::from_utf8_lossy(&f.seq));
+    //     let (_, _, r_range) = f.mask_covered(&path, 1.0);
     //     let (start, end) = r_range.unwrap();
+    //     println!("R range: {:?}", r_range);
     //     assert_eq!(start, 0);
     //     assert_eq!(end, 4);
     //     assert_eq!(&t[start..=end], b"AAAAA");
