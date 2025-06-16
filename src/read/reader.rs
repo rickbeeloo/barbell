@@ -72,7 +72,12 @@ pub fn read_queries(fasta_files: Vec<&str>, group_names: Vec<String>) -> Vec<Fla
         };
         println!(
             "  • Sequences: {} ({})",
-            g.flank_seq.mask_queries.len().to_string().bold(),
+            g.flank_seq
+                .mask_queries
+                .len()
+                .to_string()
+                .replace("N", "*")
+                .bold(),
             orientation
         );
         println!("    Pattern: {}", g.flank_seq.as_string().dimmed());

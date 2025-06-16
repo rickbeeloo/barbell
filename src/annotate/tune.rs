@@ -48,10 +48,6 @@ fn get_fp_threshold<T: Number>(scores: Vec<T>, fp_target: f64, tail_side: TailSi
 
     let target_index = (fp_target * sorted_scores.len() as f64) as usize;
 
-    println!("Target index: {}", target_index);
-    // println!("First 10 sorted scores: {:?}", &sorted_scores[0..10]);
-    println!("Score length: {}", sorted_scores.len());
-
     if target_index < sorted_scores.len() {
         sorted_scores[target_index]
     } else {
@@ -80,18 +76,6 @@ pub fn tune_edit_distance(
 
     // Collect queries from all flanks
     let queries: Vec<_> = flanks.iter().map(|f| f.flank_seq.seq.as_ref()).collect();
-    let half_flank_len = (seq_len as f32 / 2.0).round() as usize;
-
-    // Create progress bar
-    let pb = ProgressBar::new((queries.len() * n) as u64);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template(
-                "{spinner:.blue} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
-            )
-            .unwrap()
-            .progress_chars("##-"),
-    );
 
     // Use Rayon to chunk the workload and generate per-thread results
     let all_edit_distances: Vec<Vec<i32>> = queries
@@ -118,17 +102,13 @@ pub fn tune_edit_distance(
                         )
                     });
                     let edit_dist = matches.iter().min_by_key(|m| m.cost).unwrap().cost;
-                    pb.inc(1);
                     edit_dist
                 })
                 .collect::<Vec<i32>>()
         })
         .collect();
 
-    pb.finish_with_message("Done tuning edit distances");
     sp.stop();
-
-    println!("Input sequence length: {}", seq_len);
 
     // Calculate the cutoff for each query
     all_edit_distances

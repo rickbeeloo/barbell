@@ -85,14 +85,20 @@ fn check_match_type_and_label(m: &BarbellMatch, pattern_element: &PatternElement
             if let Some(ref expected_label) = pattern_element.label {
                 // Labels are not the same
                 if let Some(ref m_label) = m.label.label {
-                    if expected_label != m_label {
-                        // println!(
-                        //     "Explicit label mismatch: {:?} != {:?}",
-                        //     expected_label, m_label
-                        // );
+                    if m_label.contains(expected_label) {
+                        // println!("Label match: {:?} contains {:?}", m_label, expected_label);
+                        return true;
+                    } else {
                         return false;
                     }
-                // No label in match
+                    // if expected_label != m_label {
+                    //     // println!(
+                    //     //     "Explicit label mismatch: {:?} != {:?}",
+                    //     //     expected_label, m_label
+                    //     // );
+                    //     return false;
+                    // }
+                    // No label in match
                 } else {
                     //  println!("Barcode without label in match");
                     return false;
@@ -248,7 +254,6 @@ pub fn match_pattern(matches: &[BarbellMatch], pattern: &Pattern) -> (bool, Vec<
 macro_rules! pattern_from_str {
     ($pattern:expr) => {{
         use $crate::pattern::pattern::*;
-        use $crate::types::*;
 
         fn parse_range(range_str: &str) -> Option<(isize, isize)> {
             let parts: Vec<&str> = range_str
