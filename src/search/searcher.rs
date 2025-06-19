@@ -181,6 +181,7 @@ impl Demuxer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::search::interval::collapse_overlapping_matches;
 
     /// Helper function to check if a value is within wiggle room of expected
     fn assert_within_wiggle_room(actual: usize, expected: usize, wiggle_room: usize) {
@@ -375,39 +376,5 @@ mod tests {
         // Cost should be 0 for both
         assert_eq!(fwd_first.barcode_cost, 0);
         assert_eq!(rc_first.barcode_cost, 0);
-    }
-
-    #[test]
-    pub fn ok() {
-        println!("Test real read");
-        let mut barcode_group = BarcodeGroup::new(
-            &[
-                Iupac::reverse_complement(
-                    "TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCACCACTGCCATGTATCAAAGTACGGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA".as_bytes(),
-                )
-                .as_slice(),
-                Iupac::reverse_complement(
-                    "TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCTTCGGATTCTATCGTGTTTCCCTAGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA".as_bytes(),
-                )
-                .as_slice(),
-            ],
-            &["bar22", "bar4"],
-            BarcodeType::Fbar,
-        );
-        barcode_group.tune_k(1000, 0.001, 0.5);
-        for bar in barcode_group.barcodes.iter_mut() {
-            bar.tune_k(1_000, 0.001, 0.5);
-        }
-
-        let read = b"TGTTATATTTCCCTGTACTTCGTTCCAGTTATTTTTATGCAAAAAACCGGTGTTTAACCACCACTGCCATGTATCAAAGTACGGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCAACAGGAAAACTATTTTCTGCAGG".to_vec();
-        let mut demuxer = Demuxer::new(0.5);
-        demuxer.add_query_group(barcode_group);
-
-        let matches = demuxer.demux(&read);
-        for m in matches {
-            println!("m: {:?}", m);
-        }
-
-        // Appeared to be not so easy case where searching of rc is not identical, however we do find the same low edits match (c = 16)
     }
 }
