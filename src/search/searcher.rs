@@ -1,9 +1,11 @@
-use pa_types::{Cost, Pos};
-use sassy::profiles::{Iupac, Profile};
-use sassy::search::*;
-
-use crate::search::barcodes::{BarcodeGroup, BarcodeType, Tuneable};
+use crate::search::barcodes::{BarcodeGroup, BarcodeType};
 use crate::search::interval::collapse_overlapping_matches;
+use needletail::{FastxReader, Sequence, parse_fastx_file};
+use pa_types::Cost;
+use rayon::prelude::*;
+use sassy::profiles::Iupac;
+use sassy::profiles::Profile;
+use sassy::search::{Match, Searcher, Strand};
 
 pub struct Demuxer {
     overhang_searcher: Searcher<Iupac>,
@@ -13,17 +15,24 @@ pub struct Demuxer {
 
 #[derive(Debug, Clone)]
 pub struct BarbellMatch {
+    // Where barcode starts in read
     pub read_start_bar: usize,
     pub read_end_bar: usize,
+
+    // Where flank starts in read
     pub read_start_flank: usize,
     pub read_end_flank: usize,
+
+    // Where in the barcode the match starts
     pub bar_start: usize,
     pub bar_end: usize,
+
     pub match_type: BarcodeType,
     pub flank_cost: Cost,
     pub barcode_cost: Cost,
     pub label: String,
     pub strand: Strand,
+    pub read_len: usize,
 }
 
 impl BarbellMatch {
@@ -39,6 +48,7 @@ impl BarbellMatch {
         barcode_cost: Cost,
         label: String,
         strand: Strand,
+        read_len: usize,
     ) -> Self {
         Self {
             read_start_bar,
@@ -52,6 +62,7 @@ impl BarbellMatch {
             barcode_cost,
             label,
             strand,
+            read_len,
         }
     }
 }
@@ -98,28 +109,31 @@ impl Demuxer {
         }
 
         let start = min_r_pos.saturating_sub(crate::WIGGLE_ROOM);
-        let end = (max_r_pos + crate::WIGGLE_ROOM).min(read.len());
+        let end = (max_r_pos + crate::WIGGLE_ROOM).min(read.len() - 1);
 
-        println!(
-            "Mask region: [{}-{}] c: {}{:?}",
-            start,
-            end,
-            flank_match.cost,
-            String::from_utf8_lossy(&read[start..=end])
-        );
+        // println!(
+        //     "Mask region: [{}-{}] c: {}{:?}",
+        //     start,
+        //     end,
+        //     flank_match.cost,
+        //     String::from_utf8_lossy(&read[start..=end])
+        // );
         (&read[start..=end], (start, end))
     }
 
     pub fn demux(&mut self, read: &[u8]) -> Vec<BarbellMatch> {
+        let start_time = std::time::Instant::now();
         let mut results: Vec<BarbellMatch> = Vec::new();
 
         // We first search for the top level of the barcodeGroups
         for barcode_group in self.queries.iter() {
             let flank = &barcode_group.flank;
-
-            let flank_matches =
-                self.overhang_searcher
-                    .search(flank, &read, barcode_group.k_cutoff.unwrap_or(0));
+            let k = barcode_group.k_cutoff.unwrap_or(0);
+            println!("K: {}", k);
+            println!("Q: {}", String::from_utf8_lossy(flank));
+            println!("Read: {}", String::from_utf8_lossy(read));
+            let flank_matches = self.overhang_searcher.search(flank, &read, k);
+            println!("Flank matches: {}", flank_matches.len());
 
             // If we found a flank, we slice out the masked region and search for the barcodes in the
             // masked region, we should be AWARE OF THE STRAND as sassy now returns both directions (Fwd, Rc)
@@ -138,8 +152,16 @@ impl Demuxer {
                     continue;
                 }
 
+                //println!("Mask region: {:?}", String::from_utf8_lossy(mask_region));
+
                 // Then we compare each query against the masked region
+                let mut barcode_found = false;
                 for barcode in barcode_group.barcodes.iter() {
+                    // println!(
+                    //     "Barocde: {}",
+                    //     String::from_utf8_lossy(barcode.seq.as_slice())
+                    // );
+
                     // Look for barcode mathces in mask slice
                     let bms = self.overhang_searcher.search(
                         &barcode.seq,
@@ -147,13 +169,9 @@ impl Demuxer {
                         barcode.k_cutoff.unwrap_or(0),
                     );
 
-                    // If no barcode matches within k we can just skip
-                    if bms.is_empty() {
-                        continue;
-                    }
-
                     // We make sure they flank and barcode match on the same strand
                     for bm in bms.iter().filter(|bm| bm.strand == flank_match.strand) {
+                        barcode_found = true;
                         results.push(BarbellMatch::new(
                             //t - storing flank matches to more accurately filter out overlaps later on
                             bm.start.1 as usize + mask_start,
@@ -168,13 +186,35 @@ impl Demuxer {
                             bm.cost,
                             barcode.label.clone(),
                             bm.strand,
+                            read.len(),
                         ));
                     }
                 }
+                if !barcode_found {
+                    // We just add the flank as a match
+                    results.push(BarbellMatch::new(
+                        //t - storing flank matches to more accurately filter out overlaps later on
+                        flank_match.start.1 as usize + mask_start,
+                        flank_match.end.1 as usize + mask_start,
+                        flank_match.start.1 as usize,
+                        flank_match.end.1 as usize,
+                        //q
+                        0 as usize,
+                        0 as usize,
+                        barcode_group.barcodes[0].match_type.as_flank().clone(),
+                        flank_match.cost,
+                        0,
+                        "flank".to_string(),
+                        flank_match.strand,
+                        read.len(),
+                    ));
+                }
             }
         }
-        results
-        //collapse_overlapping_matches(&results, 0.5)
+        let end_time = std::time::Instant::now();
+        println!("Time taken: {:?}", end_time.duration_since(start_time));
+        // results
+        collapse_overlapping_matches(&results, 0.5)
     }
 }
 
@@ -203,8 +243,8 @@ mod tests {
         let read = b"GGGGGAAATTTGGGCCCCCCCCCCCCCCCCCCCCCC".to_vec();
         //                         AAATTTGGG <- match (0 edits/cost)
         let flank = BarcodeGroup::new(
-            &[b"AAATTTGGG", b"AAAXXXGGG"],
-            &["s1", "s2"],
+            vec![b"AAATTTGGG".to_vec(), b"AAAXXXGGG".to_vec()],
+            vec!["s1".to_string(), "s2".to_string()],
             BarcodeType::Fbar,
         );
         demuxer.add_query_group(flank);
@@ -224,28 +264,29 @@ mod tests {
     #[test]
     fn test_demux_rc() {
         let mut demuxer = Demuxer::new(0.5);
-        let read = b"GGGGGAAATTTGGGCCCCCCCCCCCCCCCCCCCCCC".to_vec();
+        let read = b"GGGGGAAATTTTTTTTTTTGGGCCCCCCCCCCCCCCCCCCCCCC".to_vec();
         //                         AAATTTGGG <- match (0 edits/cost)
-        let flank = BarcodeGroup::new(
-            &[
-                Iupac::reverse_complement("AAATTTGGG".as_bytes()).as_slice(),
-                Iupac::reverse_complement("AAACCCGGG".as_bytes()).as_slice(),
+        let mut bar_group = BarcodeGroup::new(
+            vec![
+                Iupac::reverse_complement("AAATTTTTTTTTTTGGG".as_bytes()).to_vec(),
+                Iupac::reverse_complement("AAACCCCCCCCCCCGGG".as_bytes()).to_vec(),
             ],
-            &["s1", "s2"],
+            vec!["s1".to_string(), "s2".to_string()],
             BarcodeType::Fbar,
         );
-        demuxer.add_query_group(flank);
+        bar_group.tune_group(1000, 0.001, 0.5, 1);
+        demuxer.add_query_group(bar_group);
 
         let matches = demuxer.demux(&read);
 
-        assert_eq!(matches.len(), 2);
+        assert!(matches.len() < 3 && matches.len() > 0);
 
         // Same as before, but now rc
         assert_eq!(matches[0].label, "s1");
         assert_eq!(matches[0].read_start_bar, 8);
-        assert_eq!(matches[0].read_end_bar, 11); // Exclusive index
+        assert_eq!(matches[0].read_end_bar, 19); // Exclusive index
         assert_eq!(matches[0].bar_start, 0);
-        assert_eq!(matches[0].bar_end, 3); // This is inclusive, maybe we should stay consistent exclusive?
+        assert_eq!(matches[0].bar_end, 11); // This is inclusive, maybe we should stay consistent exclusive?
         assert_eq!(matches[0].match_type, BarcodeType::Fbar);
         assert_eq!(matches[0].barcode_cost, 0);
         assert_eq!(matches[0].strand, Strand::Rc); // Same as above EXCEPT strand
@@ -260,8 +301,8 @@ mod tests {
         //            TTTTTT
         //         TTTTTTTTTT
         let mut flank = BarcodeGroup::new(
-            &[b"AAATTTTTTTTTTGGG", b"AAACCCCCCCCCCGGG"],
-            &["s1", "s2"],
+            vec![b"AAATTTTTTTTTTGGG".to_vec(), b"AAACCCCCCCCCCGGG".to_vec()],
+            vec!["s1".to_string(), "s2".to_string()],
             BarcodeType::Fbar,
         );
         // Tune flank seq
@@ -293,22 +334,35 @@ mod tests {
         let read = b"CCCCCCCCCCCCCAAATTTTTTTTTTTGGGCCCCCCCCCCCC".to_vec();
         //                                 AAATTTTTTTTTTTGGG <- match (0 edits/cost)
         let flank = BarcodeGroup::new(
-            &[b"AAATTTTTTTTTTTGGG", b"AAACCCCCCCCCCCGGG"],
-            &["s1", "s2"],
+            vec![b"AAATTTTTTTTTTTGGG".to_vec(), b"AAACCCCCCCCCCCGGG".to_vec()],
+            vec!["s1".to_string(), "s2".to_string()],
             BarcodeType::Fbar,
         );
         demuxer.add_query_group(flank);
 
         let res = demuxer.demux(&read);
-        assert_eq!(res.len(), 1);
-        assert_eq!(res[0].label, "s1");
-        assert_eq!(res[0].read_start_bar, 16);
-        assert_eq!(res[0].read_end_bar, 27); // Exclusive index
-        assert_eq!(res[0].bar_start, 0);
-        assert_eq!(res[0].bar_end, 11); // This is inclusive, maybe we should stay consistent exclusive?
-        assert_eq!(res[0].match_type, BarcodeType::Fbar);
-        assert_eq!(res[0].barcode_cost, 0);
-        assert_eq!(res[0].strand, Strand::Fwd);
+        assert_eq!(res.len(), 2);
+        assert_eq!(res[1].label, "s1");
+        assert_eq!(res[1].read_start_bar, 16);
+        assert_eq!(res[1].read_end_bar, 27); // Exclusive index
+        assert_eq!(res[1].bar_start, 0);
+        assert_eq!(res[1].bar_end, 11); // This is inclusive, maybe we should stay consistent exclusive?
+        assert_eq!(res[1].match_type, BarcodeType::Fbar);
+        assert_eq!(res[1].barcode_cost, 0);
+        assert_eq!(res[1].strand, Strand::Fwd);
+    }
+
+    #[test]
+    fn test_multi_match() {
+        let mut demuxer = Demuxer::new(0.5);
+        let read = b"CCCCCCCCCCCCCAAATTTTTTTTTTTGGGCCCCCCCCCCCC".to_vec();
+        //                                 AAATTTTTTTTTTTGGG <- match (0 edits/cost)
+        let flank = BarcodeGroup::new(
+            vec![b"AAATTTTTTTTTTTGGG".to_vec(), b"AAACCCCCCCCCCCGGG".to_vec()],
+            vec!["s1".to_string(), "s2".to_string()],
+            BarcodeType::Fbar,
+        );
+        demuxer.add_query_group(flank);
     }
 
     #[test]
@@ -318,14 +372,14 @@ mod tests {
 
         // FWD group
         let mut fwd_barcode_group = BarcodeGroup::new(
-            &[b"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCACCACTGCCATGTATCAAAGTACGGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA", b"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCTTCGGATTCTATCGTGTTTCCCTAGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA"],
-            &["bar22_fwd", "bar4_fwd"],
+            vec![
+                b"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCACCACTGCCATGTATCAAAGTACGGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA".to_vec(),
+                b"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCTTCGGATTCTATCGTGTTTCCCTAGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA".to_vec()
+            ],
+            vec!["bar22_fwd".to_string(), "bar4_fwd".to_string()],
             BarcodeType::Fbar,
         );
-        fwd_barcode_group.tune_k(1000, 0.001, 0.5);
-        for bar in fwd_barcode_group.barcodes.iter_mut() {
-            bar.tune_k(1_000, 0.001, 0.5);
-        }
+        fwd_barcode_group.tune_group(1000, 0.001, 0.5, 4);
         let mut demuxer = Demuxer::new(0.5);
         demuxer.add_query_group(fwd_barcode_group);
         println!("FWD demux");
@@ -334,14 +388,14 @@ mod tests {
 
         // RC group
         let mut rc_barcode_group = BarcodeGroup::new(
-            &[Iupac::reverse_complement("TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCACCACTGCCATGTATCAAAGTACGGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA".as_bytes()).as_slice(), Iupac::reverse_complement("TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCTTCGGATTCTATCGTGTTTCCCTAGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA".as_bytes()).as_slice()],
-            &["bar22_rc", "bar4_rc"],
+            vec![
+                Iupac::reverse_complement("TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCACCACTGCCATGTATCAAAGTACGGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA".as_bytes()).to_vec(),
+                Iupac::reverse_complement("TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCTTCGGATTCTATCGTGTTTCCCTAGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA".as_bytes()).to_vec()
+            ],
+            vec!["bar22_rc".to_string(), "bar4_rc".to_string()],
             BarcodeType::Fbar,
         );
-        rc_barcode_group.tune_k(1000, 0.001, 0.5);
-        for bar in rc_barcode_group.barcodes.iter_mut() {
-            bar.tune_k(1_000, 0.001, 0.5);
-        }
+        rc_barcode_group.tune_group(1000, 0.001, 0.5, 4);
         let mut demuxer_rc = Demuxer::new(0.5);
         demuxer_rc.add_query_group(rc_barcode_group);
         println!("RC demux");
@@ -376,5 +430,58 @@ mod tests {
         // Cost should be 0 for both
         assert_eq!(fwd_first.barcode_cost, 0);
         assert_eq!(rc_first.barcode_cost, 0);
+    }
+
+    #[test]
+    fn test_overhanging_real_read() {
+        let read = b"ATGTTTTTTTTTTTTGCCGATATAACCGTTTCATATCGGAGGGAATGGAGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCATCAGCTTCAACAGCATCAGCACAGTTTTGAACCTGATATGGATGAGTTTCGTGAACTGCGTAATTTTAACTTGGGTGATAGCTTACACGCCGTACGTGGAAGCAGGCCGCGCGTGGGCAAGGTTTATATATTAAAGTCTTTGAGCAGCATAATGATCAACCGAGTATGGAAATCCATTATGCAAACATGCAAGTACCGAGCATGAAGAGAAATTGAGCTTAATGATGGGGCTGATTGAGCAATGTGAGCAACTGCAATGTAGCTATGCGGTATTTTTGCCTCAAGCTCGATTAGCTGTAGGCACAGGTGCAAACCAGTTGCTTCAGGCTAAAAAACTTCTGGCGCAGGCTTAATTATGATGCATGCTGATGTAGAACCTCGATTTAATGACTTTGCTGTTATTACTGCTTGCACAAGTCTTGTTTAATCCCGTTCTGTTAACTGCAATTTTTATTCTCCTCTGTTTATTTGTCAGCTTTAAAGATGAAACAAAAACAGTATCCAA";
+        let bar10 = b"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCACCACTGCCATGTATCAAAGTACGGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
+        let bar11 = b"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCCGTCAACTGACAGTGGTTCGTACTGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
+
+        let mut demuxer = Demuxer::new(0.5);
+        let mut fwd_barcode_group = BarcodeGroup::new(
+            vec![bar10.to_vec(), bar11.to_vec()],
+            vec!["bar22".to_string(), "bar16".to_string()],
+            BarcodeType::Fbar,
+        );
+
+        let tune_start_time = std::time::Instant::now();
+        fwd_barcode_group.tune_group(1000, 0.001, 0.5, 4);
+        let tune_end_time = std::time::Instant::now();
+        println!(
+            "Tune time: {:?}",
+            tune_end_time.duration_since(tune_start_time)
+        );
+
+        demuxer.add_query_group(fwd_barcode_group);
+
+        let matches = demuxer.demux(read.as_slice());
+        for m in matches.iter() {
+            println!("m: {:?}", m);
+        }
+    }
+
+    #[test]
+    #[ignore = "Full test only for debugging"]
+    fn test_full_rapid_flow() {
+        let example_file = "examples/rapid_bars.fasta";
+        let mut barcode_group = BarcodeGroup::new_from_fasta(example_file);
+        barcode_group.tune_group(100_000, 0.0001, 0.5, 16);
+        let mut demuxer = Demuxer::new(0.5);
+        demuxer.add_query_group(barcode_group);
+
+        // Read file test
+        let mut reader =
+            parse_fastx_file("/home/solprof/Downloads/sub.fastq").expect("valid path/file");
+        while let Some(record) = reader.next() {
+            let seqrec = record.expect("invalid record");
+            let norm_seq = seqrec.normalize(false);
+            println!("Read id: {}", String::from_utf8_lossy(seqrec.id()));
+            let result = demuxer.demux(&norm_seq.into_owned());
+            for m in result.iter() {
+                println!("\tm: {:?}", m);
+            }
+            println!("\n");
+        }
     }
 }

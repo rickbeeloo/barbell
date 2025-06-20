@@ -100,6 +100,7 @@ dependencies = [
  "colored",
  "csv",
  "indicatif",
+ "needletail",
  "pa-types 0.1.0 (git+https://github.com/pairwise-alignment/pa-types.git?branch=main)",
  "rand 0.8.5",
  "rayon",
@@ -960,7 +961,7 @@ dependencies = [
 [[package]]
 name = "sassy"
 version = "0.1.0"
-source = "git+https://github.com/RagnarGrootKoerkamp/sassy.git?branch=master#6c777286ac08b87096d0df23c6b7cc5b3c40806f"
+source = "git+https://github.com/RagnarGrootKoerkamp/sassy.git?branch=master#a1d0bd1b01e43207a0442d0421ceaa699b5e7b33"
 dependencies = [
  "arrayvec",
  "clap",

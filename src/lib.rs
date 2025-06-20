@@ -1,3 +1,4 @@
+pub mod filter;
 pub mod search;
 
 /// Extra padding around barcode to ensure correct "alignment"

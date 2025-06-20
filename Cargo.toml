@@ -14,7 +14,7 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "barbell"
-path = "src/main.rs"
+path = "bin/main.rs"
 
 [dependencies]
 sassy = { git = "https://github.com/RagnarGrootKoerkamp/sassy.git", branch = "master" }
@@ -22,6 +22,7 @@ pa-types = { git = "https://github.com/pairwise-alignment/pa-types.git", branch 
 rand = "0.8"
 spinners = "4.1.1"
 indicatif = "0.17.11"
+needletail = "0.6.3"
 colored = "2.0.0"
 rayon = "1.10.0"
 seq_io = "0.3.1"

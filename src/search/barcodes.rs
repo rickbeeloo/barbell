@@ -1,9 +1,9 @@
 use crate::search::distribution::{TailSide, get_fp_threshold};
+use needletail::{FastxReader, Sequence, parse_fastx_file};
 use rand::Rng;
+use rayon::prelude::*;
 use sassy::profiles::{Iupac, Profile};
 use sassy::search::Searcher;
-
-use crate::WIGGLE_ROOM;
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
 pub enum BarcodeType {
@@ -44,46 +44,49 @@ impl Barcode {
     }
 }
 
-impl Tuneable for Barcode {
-    fn get_seq(&self) -> &[u8] {
-        &self.seq
-    }
+/// Tune multiple sequences in parallel and return their k-cutoffs
+pub fn tune_sequences_parallel(
+    sequences: &[&[u8]],
+    n_iter: usize,
+    fp_target: f32,
+    alpha: f32,
+    n_threads: usize,
+) -> Vec<usize> {
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(n_threads)
+        .build()
+        .unwrap();
 
-    fn set_k_cutoff(&mut self, cutoff: usize) {
-        self.k_cutoff = Some(cutoff);
-    }
+    pool.install(|| {
+        sequences
+            .par_iter()
+            .map(|seq| tune_single_sequence(seq, n_iter, fp_target, alpha))
+            .collect()
+    })
 }
 
-// Trait for tuning k-cutoffs
-pub trait Tuneable {
-    fn get_seq(&self) -> &[u8];
-    fn set_k_cutoff(&mut self, cutoff: usize);
+fn tune_single_sequence(seq: &[u8], n_iter: usize, fp_target: f32, alpha: f32) -> usize {
+    let min_len: usize = 0;
+    let min_len = seq.len() * 2;
+    let max_len = min_len + 1;
+    // let max_len = seq.len() * 2;
+    println!("Seq len: {}", seq.len());
+    let mut costs = Vec::new();
+    let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(alpha);
 
-    fn tune_k(&mut self, n_iter: usize, fp_target: f32, alpha: f32) {
-        let seq = self.get_seq();
-        // println!(
-        //     "Tuning k for seq: {:?}",
-        //     String::from_utf8(seq.to_vec()).unwrap()
-        // );
-        let min_len: usize = 0; // (seq.len() as f32 * 0.5) as usize;
-        let max_len = seq.len() * 2;
-        let mut costs = Vec::new();
-        let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(alpha);
+    for _ in 0..n_iter {
+        let random_seq = random_dna_seq(min_len, max_len);
+        let matches = searcher.search(seq, &random_seq, seq.len());
 
-        for _ in 0..n_iter {
-            let random_seq = random_dna_seq(min_len, max_len);
-            let matches = searcher.search(seq, &random_seq, seq.len());
-
-            if matches.is_empty() {
-                continue; // unlikely this can ever happen with k=|seq|
-            }
-            let lowest_cost = matches.iter().map(|m| m.cost).min().unwrap();
-            costs.push(lowest_cost);
+        if matches.is_empty() {
+            continue;
         }
-        let cutoff = get_fp_threshold(costs, fp_target, TailSide::Left);
-        println!("Cutoff: {}", cutoff);
-        self.set_k_cutoff(cutoff as usize);
+        let lowest_cost = matches.iter().map(|m| m.cost).min().unwrap();
+        costs.push(lowest_cost);
     }
+    let cutoff = get_fp_threshold(costs, fp_target, TailSide::Left);
+    println!("Cutoff: {}", cutoff);
+    cutoff as usize
 }
 
 pub fn random_dna_seq(min_len: usize, max_len: usize) -> Vec<u8> {
@@ -111,10 +114,15 @@ pub struct BarcodeGroup {
 }
 
 impl BarcodeGroup {
-    pub fn new(query_seqs: &[&[u8]], query_labels: &[&str], barcode_type: BarcodeType) -> Self {
+    pub fn new(
+        query_seqs: Vec<Vec<u8>>,
+        query_labels: Vec<String>,
+        barcode_type: BarcodeType,
+    ) -> Self {
         // Often a group shares shared flanks, we assume they do for now, and extract
         // their prefix and suffixes, if present
-        let (prefix, suffix) = Self::get_flanks(query_seqs);
+        let query_seqs_refs: Vec<&[u8]> = query_seqs.iter().map(|seq| seq.as_slice()).collect();
+        let (prefix, suffix) = Self::get_flanks(&query_seqs_refs);
         let mut flank = Vec::new();
 
         let prefix_len = prefix.as_ref().unwrap_or(&Vec::new()).len();
@@ -143,7 +151,7 @@ impl BarcodeGroup {
             );
             barcodes.push(Barcode::new(
                 &seq[start..end],
-                query_labels[i],
+                &query_labels[i],
                 barcode_type.clone(),
             ));
         }
@@ -153,6 +161,39 @@ impl BarcodeGroup {
             bar_region: (prefix_len, prefix_len + mask_size - 1),
             barcodes,
             k_cutoff: None,
+        }
+    }
+
+    pub fn new_from_fasta(fasta_file: &str) -> Self {
+        let mut reader = parse_fastx_file(fasta_file).expect("valid path/file");
+        let mut bar_seqs = Vec::new();
+        let mut labels = Vec::new();
+
+        // Collect all records first
+        while let Some(record) = reader.next() {
+            let seqrec = record.expect("invalid record");
+            let norm_seq = seqrec.normalize(false);
+            labels.push(std::str::from_utf8(seqrec.id()).unwrap().to_string());
+            bar_seqs.push(norm_seq.into_owned());
+        }
+        Self::new(bar_seqs, labels, BarcodeType::Fbar)
+    }
+
+    /// Tune the group (flank) and all barcodes in parallel
+    pub fn tune_group(&mut self, n_iter: usize, fp_target: f32, alpha: f32, n_threads: usize) {
+        // Collect all sequences to tune: flank + all barcodes
+        let mut sequences = vec![self.flank.as_slice()];
+        for barcode in &self.barcodes {
+            sequences.push(barcode.seq.as_slice());
+        }
+
+        // Tune all sequences in parallel
+        let cutoffs = tune_sequences_parallel(&sequences, n_iter, fp_target, alpha, n_threads);
+
+        // Set the cutoffs
+        self.k_cutoff = Some(cutoffs[0]); // First cutoff is for the flank
+        for (i, barcode) in self.barcodes.iter_mut().enumerate() {
+            barcode.k_cutoff = Some(cutoffs[i + 1]); // Skip first (flank), rest are barcodes
         }
     }
 
@@ -219,16 +260,6 @@ impl BarcodeGroup {
     }
 }
 
-impl Tuneable for BarcodeGroup {
-    fn get_seq(&self) -> &[u8] {
-        &self.flank
-    }
-
-    fn set_k_cutoff(&mut self, cutoff: usize) {
-        self.k_cutoff = Some(cutoff);
-    }
-}
-
 mod tests {
     use super::*;
 
@@ -257,9 +288,13 @@ mod tests {
     #[test]
     fn test_barcode_group() {
         let seqs = vec![b"AAATTTGGG".as_slice(), b"AAACCCGGG".as_slice()];
-        let labels = vec!["s1", "s2"];
+        let labels = vec!["s1".to_string(), "s2".to_string()];
         let barcode_type = BarcodeType::Fbar;
-        let barcode_group = BarcodeGroup::new(&seqs, &labels, barcode_type);
+        let barcode_group = BarcodeGroup::new(
+            vec![seqs[0].to_vec(), seqs[1].to_vec()],
+            labels,
+            barcode_type,
+        );
         assert_eq!(barcode_group.flank, b"AAANNNGGG".to_vec());
         assert_eq!(barcode_group.bar_region, (3, 5));
         assert_eq!(barcode_group.barcodes.len(), 2);
@@ -271,42 +306,51 @@ mod tests {
     #[should_panic]
     fn test_barcode_group_invalid_seq() {
         let seqs = vec![b"@@@@@@@@@".as_slice(), b"AAACCCGGG".as_slice()];
-        let labels = vec!["s1", "s2"];
+        let labels = vec!["s1".to_string(), "s2".to_string()];
         let barcode_type = BarcodeType::Fbar;
-        let _ = BarcodeGroup::new(&seqs, &labels, barcode_type);
+        let _ = BarcodeGroup::new(
+            vec![seqs[0].to_vec(), seqs[1].to_vec()],
+            labels,
+            barcode_type,
+        );
     }
 
     #[test]
     #[should_panic]
     fn test_barcode_group_unequal_length() {
         let seqs = vec![b"AAATTTGGG".as_slice(), b"AAAAAAACCCGGG".as_slice()];
-        let labels = vec!["s1", "s2"];
+        let labels = vec!["s1".to_string(), "s2".to_string()];
         let barcode_type = BarcodeType::Fbar;
-        let _ = BarcodeGroup::new(&seqs, &labels, barcode_type);
+        let _ = BarcodeGroup::new(
+            vec![seqs[0].to_vec(), seqs[1].to_vec()],
+            labels,
+            barcode_type,
+        );
     }
 
     #[test]
     fn test_barcode_tune_k() {
         let barcode = b"CACAAAGACACCGACAACTTTCTT";
-        let mut barcode = Barcode::new(barcode, "s1", BarcodeType::Fbar);
-        barcode.tune_k(10000, 0.01, 0.5);
-        // We always expect k to be less than half of the length of the barocde
+        let cutoff = tune_single_sequence(barcode, 10000, 0.01, 0.5);
+        // We always expect k to be less than half of the length of the barcode
         // as that is what we get for random sequences on average
-        println!("Got cut off: {}", barcode.k_cutoff.unwrap_or(usize::MAX));
-        assert!(barcode.k_cutoff.unwrap_or(usize::MAX) < barcode.seq.len() / 2);
+        println!("Got cut off: {}", cutoff);
+        assert!(cutoff < barcode.len() / 2);
     }
 
     #[test]
     fn test_barcode_group_tune_k() {
         let mut barcode_group = BarcodeGroup::new(
-            &[
-                b"CACAAAGACACAAAAAAAAAAAGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA",
-                b"CACAAAGACACTTTTTTTTTTTGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA",
+            vec![
+                b"CACAAAGACACAAAAAAAAAAAGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA"
+                    .to_vec(),
+                b"CACAAAGACACTTTTTTTTTTTGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA"
+                    .to_vec(),
             ],
-            &["s1", "s2"],
+            vec!["s1".to_string(), "s2".to_string()],
             BarcodeType::Fbar,
         );
-        barcode_group.tune_k(1000, 0.01, 0.5);
+        barcode_group.tune_group(1000, 0.01, 0.5, 4);
         // We always expect k to be less than half of the length of the barocde
         // as that is what we get for random sequences on average
         println!(
@@ -314,5 +358,30 @@ mod tests {
             barcode_group.k_cutoff.unwrap_or(usize::MAX)
         );
         assert!(barcode_group.k_cutoff.unwrap_or(usize::MAX) < barcode_group.flank.len() / 2);
+
+        // Also check that barcodes were tuned
+        for barcode in &barcode_group.barcodes {
+            assert!(barcode.k_cutoff.is_some());
+            println!(
+                "Barcode {} cutoff: {}",
+                barcode.label,
+                barcode.k_cutoff.unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fasta_read() {
+        let example_file = "examples/rapid_bars.fasta";
+        let barcode_group = BarcodeGroup::new_from_fasta(example_file);
+        let expected_flank = b"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCNNNNNNNNNNNNNNNNNNNNNNNNGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
+        let flank = barcode_group.flank;
+        assert_eq!(flank, expected_flank);
+        assert_eq!(barcode_group.bar_region, (52, 75));
+        assert_eq!(barcode_group.barcodes.len(), 97);
+        assert_eq!(
+            barcode_group.barcodes[0].seq,
+            b"AAGAAAGTTGTCGGTGTCTTTGTG".to_vec() // NB01 fwd
+        );
     }
 }
