@@ -107,6 +107,9 @@ fn check_match_type_and_label(m: &BarbellMatch, pattern_element: &PatternElement
     }
 
     match pattern_element.match_type {
+        // If Fbar/Rbar, and we have a label in the pattern
+        // the pattern label should match, otherwise we assume pattern
+        // is label *, and can match any label
         BarcodeType::Fbar | BarcodeType::Rbar => {
             if let Some(ref expected_label) = pattern_element.label {
                 // Labels are not the same
@@ -121,10 +124,7 @@ fn check_match_type_and_label(m: &BarbellMatch, pattern_element: &PatternElement
             }
             true
         }
-        BarcodeType::FFlank | BarcodeType::RFlank => {
-            // println!("Checking Flank match");
-            true
-        }
+        BarcodeType::Fflank | BarcodeType::Rflank => true,
     }
 }
 
@@ -163,6 +163,7 @@ fn check_relative_position(
 ) -> bool {
     if let Some(relative_to) = &pattern_element.relative_to {
         let m_start = m.read_start_bar as isize; // CHANGED TO BARCODOE START instead of flank
+        let m_end = m.read_end_bar as isize;
         match relative_to {
             RelativePosition::Left => {
                 let (left_bound, right_bound) = pattern_element.range;
@@ -177,7 +178,7 @@ fn check_relative_position(
             RelativePosition::Right => {
                 let left_bound = seq_len.saturating_sub(pattern_element.range.1);
                 let right_bound = seq_len.saturating_sub(pattern_element.range.0);
-                if m_start < left_bound || m_start > right_bound {
+                if m_end < left_bound || m_end > right_bound {
                     return false;
                 }
             }
@@ -257,6 +258,7 @@ pub fn match_pattern(matches: &[BarbellMatch], pattern: &Pattern) -> (bool, Vec<
 #[macro_export]
 macro_rules! pattern_from_str {
     ($pattern:expr) => {{
+        use sassy::search::Strand;
         use $crate::filter::pattern::*;
         use $crate::search::barcodes::BarcodeType;
 
@@ -304,8 +306,8 @@ macro_rules! pattern_from_str {
             let match_type = match parts[0].trim() {
                 "Fbarcode" => BarcodeType::Fbar,
                 "Rbarcode" => BarcodeType::Rbar,
-                "Fflank" => BarcodeType::FFlank,
-                "Rflank" => BarcodeType::RFlank,
+                "Fflank" => BarcodeType::Fflank,
+                "Rflank" => BarcodeType::Rflank,
                 "Flank" | "flank" => panic!("Flank is not valid, use Fflank or Rflank"),
                 _ => return None,
             };
@@ -403,7 +405,7 @@ mod tests {
                         cuts: None
                     },
                     PatternElement {
-                        match_type: BarcodeType::FFlank,
+                        match_type: BarcodeType::Fflank,
                         orientation: Some(Strand::Fwd),
                         label: None,
                         placeholder: None,
@@ -443,6 +445,9 @@ mod tests {
             "XXX".to_string(),
             Strand::Fwd,
             500, // read_len
+            "test".to_string(),
+            0,
+            None,
         )];
 
         matches[0].read_start_bar = 0;
@@ -479,6 +484,9 @@ mod tests {
             "XXX".to_string(),
             Strand::Fwd,
             500, // read_len
+            "test".to_string(),
+            0,
+            None,
         )];
 
         matches[0].read_start_bar = 500;
@@ -518,6 +526,9 @@ mod tests {
                 "XXX".to_string(),
                 Strand::Fwd,
                 500, // read_len
+                "test".to_string(),
+                0,
+                None,
             ),
             BarbellMatch::new(
                 100, // read_start_bar
@@ -526,12 +537,15 @@ mod tests {
                 200, // read_end_flank
                 0,   // bar_start
                 100, // bar_end
-                BarcodeType::FFlank,
+                BarcodeType::Fflank,
                 0, // flank_cost
                 0, // barcode_cost
                 "XXX".to_string(),
                 Strand::Fwd,
                 500, // read_len
+                "test".to_string(),
+                0,
+                None,
             ),
         ];
 
@@ -582,6 +596,9 @@ mod tests {
                 "XXX".to_string(),
                 Strand::Fwd,
                 250, // read_len
+                "test".to_string(),
+                0,
+                None,
             ),
             BarbellMatch::new(
                 100, // read_start_bar
@@ -596,6 +613,9 @@ mod tests {
                 "XXX".to_string(),
                 Strand::Fwd,
                 250, // read_len
+                "test".to_string(),
+                0,
+                None,
             ),
         ];
 
@@ -607,6 +627,119 @@ mod tests {
 
         let (is_match, _) = match_pattern(&matches, &pattern);
         assert!(!is_match);
+    }
+
+    #[test]
+    fn test_placeholder_mixed_labels() {
+        // Means any label for front, but the last label should be the same as the first label
+        let pattern = pattern_from_str!(
+            "Fbarcode[fw, ?1, @left(0 to 250)]__Rbarcode[fw, ?2, @right(0 to 250)]"
+        );
+        println!("Pattern: {:?}", pattern);
+        let mut matches = vec![
+            BarbellMatch::new(
+                0,   // read_start_bar
+                100, // read_end_bar
+                0,   // read_start_flank
+                100, // read_end_flank
+                0,   // bar_start
+                100, // bar_end
+                BarcodeType::Fbar,
+                0, // flank_cost
+                0, // barcode_cost
+                "XXX".to_string(),
+                Strand::Fwd,
+                250, // read_len
+                "test".to_string(),
+                0,
+                None,
+            ),
+            BarbellMatch::new(
+                100, // read_start_bar
+                200, // read_end_bar
+                100, // read_start_flank
+                200, // read_end_flank
+                0,   // bar_start
+                100, // bar_end
+                BarcodeType::Rbar,
+                0, // flank_cost
+                0, // barcode_cost
+                "XXX".to_string(),
+                Strand::Fwd,
+                250, // read_len
+                "test".to_string(),
+                0,
+                None,
+            ),
+        ];
+
+        let (is_match, _) = match_pattern(&matches, &pattern);
+        assert!(is_match);
+    }
+
+    #[test]
+    fn test_placeholder_not_ordered() {
+        // Means any label for front, but the last label should be the same as the first label
+        let pattern = pattern_from_str!(
+            "Fbarcode[fw, ?1, @left(0 to 250)]__Fbarcode[fw, ?2, @prev_left(0 to 250)]__Fbarcode[fw, ?1, @left(0 to 250)]"
+        );
+        println!("Pattern: {:?}", pattern);
+        let mut matches = vec![
+            BarbellMatch::new(
+                0,   // read_start_bar
+                100, // read_end_bar
+                0,   // read_start_flank
+                100, // read_end_flank
+                0,   // bar_start
+                100, // bar_end
+                BarcodeType::Fbar,
+                0, // flank_cost
+                0, // barcode_cost
+                "XXX".to_string(),
+                Strand::Fwd,
+                600, // read_len
+                "test".to_string(),
+                0,
+                None,
+            ),
+            BarbellMatch::new(
+                100, // read_start_bar
+                200, // read_end_bar
+                100, // read_start_flank
+                200, // read_end_flank
+                0,   // bar_start
+                100, // bar_end
+                BarcodeType::Fbar,
+                0, // flank_cost
+                0, // barcode_cost
+                "YYY".to_string(),
+                Strand::Fwd,
+                600, // read_len
+                "test".to_string(),
+                0,
+                None,
+            ),
+            BarbellMatch::new(
+                100, // read_start_bar
+                200, // read_end_bar
+                550, // read_start_flank
+                600, // read_end_flank
+                0,   // bar_start
+                100, // bar_end
+                BarcodeType::Fbar,
+                0, // flank_cost
+                0, // barcode_cost
+                "XXX".to_string(),
+                Strand::Fwd,
+                600, // read_len
+                "test".to_string(),
+                0,
+                None,
+            ),
+        ];
+
+        let (is_match, _) = match_pattern(&matches, &pattern);
+        assert!(is_match);
     }
 
     #[test]
@@ -629,6 +762,9 @@ mod tests {
                 "XXX".to_string(),
                 Strand::Fwd,
                 250, // read_len
+                "test".to_string(),
+                0,
+                None,
             ),
             BarbellMatch::new(
                 15, // read_start_bar
@@ -637,12 +773,15 @@ mod tests {
                 20, // read_end_flank
                 0,  // bar_start
                 5,  // bar_end
-                BarcodeType::FFlank,
+                BarcodeType::Fflank,
                 0, // flank_cost
                 0, // barcode_cost
                 "@Nothing".to_string(),
                 Strand::Fwd,
                 250, // read_len
+                "test".to_string(),
+                0,
+                None,
             ),
         ];
 
@@ -677,6 +816,9 @@ mod tests {
                 "XXX".to_string(),
                 Strand::Fwd,
                 250, // read_len
+                "test".to_string(),
+                0,
+                None,
             ),
             BarbellMatch::new(
                 15, // read_start_bar
@@ -685,12 +827,15 @@ mod tests {
                 20, // read_end_flank
                 0,  // bar_start
                 5,  // bar_end
-                BarcodeType::FFlank,
+                BarcodeType::Fflank,
                 0, // flank_cost
                 0, // barcode_cost
                 "@Nothing".to_string(),
                 Strand::Fwd,
                 250, // read_len
+                "test".to_string(),
+                0,
+                None,
             ),
         ];
 
@@ -725,6 +870,9 @@ mod tests {
                 "XXX".to_string(),
                 Strand::Fwd,
                 50, // read_len
+                "test".to_string(),
+                0,
+                None,
             ),
             BarbellMatch::new(
                 15, // read_start_bar
@@ -733,12 +881,15 @@ mod tests {
                 20, // read_end_flank
                 0,  // bar_start
                 5,  // bar_end
-                BarcodeType::FFlank,
+                BarcodeType::Fflank,
                 0, // flank_cost
                 0, // barcode_cost
                 "@Nothing".to_string(),
                 Strand::Fwd,
                 50, // read_len
+                "test".to_string(),
+                0,
+                None,
             ),
             BarbellMatch::new(
                 30, // read_start_bar
@@ -753,6 +904,9 @@ mod tests {
                 "YYY".to_string(),
                 Strand::Fwd,
                 50, // read_len
+                "test".to_string(),
+                0,
+                None,
             ),
         ];
 

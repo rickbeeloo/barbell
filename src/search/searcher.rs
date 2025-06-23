@@ -1,3 +1,4 @@
+use crate::filter::pattern::Cut;
 use crate::search::barcodes::{BarcodeGroup, BarcodeType};
 use crate::search::interval::collapse_overlapping_matches;
 use needletail::{FastxReader, Sequence, parse_fastx_file};
@@ -6,15 +7,25 @@ use rayon::prelude::*;
 use sassy::profiles::Iupac;
 use sassy::profiles::Profile;
 use sassy::search::{Match, Searcher, Strand};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::thread_local;
 
+thread_local! {
+    static OVERHANG_SEARCHER: std::cell::RefCell<Option<Searcher<Iupac>>> = std::cell::RefCell::new(None);
+}
+
+#[derive(Clone)]
 pub struct Demuxer {
-    overhang_searcher: Searcher<Iupac>,
-    searcher: Searcher<Iupac>,
+    alpha: f32,
     queries: Vec<BarcodeGroup>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BarbellMatch {
+    pub read_id: String,
+    pub read_len: usize,
+    pub rel_dist_to_end: isize,
+
     // Where barcode starts in read
     pub read_start_bar: usize,
     pub read_end_bar: usize,
@@ -31,8 +42,95 @@ pub struct BarbellMatch {
     pub flank_cost: Cost,
     pub barcode_cost: Cost,
     pub label: String,
+    #[serde(
+        serialize_with = "serialize_strand",
+        deserialize_with = "deserialize_strand"
+    )]
     pub strand: Strand,
-    pub read_len: usize,
+
+    #[serde(
+        serialize_with = "serialize_cuts",
+        deserialize_with = "deserialize_cuts"
+    )]
+    pub cuts: Option<Vec<(Cut, usize)>>,
+}
+
+// Custom serialization for strand field
+fn serialize_strand<S>(strand: &Strand, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match strand {
+        Strand::Fwd => serializer.serialize_str("Fwd"),
+        Strand::Rc => serializer.serialize_str("Rc"),
+    }
+}
+
+// Custom deserialization for strand field
+fn deserialize_strand<'de, D>(deserializer: D) -> Result<Strand, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: String = String::deserialize(deserializer)?;
+    match s.as_str() {
+        "Fwd" => Ok(Strand::Fwd),
+        "Rc" => Ok(Strand::Rc),
+        _ => Err(serde::de::Error::custom(format!("Invalid strand: {}", s))),
+    }
+}
+
+// Custom serialization for cuts field
+fn serialize_cuts<S>(cuts: &Option<Vec<(Cut, usize)>>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match cuts {
+        None => serializer.serialize_str(""),
+        Some(cuts_vec) => {
+            let cuts_str = cuts_vec
+                .iter()
+                .map(|(cut, pos)| format!("{}:{}", cut, pos))
+                .collect::<Vec<_>>()
+                .join(",");
+            serializer.serialize_str(&cuts_str)
+        }
+    }
+}
+
+// Custom deserialization for cuts field
+fn deserialize_cuts<'de, D>(deserializer: D) -> Result<Option<Vec<(Cut, usize)>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: String = String::deserialize(deserializer)?;
+
+    if s.is_empty() {
+        return Ok(None);
+    }
+
+    let cuts_vec: Result<Vec<_>, _> = s
+        .split(',')
+        .map(|part| {
+            let mut split = part.split(':');
+            let cut_str = split
+                .next()
+                .ok_or_else(|| serde::de::Error::custom("Invalid cut format: missing cut part"))?;
+            let pos_str = split.next().ok_or_else(|| {
+                serde::de::Error::custom("Invalid cut format: missing position part")
+            })?;
+
+            let cut = Cut::from_string(cut_str).ok_or_else(|| {
+                serde::de::Error::custom(format!("Invalid cut string: {}", cut_str))
+            })?;
+            let pos = pos_str
+                .parse::<usize>()
+                .map_err(|_| serde::de::Error::custom(format!("Invalid position: {}", pos_str)))?;
+
+            Ok((cut, pos))
+        })
+        .collect();
+
+    cuts_vec.map(Some)
 }
 
 impl BarbellMatch {
@@ -49,6 +147,9 @@ impl BarbellMatch {
         label: String,
         strand: Strand,
         read_len: usize,
+        read_id: String,
+        rel_dist_to_end: isize,
+        cuts: Option<Vec<(Cut, usize)>>,
     ) -> Self {
         Self {
             read_start_bar,
@@ -63,18 +164,36 @@ impl BarbellMatch {
             label,
             strand,
             read_len,
+            read_id,
+            rel_dist_to_end,
+            cuts,
         }
+    }
+}
+
+fn rel_dist_to_end(pos: isize, read_len: usize) -> isize {
+    // If already negative, for a match starting before the read we can return 1
+    if pos < 0 {
+        return 1;
+    }
+
+    if pos <= (read_len / 2) as isize {
+        if pos == 0 {
+            1 // Left end
+        } else {
+            pos // Distance from left end (already isize)
+        }
+    } else if pos == read_len as isize {
+        -1 // Right end
+    } else {
+        -(read_len as isize - pos) // Distance from right end
     }
 }
 
 impl Demuxer {
     pub fn new(alpha: f32) -> Self {
-        // Use rc searcher with alpha, where alpha is overhang cost
-        let overhang_searcher = Searcher::<Iupac>::new_rc_with_overhang(alpha);
-        let searcher = Searcher::<Iupac>::new_rc();
         Self {
-            overhang_searcher,
-            searcher,
+            alpha,
             queries: Vec::new(),
         }
     }
@@ -111,6 +230,10 @@ impl Demuxer {
         let start = min_r_pos.saturating_sub(crate::WIGGLE_ROOM);
         let end = (max_r_pos + crate::WIGGLE_ROOM).min(read.len() - 1);
 
+        if start > 184467440 {
+            panic!("[mask start] Start is too large, overflow bug");
+        }
+
         // println!(
         //     "Mask region: [{}-{}] c: {}{:?}",
         //     start,
@@ -121,29 +244,43 @@ impl Demuxer {
         (&read[start..=end], (start, end))
     }
 
-    pub fn demux(&mut self, read: &[u8]) -> Vec<BarbellMatch> {
+    pub fn demux(&mut self, read_id: &str, read: &[u8]) -> Vec<BarbellMatch> {
         let start_time = std::time::Instant::now();
         let mut results: Vec<BarbellMatch> = Vec::new();
+
+        // Initialize thread-local searcher if not already done
+        OVERHANG_SEARCHER.with(|cell| {
+            if cell.borrow().is_none() {
+                *cell.borrow_mut() = Some(Searcher::<Iupac>::new_rc_with_overhang(self.alpha));
+            }
+        });
 
         // We first search for the top level of the barcodeGroups
         for barcode_group in self.queries.iter() {
             let flank = &barcode_group.flank;
             let k = barcode_group.k_cutoff.unwrap_or(0);
-            println!("K: {}", k);
-            println!("Q: {}", String::from_utf8_lossy(flank));
-            println!("Read: {}", String::from_utf8_lossy(read));
-            let flank_matches = self.overhang_searcher.search(flank, &read, k);
-            println!("Flank matches: {}", flank_matches.len());
+            // println!("K: {}", k);
+            // println!("Q: {}", String::from_utf8_lossy(flank));
+            // println!("Read: {}", String::from_utf8_lossy(read));
+
+            let flank_matches = OVERHANG_SEARCHER.with(|cell| {
+                if let Some(ref mut searcher) = *cell.borrow_mut() {
+                    searcher.search(flank, &read, k)
+                } else {
+                    vec![]
+                }
+            });
+            // println!("Flank matches: {}", flank_matches.len());
 
             // If we found a flank, we slice out the masked region and search for the barcodes in the
             // masked region, we should be AWARE OF THE STRAND as sassy now returns both directions (Fwd, Rc)
             for flank_match in flank_matches {
-                println!(
-                    "Flank slice: {:?}",
-                    String::from_utf8_lossy(
-                        &read[flank_match.start.1 as usize..flank_match.end.1 as usize],
-                    )
-                );
+                // println!(
+                //     "Flank slice: {:?}",
+                //     String::from_utf8_lossy(
+                //         &read[flank_match.start.1 as usize..flank_match.end.1 as usize],
+                //     )
+                // );
                 let (mask_region, (mask_start, _mask_end)) =
                     self.slice_masked_region(read, barcode_group, &flank_match);
 
@@ -163,21 +300,42 @@ impl Demuxer {
                     // );
 
                     // Look for barcode mathces in mask slice
-                    let bms = self.overhang_searcher.search(
-                        &barcode.seq,
-                        &mask_region,
-                        barcode.k_cutoff.unwrap_or(0),
-                    );
+                    let bms = OVERHANG_SEARCHER.with(|cell| {
+                        if let Some(ref mut searcher) = *cell.borrow_mut() {
+                            searcher.search(
+                                &barcode.seq,
+                                &mask_region,
+                                barcode.k_cutoff.unwrap_or(0),
+                            )
+                        } else {
+                            vec![]
+                        }
+                    });
 
                     // We make sure they flank and barcode match on the same strand
                     for bm in bms.iter().filter(|bm| bm.strand == flank_match.strand) {
+                        if bm.start.1 > 10000000 || flank_match.start.1 > 100000000 {
+                            panic!("[barcode start] Start is too large, overflow bug");
+                        }
+
                         barcode_found = true;
+                        let rel_dist = rel_dist_to_end(
+                            flank_match.start.1 as isize + mask_start as isize,
+                            read.len(),
+                        );
+                        if rel_dist > 10000000 {
+                            panic!(
+                                "[rel_dist] Rel dist is too large, overflow bug, Input for func: {}, {}",
+                                flank_match.start.1 as isize + mask_start as isize,
+                                read.len()
+                            );
+                        }
                         results.push(BarbellMatch::new(
                             //t - storing flank matches to more accurately filter out overlaps later on
                             bm.start.1 as usize + mask_start,
                             bm.end.1 as usize + mask_start,
-                            flank_match.start.1 as usize,
-                            flank_match.end.1 as usize,
+                            flank_match.start.1 as usize + mask_start,
+                            flank_match.end.1 as usize + mask_start,
                             //q
                             bm.start.0 as usize,
                             bm.end.0 as usize,
@@ -187,6 +345,9 @@ impl Demuxer {
                             barcode.label.clone(),
                             bm.strand,
                             read.len(),
+                            read_id.to_string(),
+                            rel_dist,
+                            None, // Only added after filtering is used
                         ));
                     }
                 }
@@ -199,20 +360,26 @@ impl Demuxer {
                         flank_match.start.1 as usize,
                         flank_match.end.1 as usize,
                         //q
-                        0 as usize,
-                        0 as usize,
+                        0,
+                        0,
                         barcode_group.barcodes[0].match_type.as_flank().clone(),
                         flank_match.cost,
                         0,
                         "flank".to_string(),
                         flank_match.strand,
                         read.len(),
+                        read_id.to_string(),
+                        rel_dist_to_end(
+                            (flank_match.start.1 as usize + mask_start) as isize,
+                            read.len(),
+                        ),
+                        None, // Only added after filtering is used
                     ));
                 }
             }
         }
         let end_time = std::time::Instant::now();
-        println!("Time taken: {:?}", end_time.duration_since(start_time));
+        //  println!("Time taken: {:?}", end_time.duration_since(start_time));
         // results
         collapse_overlapping_matches(&results, 0.5)
     }
@@ -249,7 +416,7 @@ mod tests {
         );
         demuxer.add_query_group(flank);
 
-        let matches = demuxer.demux(&read);
+        let matches = demuxer.demux("test", &read);
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].label, "s1");
         assert_eq!(matches[0].read_start_bar, 8);
@@ -277,7 +444,7 @@ mod tests {
         bar_group.tune_group(1000, 0.001, 0.5, 1);
         demuxer.add_query_group(bar_group);
 
-        let matches = demuxer.demux(&read);
+        let matches = demuxer.demux("test", &read);
 
         assert!(matches.len() < 3 && matches.len() > 0);
 
@@ -313,7 +480,7 @@ mod tests {
         }
 
         demuxer.add_query_group(flank);
-        let matches = demuxer.demux(&read);
+        let matches = demuxer.demux("test", &read);
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].label, "s1");
 
@@ -340,7 +507,7 @@ mod tests {
         );
         demuxer.add_query_group(flank);
 
-        let res = demuxer.demux(&read);
+        let res = demuxer.demux("test", &read);
         assert_eq!(res.len(), 2);
         assert_eq!(res[1].label, "s1");
         assert_eq!(res[1].read_start_bar, 16);
@@ -383,7 +550,7 @@ mod tests {
         let mut demuxer = Demuxer::new(0.5);
         demuxer.add_query_group(fwd_barcode_group);
         println!("FWD demux");
-        let fwd_matches = demuxer.demux(&read);
+        let fwd_matches = demuxer.demux("test", &read);
         println!("\n");
 
         // RC group
@@ -399,7 +566,7 @@ mod tests {
         let mut demuxer_rc = Demuxer::new(0.5);
         demuxer_rc.add_query_group(rc_barcode_group);
         println!("RC demux");
-        let rc_matches = demuxer_rc.demux(&read);
+        let rc_matches = demuxer_rc.demux("test", &read);
         println!("\n");
 
         println!("FWD matches");
@@ -455,7 +622,7 @@ mod tests {
 
         demuxer.add_query_group(fwd_barcode_group);
 
-        let matches = demuxer.demux(read.as_slice());
+        let matches = demuxer.demux("test", read.as_slice());
         for m in matches.iter() {
             println!("m: {:?}", m);
         }
@@ -465,7 +632,7 @@ mod tests {
     #[ignore = "Full test only for debugging"]
     fn test_full_rapid_flow() {
         let example_file = "examples/rapid_bars.fasta";
-        let mut barcode_group = BarcodeGroup::new_from_fasta(example_file);
+        let mut barcode_group = BarcodeGroup::new_from_fasta(example_file, BarcodeType::Fbar);
         barcode_group.tune_group(100_000, 0.0001, 0.5, 16);
         let mut demuxer = Demuxer::new(0.5);
         demuxer.add_query_group(barcode_group);
@@ -477,11 +644,79 @@ mod tests {
             let seqrec = record.expect("invalid record");
             let norm_seq = seqrec.normalize(false);
             println!("Read id: {}", String::from_utf8_lossy(seqrec.id()));
-            let result = demuxer.demux(&norm_seq.into_owned());
+            let result = demuxer.demux("test", &norm_seq.into_owned());
             for m in result.iter() {
                 println!("\tm: {:?}", m);
             }
             println!("\n");
         }
+    }
+
+    #[test]
+    fn test_serialization_deserialization() {
+        use crate::filter::pattern::{Cut, CutDirection};
+        use serde_json;
+
+        // Test with no cuts
+        let match1 = BarbellMatch::new(
+            0,
+            10,
+            0,
+            10,
+            0,
+            10,
+            BarcodeType::Fbar,
+            0,
+            0,
+            "test".to_string(),
+            Strand::Fwd,
+            100,
+            "read1".to_string(),
+            0,
+            None,
+        );
+
+        let json1 = serde_json::to_string(&match1).unwrap();
+        let deserialized1: BarbellMatch = serde_json::from_str(&json1).unwrap();
+        assert_eq!(match1.cuts, deserialized1.cuts);
+
+        // Test with cuts
+        let cuts = Some(vec![
+            (Cut::new(1, CutDirection::Before), 50),
+            (Cut::new(2, CutDirection::After), 75),
+        ]);
+        let match2 = BarbellMatch::new(
+            0,
+            10,
+            0,
+            10,
+            0,
+            10,
+            BarcodeType::Fbar,
+            0,
+            0,
+            "test".to_string(),
+            Strand::Fwd,
+            100,
+            "read2".to_string(),
+            0,
+            cuts.clone(),
+        );
+
+        let json2 = serde_json::to_string(&match2).unwrap();
+        let deserialized2: BarbellMatch = serde_json::from_str(&json2).unwrap();
+        assert_eq!(match2.cuts, deserialized2.cuts);
+
+        // Verify the JSON format
+        assert!(json1.contains("\"cuts\":\"\""));
+        assert!(json2.contains("\"cuts\":\"Before(1):50,After(2):75\""));
+    }
+
+    #[test]
+    fn overflow_rel_dist_bug() {
+        let pos = 167_isize;
+        let read_len = 173_usize;
+        let rel_pos = rel_dist_to_end(pos, read_len);
+        println!("rel_pos: {}", rel_pos);
     }
 }

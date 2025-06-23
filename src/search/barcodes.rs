@@ -4,25 +4,32 @@ use rand::Rng;
 use rayon::prelude::*;
 use sassy::profiles::{Iupac, Profile};
 use sassy::search::Searcher;
+use serde::{Deserialize, Serialize};
+use std::thread_local;
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
+thread_local! {
+    static TUNING_SEARCHER: std::cell::RefCell<Option<Searcher<Iupac>>> = std::cell::RefCell::new(None);
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
 pub enum BarcodeType {
     Fbar,
     Rbar,
-    FFlank, // Not public, in case Fbar is not detected
-    RFlank, // Not public, in case Rbar is not detected
+    Fflank, // Not public, in case Fbar is not detected
+    Rflank, // Not public, in case Rbar is not detected
 }
 
 impl BarcodeType {
     pub fn as_flank(&self) -> Self {
         match self {
-            BarcodeType::Fbar => BarcodeType::FFlank,
-            BarcodeType::Rbar => BarcodeType::RFlank,
+            BarcodeType::Fbar => BarcodeType::Fflank,
+            BarcodeType::Rbar => BarcodeType::Rflank,
             _ => panic!("Cannot convert {:?} to flank", self),
         }
     }
 }
 
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
 pub struct Barcode {
     pub seq: Vec<u8>,
     pub label: String,
@@ -66,17 +73,28 @@ pub fn tune_sequences_parallel(
 }
 
 fn tune_single_sequence(seq: &[u8], n_iter: usize, fp_target: f32, alpha: f32) -> usize {
-    let min_len: usize = 0;
-    let min_len = seq.len() * 2;
-    let max_len = min_len + 1;
+    let min_len = seq.len();
+    let max_len = min_len + min_len;
     // let max_len = seq.len() * 2;
     println!("Seq len: {}", seq.len());
     let mut costs = Vec::new();
-    let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(alpha);
+
+    // Initialize thread-local searcher if not already done
+    TUNING_SEARCHER.with(|cell| {
+        if cell.borrow().is_none() {
+            *cell.borrow_mut() = Some(Searcher::<Iupac>::new_rc_with_overhang(alpha));
+        }
+    });
 
     for _ in 0..n_iter {
         let random_seq = random_dna_seq(min_len, max_len);
-        let matches = searcher.search(seq, &random_seq, seq.len());
+        let matches = TUNING_SEARCHER.with(|cell| {
+            if let Some(ref mut searcher) = *cell.borrow_mut() {
+                searcher.search(seq, &random_seq, seq.len())
+            } else {
+                vec![]
+            }
+        });
 
         if matches.is_empty() {
             continue;
@@ -106,6 +124,7 @@ pub fn random_dna_seq(min_len: usize, max_len: usize) -> Vec<u8> {
     seq
 }
 
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
 pub struct BarcodeGroup {
     pub flank: Vec<u8>,
     pub bar_region: (usize, usize),
@@ -164,7 +183,7 @@ impl BarcodeGroup {
         }
     }
 
-    pub fn new_from_fasta(fasta_file: &str) -> Self {
+    pub fn new_from_fasta(fasta_file: &str, bar_type: BarcodeType) -> Self {
         let mut reader = parse_fastx_file(fasta_file).expect("valid path/file");
         let mut bar_seqs = Vec::new();
         let mut labels = Vec::new();
@@ -176,7 +195,7 @@ impl BarcodeGroup {
             labels.push(std::str::from_utf8(seqrec.id()).unwrap().to_string());
             bar_seqs.push(norm_seq.into_owned());
         }
-        Self::new(bar_seqs, labels, BarcodeType::Fbar)
+        Self::new(bar_seqs, labels, bar_type)
     }
 
     /// Tune the group (flank) and all barcodes in parallel
@@ -189,6 +208,44 @@ impl BarcodeGroup {
 
         // Tune all sequences in parallel
         let cutoffs = tune_sequences_parallel(&sequences, n_iter, fp_target, alpha, n_threads);
+
+        // Set the cutoffs
+        self.k_cutoff = Some(cutoffs[0]); // First cutoff is for the flank
+        for (i, barcode) in self.barcodes.iter_mut().enumerate() {
+            barcode.k_cutoff = Some(cutoffs[i + 1]); // Skip first (flank), rest are barcodes
+        }
+    }
+
+    pub fn tune_group_manual(&mut self, main_k: usize, bar_ks: Vec<usize>) {
+        self.k_cutoff = Some(main_k);
+        assert_eq!(bar_ks.len(), self.barcodes.len());
+        for (i, barcode) in self.barcodes.iter_mut().enumerate() {
+            barcode.k_cutoff = Some(bar_ks[i]);
+        }
+    }
+
+    /// Tune the group (flank) and all barcodes in parallel using real sequences from FASTA files
+    pub fn tune_group_with_fasta(
+        &mut self,
+        fasta_files: &[&str],
+        fp_target: f32,
+        alpha: f32,
+        n_threads: usize,
+    ) {
+        // Collect all sequences to tune: flank + all barcodes
+        let mut sequences = vec![self.flank.as_slice()];
+        for barcode in &self.barcodes {
+            sequences.push(barcode.seq.as_slice());
+        }
+
+        // Tune all sequences in parallel using real data
+        let cutoffs = tune_sequences_parallel_with_fasta(
+            &sequences,
+            fasta_files,
+            fp_target,
+            alpha,
+            n_threads,
+        );
 
         // Set the cutoffs
         self.k_cutoff = Some(cutoffs[0]); // First cutoff is for the flank
@@ -258,6 +315,105 @@ impl BarcodeGroup {
 
         Some(first[first.len() - common_len..].to_vec())
     }
+}
+
+/// Tune multiple sequences in parallel using real sequences from FASTA files
+pub fn tune_sequences_parallel_with_fasta(
+    sequences: &[&[u8]],
+    fasta_files: &[&str],
+    fp_target: f32,
+    alpha: f32,
+    n_threads: usize,
+) -> Vec<usize> {
+    println!("[Threads: {}] Tuning sequences with real data", n_threads);
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(n_threads)
+        .build()
+        .unwrap();
+
+    // Collect all middle portions from FASTA files
+    let middle_sequences: Vec<Vec<u8>> = pool.install(|| {
+        fasta_files
+            .par_iter()
+            .flat_map(|fasta_file| {
+                let mut reader = parse_fastx_file(fasta_file).expect("Failed to parse FASTA file");
+                let mut sequences = Vec::new();
+
+                while let Some(Ok(record)) = reader.next() {
+                    let seq = record.seq();
+                    if seq.len() > 400 {
+                        // Only use sequences longer than 400nt
+                        let start = 200;
+                        let end = seq.len().saturating_sub(200);
+                        if end > start {
+                            sequences.push(seq[start..end].to_vec());
+                        }
+                    }
+                }
+                sequences
+            })
+            .collect()
+    });
+
+    println!("Using {} real sequences for tuning", middle_sequences.len());
+
+    pool.install(|| {
+        sequences
+            .par_iter()
+            .map(|seq| {
+                tune_single_sequence_with_real_data(seq, &middle_sequences, fp_target, alpha)
+            })
+            .collect()
+    })
+}
+
+fn tune_single_sequence_with_real_data(
+    seq: &[u8],
+    real_sequences: &[Vec<u8>],
+    fp_target: f32,
+    alpha: f32,
+) -> usize {
+    let mut costs = Vec::new();
+
+    // Initialize thread-local searcher if not already done
+    TUNING_SEARCHER.with(|cell| {
+        if cell.borrow().is_none() {
+            *cell.borrow_mut() = Some(Searcher::<Iupac>::new_rc_with_overhang(alpha));
+        }
+    });
+
+    for real_seq in real_sequences {
+        // Skip if the real sequence is shorter than our query sequence
+        if real_seq.len() < seq.len() {
+            continue;
+        }
+
+        let matches = TUNING_SEARCHER.with(|cell| {
+            if let Some(ref mut searcher) = *cell.borrow_mut() {
+                searcher.search(seq, real_seq, seq.len())
+            } else {
+                vec![]
+            }
+        });
+
+        if matches.is_empty() {
+            continue;
+        }
+        let lowest_cost = matches.iter().map(|m| m.cost).min().unwrap();
+        costs.push(lowest_cost);
+    }
+
+    if costs.is_empty() {
+        println!(
+            "Warning: No matches found for sequence of length {}",
+            seq.len()
+        );
+        return seq.len(); // Default to sequence length if no matches
+    }
+
+    let cutoff = get_fp_threshold(costs, fp_target, TailSide::Left);
+    println!("Cutoff: {}", cutoff);
+    cutoff as usize
 }
 
 mod tests {
@@ -373,7 +529,7 @@ mod tests {
     #[test]
     fn test_fasta_read() {
         let example_file = "examples/rapid_bars.fasta";
-        let barcode_group = BarcodeGroup::new_from_fasta(example_file);
+        let barcode_group = BarcodeGroup::new_from_fasta(example_file, BarcodeType::Fbar);
         let expected_flank = b"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCNNNNNNNNNNNNNNNNNNNNNNNNGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
         let flank = barcode_group.flank;
         assert_eq!(flank, expected_flank);
