@@ -220,7 +220,7 @@ impl Demuxer {
 
         //  (&read[mask_start..=mask_end], (mask_start, mask_end))
 
-        let path = flank_match.to_path(flank_match.strand == Strand::Rc);
+        let path = flank_match.to_path();
         // for pos in path.iter() {
         //     println!("Q - R: {} - {}", pos.0, pos.1);
         // }
