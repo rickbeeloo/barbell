@@ -1,6 +1,3 @@
-cargo-features = ["profile-rustflags"]
-
-
 [package]
 name = "barbell-sassy-rewrite"
 version = "0.1.7"
