@@ -37,4 +37,4 @@ inherits = "release"
 lto = "thin"
 
 [package.metadata.dist]
-allow-dirty = ["workflows", "installer"]
+allow-dirty = ["ci", "msi"]
