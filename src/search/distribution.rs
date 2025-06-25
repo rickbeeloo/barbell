@@ -25,18 +25,23 @@ pub fn get_fp_threshold<T: Number>(scores: Vec<T>, fp_target: f32, tail_side: Ta
         // Sort from highest to lowest
         sorted_scores.sort_by(|a, b| b.partial_cmp(a).unwrap_or(Ordering::Equal));
     }
-    println!("# scores: {:?}", sorted_scores.len());
+    // println!("# scores: {:?}", sorted_scores.len());
+    //println!("Sorted scores: {:?}", sorted_scores);
 
     let target_index = (fp_target * sorted_scores.len() as f32) as usize;
 
     if target_index < sorted_scores.len() {
-        sorted_scores[target_index]
+        let c = sorted_scores[target_index];
+        // println!("Target score: {:?}", c);
+        c
     } else {
         // Print yellow warning that we don't have enough data for this fp target
         println!(
             "{}",
             "Warning: Not enough data for this fp target. Using max cut off (uncertain).".yellow()
         );
-        sorted_scores[sorted_scores.len() - 1]
+        let last_score = sorted_scores[sorted_scores.len() - 1];
+        //println!("Last score: {:?}", last_score);
+        last_score
     }
 }

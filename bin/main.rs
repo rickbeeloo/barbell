@@ -1,16 +1,17 @@
-use anyhow::Result;
 use barbell::filter::filter::filter_from_text_file;
 use barbell::inspect::inspect;
+use barbell::progress::{ProgressTracker, print_header, print_summary_stats};
 use barbell::search::barcodes::{BarcodeGroup, BarcodeType};
 use barbell::search::searcher::Demuxer;
-use colored::Colorize;
+use barbell::trim::trim::trim_matches;
+use clap::{Parser, Subcommand};
+use colored::*;
 use csv::WriterBuilder;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use needletail::{FastxReader, Sequence, parse_fastx_file};
 use rand::Rng;
 use seq_io::fastq::Reader as FastqReader;
 use seq_io_parallel::{MinimalRefRecord, ParallelProcessor, ParallelReader};
-use serde_json;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -86,51 +87,52 @@ impl ParallelAnnotator {
         fastq_file: &str,
         output_file: &str,
         threads: usize,
-    ) -> Result<()> {
-        let start_time = Instant::now();
+    ) -> anyhow::Result<()> {
+        let mut progress = ProgressTracker::new();
+        print_header("Parallel Annotation");
 
-        println!("\n{}", "Configuration".bold().underline());
-        println!("  • Input:  {}", fastq_file.bold());
-        println!("  • Output: {}", output_file.bold());
-        println!("  • Threads: {}", threads.to_string().bold());
+        progress.step("Configuration");
+        progress.indent();
+        progress.substep(&format!("Input: {}", fastq_file));
+        progress.substep(&format!("Output: {}", output_file));
+        progress.substep(&format!("Threads: {}", threads));
+        progress.dedent();
 
         // Create output file and initialize writer
+        progress.step("Initializing output");
+        progress.indent();
         let output_handle = std::fs::File::create(output_file)?;
         let writer = BufWriter::new(output_handle);
         let csv_writer = csv::WriterBuilder::new()
             .delimiter(b'\t')
             .from_writer(writer);
         self.writer = Arc::new(Mutex::new(csv_writer));
+        progress.success("Output file initialized");
+        progress.dedent();
 
         // Process reads
+        progress.step("Processing reads");
+        progress.indent();
         let reader = FastqReader::from_path(fastq_file)?;
         reader.process_parallel(self.clone(), threads)?;
+        progress.dedent();
 
         // Finish progress bars
         self.total_bar.finish_with_message("Done!");
         self.found_bar.finish_with_message("Done!");
         self.missed_bar.finish_with_message("Done!");
 
-        println!("\n{}", "Summary".bold().underline());
-        println!(
-            "  • Time: {} seconds",
-            start_time.elapsed().as_secs().to_string().bold()
-        );
-        println!(
-            "  • Total reads: {}",
-            self.total.load(Ordering::Relaxed).to_string().bold()
-        );
-        println!(
-            "  • Tagged reads: {}",
-            self.found
-                .load(Ordering::Relaxed)
-                .to_string()
-                .green()
-                .bold()
-        );
-        println!(
-            "  • Missed reads: {}\n",
-            self.missed.load(Ordering::Relaxed).to_string().red().bold()
+        // Print summary
+        let total = self.total.load(Ordering::Relaxed);
+        let found = self.found.load(Ordering::Relaxed);
+        let missed = self.missed.load(Ordering::Relaxed);
+
+        print_summary_stats(
+            total,
+            found,
+            found, // For annotation, mapped = found
+            found, // For annotation, trimmed = found
+            progress.elapsed(),
         );
 
         // Flush before closing
@@ -146,7 +148,7 @@ impl ParallelProcessor for ParallelAnnotator {
         record: Rf,
         _record_set_idx: usize,
         _record_idx: usize,
-    ) -> Result<()> {
+    ) -> anyhow::Result<()> {
         // Parse the read ID and sequence
         let read_id = record.ref_id().unwrap().split_whitespace().next().unwrap();
         let read = record.ref_seq();
@@ -190,19 +192,17 @@ impl ParallelProcessor for ParallelAnnotator {
 
         // Update progress bars periodically
         if total_count % 100 == 0 {
-            self.total_bar.set_message(format!("{}", total_count));
+            self.total_bar.set_message(total_count.to_string());
             self.found_bar
-                .set_message(format!("{}", self.found.load(Ordering::Relaxed)));
+                .set_message(self.found.load(Ordering::Relaxed).to_string());
             self.missed_bar
-                .set_message(format!("{}", self.missed.load(Ordering::Relaxed)));
+                .set_message(self.missed.load(Ordering::Relaxed).to_string());
         }
 
         Ok(())
     }
 
-    fn on_batch_complete(&mut self) -> Result<()> {
-        // Optionally flush after each batch
-        // self.writer.lock().unwrap().flush()?;
+    fn on_batch_complete(&mut self) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -238,52 +238,262 @@ fn annotate(
     query_files: Vec<&str>,
     query_types: Vec<BarcodeType>,
     out_file: &str,
-) {
+) -> anyhow::Result<()> {
+    let mut progress = ProgressTracker::new();
+    print_header("Barcode Annotation");
+
+    progress.step("Initializing demuxer");
+    progress.indent();
     // Set up a demuxer
     let mut demuxer = Demuxer::new(0.5);
+    progress.substep("Created demuxer with alpha=0.5");
+    progress.dedent();
 
     // Get random sample of reads
+    progress.step("Sampling reads for tuning");
+    progress.indent();
     let random_reads = random_fasta_sample(read_file, 10_000);
+    progress.substep(&format!("Sampled {} reads for tuning", random_reads.len()));
 
     // Write random reads to fasta file
+    progress.substep("Writing sampled reads to temporary file");
     let mut writer = BufWriter::new(File::create("random_reads.fasta").unwrap());
     for (i, seq) in random_reads.iter().enumerate() {
         writer.write_all(format!(">{}\n", i).as_bytes()).unwrap();
         writer.write_all(seq).unwrap();
         writer.write_all(b"\n").unwrap();
     }
+    progress.success("Temporary FASTA file created");
+    progress.dedent();
 
     // Create query groups from fasta files
-    for (query_file, query_type) in query_files.iter().zip(query_types.iter()) {
-        let mut query_group = BarcodeGroup::new_from_fasta(query_file, query_type.clone());
-        // Tune it
-        //query_group.tune_group(100_000, 0.01, 0.5, 5); // 0.01% false positives
-        query_group.tune_group_with_fasta(&["random_reads.fasta"], 0.001, 0.5, 15); // 0.1% false positives
+    progress.step("Processing query groups");
+    progress.indent();
+    for (i, (query_file, query_type)) in query_files.iter().zip(query_types.iter()).enumerate() {
+        progress.substep(&format!("Processing group {}: {}", i + 1, query_file));
+        progress.indent();
 
-        //let barcodes = query_group.barcodes.len();
-        //let barcode_cut_offs = vec![5; barcodes];
-        //query_group.tune_group_manual(41, barcode_cut_offs);
+        let mut query_group = BarcodeGroup::new_from_fasta(query_file, query_type.clone());
+        progress.info(&format!("Loaded {} barcodes", query_group.barcodes.len()));
+
+        progress.substep("Tuning barcode group");
+        query_group.tune_group_random_sequences(1000, 0.001, 0.5, 15);
+        //query_group.tune_group_with_fasta(&["random_reads.fasta"], 0.01, 0.5, 15, 10000);
+
         demuxer.add_query_group(query_group);
+        progress.success(&format!("Group {} processed successfully", i + 1));
+        progress.dedent();
     }
+    progress.dedent();
 
     // Use parallel processor
+    progress.step("Starting parallel annotation");
+    progress.indent();
     let mut annotator = ParallelAnnotator::new(demuxer);
-    annotator.process_fastq(read_file, out_file, 10).unwrap();
+    progress.substep("Created parallel annotator");
+
+    annotator.process_fastq(read_file, out_file, 10)?;
+    progress.dedent();
+
+    progress.success("Annotation completed successfully");
+    progress.print_elapsed();
+
+    Ok(())
+}
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Annotate FASTQ files with barcode information
+    Annotate {
+        /// Input FASTQ file
+        #[arg(short = 'i', long)]
+        input: String,
+
+        /// Number of threads
+        #[arg(short = 't', long, default_value_t = 10)]
+        threads: usize,
+
+        /// Output file path
+        #[arg(short = 'o', long, default_value = "output.tsv")]
+        output: String,
+
+        /// Query files (comma-separated paths)
+        #[arg(short = 'q', long)]
+        queries: String,
+
+        /// Barcode types (comma-separated: Fbar,Rbar,Fflank,Rflank)
+        #[arg(short = 'b', long, default_value = "Fbar")]
+        barcode_types: String,
+    },
+    /// Filter annotation files based on pattern
+    Filter {
+        /// Input annotation file
+        #[arg(short = 'i', long, required = true)]
+        input: String,
+
+        /// Output filtered file path
+        #[arg(short = 'o', long, required = true)]
+        output: String,
+
+        /// File containing patterns to filter by
+        #[arg(short = 'f', long, required = true)]
+        file: String,
+    },
+    /// Trim and sort reads based on filtered annotations
+    Trim {
+        /// Input filtered annotation file
+        #[arg(short = 'i', long)]
+        input: String,
+
+        /// Read FASTQ file
+        #[arg(short = 'r', long)]
+        reads: String,
+
+        /// Output folder path for trimmed reads
+        #[arg(short = 'o', long)]
+        output: String,
+
+        /// Disable label in output filenames
+        #[arg(long, default_value_t = false)]
+        no_label: bool,
+
+        /// Disable orientation in output filenames
+        #[arg(long, default_value_t = false)]
+        no_orientation: bool,
+
+        /// Disable flank in output filenames
+        #[arg(long, default_value_t = false)]
+        no_flanks: bool,
+
+        /// Sort barcode labels in output filenames
+        #[arg(long, default_value_t = false)]
+        sort_labels: bool,
+
+        /// Number of threads
+        #[arg(short = 't', long, default_value_t = 1)]
+        threads: usize,
+    },
+
+    /// View most common patterns in annotation
+    Inspect {
+        /// Input filtered annotation file
+        #[arg(short = 'i', long)]
+        input: String,
+
+        /// Top N
+        #[arg(short = 'n', long, default_value_t = 10)]
+        top_n: usize,
+    },
 }
 
 fn main() {
-    annotate(
-        "/home/solprof/Downloads/sub.fastq",
-        vec!["/home/solprof/PhD/barbell-sassy-rewrite/examples/rapid_bars.fasta"],
-        vec![BarcodeType::Fbar],
-        "examples/test.tsv",
-    );
-    inspect::inspect("examples/test.tsv", 10).expect("Failed to parse results");
+    print_banner();
 
-    filter_from_text_file(
-        "examples/test.tsv",
-        "filter.txt",
-        "examples/test_filtered.tsv",
-    )
-    .expect("Failed to filter");
+    let cli = Cli::parse();
+
+    match &cli.command {
+        Commands::Annotate {
+            input,
+            threads,
+            output,
+            queries,
+            barcode_types,
+        } => {
+            println!("{}", "Starting annotation...".green());
+
+            // Split comma-separated query paths into Vec<String>
+            let query_files: Vec<String> =
+                queries.split(',').map(|s| s.trim().to_string()).collect();
+
+            let query_files_refs: Vec<&str> = query_files.iter().map(|s| s.as_str()).collect();
+
+            // Parse barcode types
+            let barcode_types_vec: Vec<BarcodeType> = barcode_types
+                .split(',')
+                .map(|s| match s.trim() {
+                    "Fbar" => BarcodeType::Fbar,
+                    "Rbar" => BarcodeType::Rbar,
+                    "Fflank" => BarcodeType::Fflank,
+                    "Rflank" => BarcodeType::Rflank,
+                    _ => panic!("Unknown barcode type: {}", s),
+                })
+                .collect();
+
+            match annotate(input, query_files_refs, barcode_types_vec, output) {
+                Ok(_) => println!("{}", "Annotation complete!".green()),
+                Err(e) => println!("{} {}", "Error during processing:".red(), e),
+            }
+        }
+
+        Commands::Filter {
+            input,
+            output,
+            file,
+        } => {
+            println!("{}", "Starting filtering...".green());
+
+            match filter_from_text_file(input, file, output) {
+                Ok(_) => println!("{}", "Filtering successful!".green()),
+                Err(e) => println!("{} {}", "Filtering failed:".red(), e),
+            }
+        }
+
+        Commands::Trim {
+            input,
+            reads,
+            output,
+            no_label,
+            no_orientation,
+            no_flanks,
+            sort_labels,
+            threads,
+        } => {
+            println!("{}", "Starting trimming...".green());
+            trim_matches(
+                input,
+                reads,
+                output,
+                !no_label,
+                !no_orientation,
+                !no_flanks,
+                *sort_labels,
+                *threads,
+            );
+        }
+
+        Commands::Inspect { input, top_n } => {
+            println!("{}", "Inspecting...".green());
+
+            match inspect::inspect(input, *top_n) {
+                Ok(_) => println!("{}", "Inspection complete!".green()),
+                Err(e) => println!("{} {}", "Inspection failed:".red(), e),
+            }
+        }
+    }
+}
+
+fn print_banner() {
+    println!(
+        "{}",
+        r#"
+    ██████╗  █████╗ ██████╗ ██████╗ ███████╗██╗     ██╗     
+    ██╔══██╗██╔══██╗██╔══██╗██╔══██╗██╔════╝██║     ██║     
+    ██████╔╝███████║██████╔╝██████╔╝█████╗  ██║     ██║     
+    ██╔══██╗██╔══██║██╔══██╗██╔══██╗██╔══╝  ██║     ██║     
+    ██████╔╝██║  ██║██║  ██║██████╔╝███████╗███████╗███████╗
+    ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚══════╝╚══════╝
+    "#
+        .blue()
+    );
+    println!(
+        "{}",
+        "        [===]------------------------------------------[===]        ".bright_yellow()
+    );
 }

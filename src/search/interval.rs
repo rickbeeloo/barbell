@@ -10,6 +10,11 @@ pub fn collapse_overlapping_matches(
         return Vec::new();
     }
 
+    //println!("Filtering matches");
+    // for m in matches.iter() {
+    //     println!("m: {:?}", m);
+    // }
+
     let mut sorted = matches.to_vec();
     sorted.sort_by_key(|m| m.read_start_flank);
 
@@ -48,7 +53,7 @@ fn select_best_match(group: Vec<BarbellMatch>) -> BarbellMatch {
     candidates.sort_by(|a, b| {
         a.match_type
             .cmp(&b.match_type)
-            .then_with(|| (a.flank_cost + a.barcode_cost).cmp(&(b.flank_cost + b.barcode_cost)))
+            .then_with(|| (a.barcode_cost).cmp(&(b.barcode_cost)))
     });
     candidates[0].clone()
 }

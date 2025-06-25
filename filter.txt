@@ -1,1 +1,1 @@
-Fbarcode[fw, *, @left(0 to 250)]
+Fbarcode[fw, *, >>, @left(0 to 250)]

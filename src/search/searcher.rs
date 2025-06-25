@@ -1,9 +1,9 @@
 use crate::filter::pattern::Cut;
 use crate::search::barcodes::{BarcodeGroup, BarcodeType};
 use crate::search::interval::collapse_overlapping_matches;
+use colored::*;
 use needletail::{FastxReader, Sequence, parse_fastx_file};
 use pa_types::Cost;
-use rayon::prelude::*;
 use sassy::profiles::Iupac;
 use sassy::profiles::Profile;
 use sassy::search::{Match, Searcher, Strand};
@@ -209,9 +209,23 @@ impl Demuxer {
         flank: &BarcodeGroup,
         flank_match: &Match,
     ) -> (&'a [u8], (usize, usize)) {
+        let flank_len = flank.flank.len();
         let (mask_start, mask_end) = flank.bar_region;
+
+        let (mask_start, mask_end) = if flank_match.strand == Strand::Rc {
+            (flank_len - mask_end, flank_len - mask_start)
+        } else {
+            (mask_start, mask_end)
+        };
+
         //  (&read[mask_start..=mask_end], (mask_start, mask_end))
-        let path = flank_match.to_path();
+
+        let path = flank_match.to_path(flank_match.strand == Strand::Rc);
+        // for pos in path.iter() {
+        //     println!("Q - R: {} - {}", pos.0, pos.1);
+        // }
+
+        //  println!("Mask start - mask end: {} - {}", mask_start, mask_end);
 
         // Collect unique positions and find min/max r_pos for positions in mask region
         let positions: std::collections::HashSet<_> = path.iter().collect();
@@ -256,30 +270,42 @@ impl Demuxer {
         });
 
         // We first search for the top level of the barcodeGroups
-        for barcode_group in self.queries.iter() {
+        for (i, barcode_group) in self.queries.iter().enumerate() {
+            //println!("Barcode group: {}", i);
+
             let flank = &barcode_group.flank;
             let k = barcode_group.k_cutoff.unwrap_or(0);
             // println!("K: {}", k);
             // println!("Q: {}", String::from_utf8_lossy(flank));
             // println!("Read: {}", String::from_utf8_lossy(read));
 
+            //  println!("Looking for flank: {}", String::from_utf8_lossy(flank));
             let flank_matches = OVERHANG_SEARCHER.with(|cell| {
                 if let Some(ref mut searcher) = *cell.borrow_mut() {
                     searcher.search(flank, &read, k)
                 } else {
-                    vec![]
+                    unreachable!();
+                    //vec![]
                 }
             });
-            // println!("Flank matches: {}", flank_matches.len());
+            // println!("\tFlank matches: {}", flank_matches.len());
 
             // If we found a flank, we slice out the masked region and search for the barcodes in the
             // masked region, we should be AWARE OF THE STRAND as sassy now returns both directions (Fwd, Rc)
             for flank_match in flank_matches {
                 // println!(
-                //     "Flank slice: {:?}",
+                //     "[{}] Flank match: {}",
+                //     read_id,
                 //     String::from_utf8_lossy(
-                //         &read[flank_match.start.1 as usize..flank_match.end.1 as usize],
+                //         &read[flank_match.start.1 as usize..flank_match.end.1 as usize]
                 //     )
+                // );
+                // println!(
+                //     "[{}] Flank match RC: {}",
+                //     read_id,
+                //     String::from_utf8_lossy(&Iupac::reverse_complement(
+                //         &read[flank_match.start.1 as usize..flank_match.end.1 as usize]
+                //     ))
                 // );
                 let (mask_region, (mask_start, _mask_end)) =
                     self.slice_masked_region(read, barcode_group, &flank_match);
@@ -289,24 +315,27 @@ impl Demuxer {
                     continue;
                 }
 
-                //println!("Mask region: {:?}", String::from_utf8_lossy(mask_region));
-
+                // println!(
+                //     "Mask region FWD: {:?}",
+                //     String::from_utf8_lossy(mask_region)
+                // );
+                // println!(
+                //     "Mask region RC: {:?}",
+                //     String::from_utf8_lossy(&Iupac::reverse_complement(mask_region))
+                // );
                 // Then we compare each query against the masked region
                 let mut barcode_found = false;
+                // println!("Number of barcodes: {}", barcode_group.barcodes.len());
                 for barcode in barcode_group.barcodes.iter() {
-                    // println!(
-                    //     "Barocde: {}",
-                    //     String::from_utf8_lossy(barcode.seq.as_slice())
-                    // );
-
+                    //  println!("\tLooking for barcode: {}", barcode.label);
                     // Look for barcode mathces in mask slice
                     let bms = OVERHANG_SEARCHER.with(|cell| {
+                        let k = barcode.k_cutoff.unwrap_or(0);
+                        //  println!("Using k: {}", k);
                         if let Some(ref mut searcher) = *cell.borrow_mut() {
-                            searcher.search(
-                                &barcode.seq,
-                                &mask_region,
-                                barcode.k_cutoff.unwrap_or(0),
-                            )
+                            // println!("\tLooking for barcode: {}", barcode.label);
+
+                            searcher.search(&barcode.seq, &mask_region, k)
                         } else {
                             vec![]
                         }
@@ -314,28 +343,17 @@ impl Demuxer {
 
                     // We make sure they flank and barcode match on the same strand
                     for bm in bms.iter().filter(|bm| bm.strand == flank_match.strand) {
-                        if bm.start.1 > 10000000 || flank_match.start.1 > 100000000 {
-                            panic!("[barcode start] Start is too large, overflow bug");
-                        }
+                        // println!("\tBm cost: {}", bm.cost);
 
                         barcode_found = true;
-                        let rel_dist = rel_dist_to_end(
-                            flank_match.start.1 as isize + mask_start as isize,
-                            read.len(),
-                        );
-                        if rel_dist > 10000000 {
-                            panic!(
-                                "[rel_dist] Rel dist is too large, overflow bug, Input for func: {}, {}",
-                                flank_match.start.1 as isize + mask_start as isize,
-                                read.len()
-                            );
-                        }
+                        let rel_dist = rel_dist_to_end(flank_match.start.1 as isize, read.len());
+
                         results.push(BarbellMatch::new(
                             //t - storing flank matches to more accurately filter out overlaps later on
                             bm.start.1 as usize + mask_start,
                             bm.end.1 as usize + mask_start,
-                            flank_match.start.1 as usize + mask_start,
-                            flank_match.end.1 as usize + mask_start,
+                            flank_match.start.1 as usize,
+                            flank_match.end.1 as usize,
                             //q
                             bm.start.0 as usize,
                             bm.end.0 as usize,
@@ -352,6 +370,7 @@ impl Demuxer {
                     }
                 }
                 if !barcode_found {
+                    // println!("Came here!");
                     // We just add the flank as a match
                     results.push(BarbellMatch::new(
                         //t - storing flank matches to more accurately filter out overlaps later on
@@ -364,7 +383,7 @@ impl Demuxer {
                         0,
                         barcode_group.barcodes[0].match_type.as_flank().clone(),
                         flank_match.cost,
-                        0,
+                        barcode_group.barcodes[0].seq.len() as Cost,
                         "flank".to_string(),
                         flank_match.strand,
                         read.len(),
@@ -441,7 +460,7 @@ mod tests {
             vec!["s1".to_string(), "s2".to_string()],
             BarcodeType::Fbar,
         );
-        bar_group.tune_group(1000, 0.001, 0.5, 1);
+        bar_group.tune_group_random_sequences(1000, 0.001, 0.5, 1);
         demuxer.add_query_group(bar_group);
 
         let matches = demuxer.demux("test", &read);
@@ -546,7 +565,7 @@ mod tests {
             vec!["bar22_fwd".to_string(), "bar4_fwd".to_string()],
             BarcodeType::Fbar,
         );
-        fwd_barcode_group.tune_group(1000, 0.001, 0.5, 4);
+        fwd_barcode_group.tune_group_random_sequences(1000, 0.001, 0.5, 4);
         let mut demuxer = Demuxer::new(0.5);
         demuxer.add_query_group(fwd_barcode_group);
         println!("FWD demux");
@@ -562,7 +581,7 @@ mod tests {
             vec!["bar22_rc".to_string(), "bar4_rc".to_string()],
             BarcodeType::Fbar,
         );
-        rc_barcode_group.tune_group(1000, 0.001, 0.5, 4);
+        rc_barcode_group.tune_group_random_sequences(1000, 0.001, 0.5, 4);
         let mut demuxer_rc = Demuxer::new(0.5);
         demuxer_rc.add_query_group(rc_barcode_group);
         println!("RC demux");
@@ -613,7 +632,7 @@ mod tests {
         );
 
         let tune_start_time = std::time::Instant::now();
-        fwd_barcode_group.tune_group(1000, 0.001, 0.5, 4);
+        fwd_barcode_group.tune_group_random_sequences(1000, 0.01, 0.5, 4);
         let tune_end_time = std::time::Instant::now();
         println!(
             "Tune time: {:?}",
@@ -633,7 +652,7 @@ mod tests {
     fn test_full_rapid_flow() {
         let example_file = "examples/rapid_bars.fasta";
         let mut barcode_group = BarcodeGroup::new_from_fasta(example_file, BarcodeType::Fbar);
-        barcode_group.tune_group(100_000, 0.0001, 0.5, 16);
+        barcode_group.tune_group_random_sequences(100_000, 0.0001, 0.5, 16);
         let mut demuxer = Demuxer::new(0.5);
         demuxer.add_query_group(barcode_group);
 
@@ -718,5 +737,51 @@ mod tests {
         let read_len = 173_usize;
         let rel_pos = rel_dist_to_end(pos, read_len);
         println!("rel_pos: {}", rel_pos);
+    }
+
+    #[test]
+    fn example_rc_miss() {
+        let read = b"ACCAGATTGCTGGTGCTGCTTGTCCAGGGTTTGTGTAACCTTTTAACCTTCGTCGGCAGCGTCAGATGTGTATAAGAGACAGTACCTGGTTGATCCTGCCAGTAGTCATATGCTTGTCTCAAGATTAAGCCATGCATGTCTAAGTATAAACAAATTCATACTGTGAAACTGCGAATGGCTCATTAAATCAGTTATAGTTTATTTGATGGTTTCTTGCTACATGGATAACTGTGGTAATTCTAGAGCTAATACATGCTGAAAAGCCCCGACTTCTGGAAGGGGTGTATTTATTAGATAAAAAACCAATGACTTCGGTCTTCTTGGTGATTCATAATAACTTCTCGAATCGCATGGCCTCGCGCCGGCGATGCTTCATTCAAATATCTGCCCTATCAACTTTCGATGGTAGGATAGAGGCCTACCATGGTATCAACGGGTAACGGGAATTAGGGTTCGATTCCGGAGAGGGAGCCTAGAAACGGCTACCACATCCAAGGAAGGCAGCAGGCGCGCAAATTACCCAATCCCGACACGGGGA";
+        let read_rc = Iupac::reverse_complement(read);
+
+        let mut demuxer = Demuxer::new(0.5);
+
+        /*
+
+                >5R
+        AATGTACTTCGTTCAGTTACGTATTGCTGGTGCTGCTTGTCCAGGGTTTGTGTAACCTTTTAACCTTCGTCGGCAGCGTCAGATGTGTATAAGAGACAGTACCTGGTTGATYCTG
+        >6R
+        AATGTACTTCGTTCAGTTACGTATTGCTGGTGCTGTTCTCGCAAAGGCAGAAAGTAGTCTTAACCTTCGTCGGCAGCGTCAGATGTGTATAAGAGACAGTACCTGGTTGATYCTG
+         */
+
+        let mut fwd_barcode_group = BarcodeGroup::new(
+            vec![
+                b"AATGTACTTCGTTCAGTTACGTATTGCTGGTGCTGCTTGTCCAGGGTTTGTGTAACCTTTTAACCTTCGTCGGCAGCGTCAGATGTGTATAAGAGACAGTACCTGGTTGATYCTG".to_vec(),
+                b"AATGTACTTCGTTCAGTTACGTATTGCTGGTGCTGTTCTCGCAAAGGCAGAAAGTAGTCTTAACCTTCGTCGGCAGCGTCAGATGTGTATAAGAGACAGTACCTGGTTGATYCTG".to_vec()],
+            vec!["5R".to_string(), "6R".to_string()],
+            BarcodeType::Rbar,
+        );
+        fwd_barcode_group.tune_group_random_sequences(100, 0.001, 0.5, 16);
+        demuxer.add_query_group(fwd_barcode_group);
+        println!("FWD demux");
+        let fwd_matches = demuxer.demux("test", read.as_slice());
+        for fw_m in fwd_matches.iter() {
+            println!("fw_m: {:?}", fw_m);
+        }
+        println!("\n");
+        println!("RC demux");
+        let rc_matches = demuxer.demux("test", read_rc.as_slice());
+        for rc_m in rc_matches.iter() {
+            println!("rc_m: {:?}", rc_m);
+        }
+        println!("\n");
+    }
+
+    #[test]
+    fn test_rel_end() {
+        let read_len = 3537;
+        let pos = 3537;
+        let rel_dist = rel_dist_to_end(pos, read_len);
+        println!("rel dist: {}", rel_dist);
     }
 }

@@ -1,5 +1,6 @@
 use crate::filter::pattern::*;
 use crate::pattern_from_str;
+use crate::progress::{ProgressTracker, print_header, print_summary_stats};
 use crate::search::barcodes::BarcodeType;
 use crate::search::searcher::BarbellMatch;
 use colored::Colorize;
@@ -12,12 +13,15 @@ pub fn filter(
     output_file: &str,
     filters: Vec<Pattern>,
 ) -> Result<(), Box<dyn Error>> {
-    let start_time = Instant::now();
+    let mut progress = ProgressTracker::new();
+    print_header("Pattern Filtering");
 
-    println!("\n{}", "Filtering".bold().underline());
-    println!("  • Input:  {}", annotated_file.bold());
-    println!("  • Output: {}", output_file.bold());
-    println!("  • Patterns: {}\n", filters.len().to_string().bold());
+    progress.step("Configuration");
+    progress.indent();
+    progress.substep(&format!("Input: {}", annotated_file));
+    progress.substep(&format!("Output: {}", output_file));
+    progress.substep(&format!("Patterns: {}", filters.len()));
+    progress.dedent();
 
     // Setup progress bar
     let progress_bar = indicatif::ProgressBar::new_spinner();
@@ -28,6 +32,8 @@ pub fn filter(
     );
     progress_bar.set_prefix("Processing:");
 
+    progress.step("Reading annotations");
+    progress.indent();
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(b'\t')
         .has_headers(true)
@@ -38,6 +44,8 @@ pub fn filter(
         .delimiter(b'\t')
         .from_path(output_file)
         .unwrap();
+    progress.success("Files initialized");
+    progress.dedent();
 
     // Counters
     let mut total_reads = 0;
@@ -47,7 +55,8 @@ pub fn filter(
     let mut current_read_id: Option<String> = None;
     let mut current_group: Vec<BarbellMatch> = Vec::new();
 
-    println!("Started deser");
+    progress.step("Processing read groups");
+    progress.indent();
     for result in reader.deserialize() {
         let record: BarbellMatch = result?;
 
@@ -83,18 +92,19 @@ pub fn filter(
 
     writer.flush()?;
     progress_bar.finish_with_message("Done!");
+    progress.dedent();
 
-    println!("\n{}", "Summary".bold().underline());
-    println!(
-        "  • Time: {} seconds",
-        start_time.elapsed().as_secs().to_string().bold()
+    // Print summary
+    print_summary_stats(
+        total_reads,
+        kept_reads,
+        kept_reads, // For filtering, mapped = kept
+        kept_reads, // For filtering, trimmed = kept
+        progress.elapsed(),
     );
-    println!("  • Total reads: {}", total_reads.to_string().bold());
-    println!("  • Kept reads: {}", kept_reads.to_string().green().bold());
-    println!(
-        "  • Removed reads: {}\n",
-        (total_reads - kept_reads).to_string().red().bold()
-    );
+
+    progress.success("Filtering completed successfully");
+    progress.print_elapsed();
 
     Ok(())
 }

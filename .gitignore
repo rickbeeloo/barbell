@@ -1,1 +1,3 @@
 /target
+/trimmed*
+filter.txt

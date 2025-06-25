@@ -114,11 +114,23 @@ fn check_match_type_and_label(m: &BarbellMatch, pattern_element: &PatternElement
             if let Some(ref expected_label) = pattern_element.label {
                 // Labels are not the same
                 //if let Some(ref m_label) = m.label {
-                if expected_label != &m.label {
-                    println!(
-                        "Explicit label mismatch: {:?} != {:?}",
-                        expected_label, &m.label
-                    );
+                if expected_label.starts_with("~") {
+                    // we do substring check
+                    if let Some(substring) = expected_label.strip_prefix('~') {
+                        if !m.label.contains(substring) {
+                            // println!(
+                            //     "Substring label mismatch: {:?} not in {:?}",
+                            //     expected_label, &m.label
+                            // );
+                            return false;
+                        }
+                    }
+                } else if expected_label != &m.label {
+                    // println!("no substring prefix");
+                    // println!(
+                    //     "Explicit label mismatch: {:?} != {:?}",
+                    //     expected_label, &m.label
+                    // );
                     return false;
                 }
             }
@@ -489,19 +501,19 @@ mod tests {
             None,
         )];
 
-        matches[0].read_start_bar = 500;
+        matches[0].read_end_bar = 500;
         let (is_match, _) = match_pattern(&matches, &pattern);
         assert!(is_match);
 
-        matches[0].read_start_bar = 450;
+        matches[0].read_end_bar = 450;
         let (is_match, _) = match_pattern(&matches, &pattern);
         assert!(is_match);
 
-        matches[0].read_start_bar = 250;
+        matches[0].read_end_bar = 250;
         let (is_match, _) = match_pattern(&matches, &pattern);
         assert!(is_match);
 
-        matches[0].read_start_bar = 249;
+        matches[0].read_end_bar = 249;
         let (is_match, _) = match_pattern(&matches, &pattern);
         assert!(!is_match);
     }

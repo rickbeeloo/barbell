@@ -1,3 +1,4 @@
+use crate::progress::{ProgressTracker, print_header};
 use crate::search::barcodes::BarcodeType;
 use crate::search::searcher::BarbellMatch;
 use colored::Colorize;
@@ -105,9 +106,17 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
 }
 
 pub fn inspect(annotated_file: &str, top_n: usize) -> Result<(), Box<dyn Error>> {
-    println!("\n{}", "Inspecting".bold().underline());
-    println!("  • Input:  {}", annotated_file.bold());
+    let mut progress = ProgressTracker::new();
+    print_header("Pattern Inspection");
 
+    progress.step("Configuration");
+    progress.indent();
+    progress.substep(&format!("Input: {}", annotated_file));
+    progress.substep(&format!("Top N: {}", top_n));
+    progress.dedent();
+
+    progress.step("Reading annotations");
+    progress.indent();
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(b'\t')
         .from_path(annotated_file)
@@ -119,6 +128,7 @@ pub fn inspect(annotated_file: &str, top_n: usize) -> Result<(), Box<dyn Error>>
 
     // Keep track of how often we see a pattern
     let mut pattern_count: HashMap<String, usize> = HashMap::new();
+    let mut total_groups = 0;
 
     for result in reader.deserialize() {
         let record: BarbellMatch = result?;
@@ -130,9 +140,11 @@ pub fn inspect(annotated_file: &str, top_n: usize) -> Result<(), Box<dyn Error>>
                 *pattern_count.entry(label).or_insert(0) += 1;
                 current_group.clear();
                 current_read_id = Some(record.read_id.clone());
+                total_groups += 1;
             }
         } else {
             current_read_id = Some(record.read_id.clone());
+            total_groups += 1;
         }
 
         current_group.push(record);
@@ -144,12 +156,30 @@ pub fn inspect(annotated_file: &str, top_n: usize) -> Result<(), Box<dyn Error>>
         *pattern_count.entry(label).or_insert(0) += 1;
     }
 
+    progress.substep(&format!("Processed {} read groups", total_groups));
+    progress.substep(&format!("Found {} unique patterns", pattern_count.len()));
+    progress.dedent();
+
     // Show top n most common patterns
+    progress.step("Top patterns");
+    progress.indent();
     let mut pattern_count_vec: Vec<(String, usize)> = pattern_count.into_iter().collect();
     pattern_count_vec.sort_by(|a, b| b.1.cmp(&a.1));
-    for (pattern, count) in pattern_count_vec.iter().take(top_n) {
-        println!("{}\nCount: {}\n", pattern, count.to_string().green());
+
+    for (i, (pattern, count)) in pattern_count_vec.iter().take(top_n).enumerate() {
+        progress.substep(&format!("Pattern {}: {} occurrences", i + 1, count));
+        progress.info(&format!("  {}", pattern));
     }
+
+    progress.substep(&format!(
+        "Showed {} / {} patterns",
+        top_n,
+        pattern_count_vec.len()
+    ));
+    progress.dedent();
+
+    progress.success("Inspection completed successfully");
+    progress.print_elapsed();
 
     Ok(())
 }

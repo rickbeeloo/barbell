@@ -1,5 +1,6 @@
 pub mod filter;
 pub mod inspect;
+pub mod progress;
 pub mod search;
 pub mod trim;
 

@@ -1014,7 +1014,6 @@ dependencies = [
 [[package]]
 name = "sassy"
 version = "0.1.0"
-source = "git+https://github.com/RagnarGrootKoerkamp/sassy.git?branch=master#a1d0bd1b01e43207a0442d0421ceaa699b5e7b33"
 dependencies = [
  "arrayvec",
  "clap",
