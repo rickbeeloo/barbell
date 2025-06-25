@@ -3,7 +3,7 @@ name = "barbell-sassy-rewrite"
 version = "0.1.7"
 edition = "2024"
 
-# repository = "https://github.com/rickbeeloo/barbell-sg"
+repository = "https://github.com/rickbeeloo/barbell-sg"
 
 [lib]
 name = "barbell"
