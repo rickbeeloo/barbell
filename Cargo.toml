@@ -17,7 +17,7 @@ name = "barbell"
 path = "bin/main.rs"
 
 [dependencies]
-sassy = { path = "/home/solprof/PhD/sassy_bins/sassy" }
+sassy = { git = "https://github.com/RagnarGrootKoerkamp/sassy.git" }
 pa-types = { git = "https://github.com/pairwise-alignment/pa-types.git", branch = "main" }
 seq_io_parallel = { git = "https://github.com/rickbeeloo/seq_io_parallel_index.git", branch = "main" }
 rand = "0.8"
