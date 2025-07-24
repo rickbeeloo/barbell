@@ -78,7 +78,7 @@ pub fn print_header(title: &str) {
 
 pub fn print_barcode_group_info(
     flank: &[u8],
-    barcodes: &[crate::search::barcodes::Barcode],
+    barcodes: &[crate::annotate::barcodes::Barcode],
     cutoffs: &[usize],
 ) {
     let indent = "  ".repeat(2);

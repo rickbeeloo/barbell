@@ -1,3 +1,4 @@
 /target
 /trimmed*
+/benchmarks/simulated_data/*
 filter.txt

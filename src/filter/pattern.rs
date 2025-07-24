@@ -1,6 +1,6 @@
-use crate::search::barcodes::BarcodeType;
-use crate::search::searcher::BarbellMatch;
-use sassy::search::Strand;
+use crate::annotate::barcodes::BarcodeType;
+use crate::annotate::searcher::BarbellMatch;
+use sassy::Strand;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -270,9 +270,9 @@ pub fn match_pattern(matches: &[BarbellMatch], pattern: &Pattern) -> (bool, Vec<
 #[macro_export]
 macro_rules! pattern_from_str {
     ($pattern:expr) => {{
-        use sassy::search::Strand;
+        use sassy::Strand;
+        use $crate::annotate::barcodes::BarcodeType;
         use $crate::filter::pattern::*;
-        use $crate::search::barcodes::BarcodeType;
 
         fn parse_range(range_str: &str) -> Option<(isize, isize)> {
             let parts: Vec<&str> = range_str

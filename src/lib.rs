@@ -1,7 +1,7 @@
+pub mod annotate;
 pub mod filter;
 pub mod inspect;
 pub mod progress;
-pub mod search;
 pub mod trim;
 
 /// Extra padding around barcode to ensure correct "alignment"

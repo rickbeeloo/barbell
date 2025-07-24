@@ -1,8 +1,8 @@
+use crate::annotate::barcodes::BarcodeType;
+use crate::annotate::searcher::BarbellMatch;
 use crate::filter::pattern::*;
 use crate::pattern_from_str;
 use crate::progress::{ProgressTracker, print_header, print_summary_stats};
-use crate::search::barcodes::BarcodeType;
-use crate::search::searcher::BarbellMatch;
 use colored::Colorize;
 use indicatif::ProgressStyle;
 use std::error::Error;
