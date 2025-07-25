@@ -3,7 +3,6 @@ use barbell::annotate::barcodes::{BarcodeGroup, BarcodeType};
 use barbell::annotate::searcher::Demuxer;
 use barbell::filter::filter::filter_from_text_file;
 use barbell::inspect::inspect;
-use barbell::progress::{ProgressTracker, print_header, print_summary_stats};
 use barbell::trim::trim::trim_matches;
 use clap::{Parser, Subcommand};
 use colored::*;
@@ -12,7 +11,6 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use needletail::{FastxReader, Sequence, parse_fastx_file};
 use rand::Rng;
 use seq_io::fastq::Reader as FastqReader;
-use seq_io_parallel::{MinimalRefRecord, ParallelProcessor, ParallelReader};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -159,6 +157,8 @@ fn main() {
                 barcode_types_vec,
                 output,
                 *max_error_perc,
+                0.5, // user param?
+                *threads as u32,
             ) {
                 Ok(_) => println!("{}", "Annotation complete!".green()),
                 Err(e) => println!("{} {}", "Error during processing:".red(), e),

@@ -2,7 +2,6 @@ use crate::annotate::barcodes::BarcodeType;
 use crate::annotate::searcher::BarbellMatch;
 use crate::filter::pattern::*;
 use crate::pattern_from_str;
-use crate::progress::{ProgressTracker, print_header, print_summary_stats};
 use colored::Colorize;
 use indicatif::ProgressStyle;
 use std::error::Error;
@@ -13,16 +12,6 @@ pub fn filter(
     output_file: &str,
     filters: Vec<Pattern>,
 ) -> Result<(), Box<dyn Error>> {
-    let mut progress = ProgressTracker::new();
-    print_header("Pattern Filtering");
-
-    progress.step("Configuration");
-    progress.indent();
-    progress.substep(&format!("Input: {}", annotated_file));
-    progress.substep(&format!("Output: {}", output_file));
-    progress.substep(&format!("Patterns: {}", filters.len()));
-    progress.dedent();
-
     // Setup progress bar
     let progress_bar = indicatif::ProgressBar::new_spinner();
     progress_bar.set_style(
@@ -32,8 +21,6 @@ pub fn filter(
     );
     progress_bar.set_prefix("Processing:");
 
-    progress.step("Reading annotations");
-    progress.indent();
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(b'\t')
         .has_headers(true)
@@ -44,8 +31,6 @@ pub fn filter(
         .delimiter(b'\t')
         .from_path(output_file)
         .unwrap();
-    progress.success("Files initialized");
-    progress.dedent();
 
     // Counters
     let mut total_reads = 0;
@@ -55,8 +40,6 @@ pub fn filter(
     let mut current_read_id: Option<String> = None;
     let mut current_group: Vec<BarbellMatch> = Vec::new();
 
-    progress.step("Processing read groups");
-    progress.indent();
     for result in reader.deserialize() {
         let record: BarbellMatch = result?;
 
@@ -92,19 +75,7 @@ pub fn filter(
 
     writer.flush()?;
     progress_bar.finish_with_message("Done!");
-    progress.dedent();
-
-    // Print summary
-    print_summary_stats(
-        total_reads,
-        kept_reads,
-        kept_reads, // For filtering, mapped = kept
-        kept_reads, // For filtering, trimmed = kept
-        progress.elapsed(),
-    );
-
-    progress.success("Filtering completed successfully");
-    progress.print_elapsed();
+    println!("Total reads: {}, Kept reads: {}", total_reads, kept_reads);
 
     Ok(())
 }

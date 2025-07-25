@@ -1,6 +1,5 @@
 use crate::annotate::searcher::BarbellMatch;
 use crate::filter::pattern::{Cut, CutDirection};
-use crate::progress::{ProgressTracker, print_header, print_summary_stats};
 use colored::Colorize;
 use csv;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -56,7 +55,7 @@ impl LabelConfig {
                         Strand::Fwd => "fw",
                         Strand::Rc => "rc",
                     };
-                    result = format!("{}_{}", result, ori);
+                    result = format!("{result}_{ori}");
                 }
 
                 Some(result)
@@ -233,7 +232,7 @@ pub fn process_read_and_anno(
         let label_matches: Vec<BarbellMatch> = slice.annotations.clone();
 
         let group_label = label_config.create_label(&label_matches);
-        let read_suffix = format!("_{}", group_label);
+        let read_suffix = format!("_{group_label}");
         results.push((trimmed_seq, trimmed_qual, group_label, read_suffix));
     }
 
@@ -255,49 +254,15 @@ pub fn trim_matches(
     sort_labels: bool,
     _n_threads: usize,
 ) {
-    let mut progress = ProgressTracker::new();
-    print_header("Read Trimming");
-
-    progress.step("Configuration");
-    progress.indent();
-    progress.substep(&format!("Input matches: {}", filtered_match_file));
-    progress.substep(&format!("Input reads: {}", read_fastq_file));
-    progress.substep(&format!("Output folder: {}", output_folder));
-    progress.substep(&format!(
-        "Labels: {}",
-        if add_labels { "enabled" } else { "disabled" }
-    ));
-    progress.substep(&format!(
-        "Orientation: {}",
-        if add_orientation {
-            "enabled"
-        } else {
-            "disabled"
-        }
-    ));
-    progress.substep(&format!(
-        "Flanks: {}",
-        if add_flank { "enabled" } else { "disabled" }
-    ));
-    progress.substep(&format!(
-        "Sort labels: {}",
-        if sort_labels { "enabled" } else { "disabled" }
-    ));
-    progress.dedent();
-
     // Create output folder if it doesn't exist
     if !Path::new(output_folder).exists() {
-        progress.step("Creating output directory");
         std::fs::create_dir_all(output_folder).expect("Failed to create output folder");
-        progress.success("Output directory created");
     }
 
     // Label formatting config
     let label_config = LabelConfig::new(add_labels, add_orientation, add_flank, sort_labels);
 
     // Read all annotations and group by read ID
-    progress.step("Reading annotations");
-    progress.indent();
     let mut annotations_by_read: HashMap<String, Vec<BarbellMatch>> = HashMap::new();
 
     let mut matches_reader = csv::ReaderBuilder::new()
@@ -314,13 +279,6 @@ pub fn trim_matches(
             .push(anno);
         annotation_count += 1;
     }
-
-    progress.substep(&format!(
-        "Found {} reads with annotations",
-        annotations_by_read.len()
-    ));
-    progress.substep(&format!("Total annotations: {}", annotation_count));
-    progress.dedent();
 
     // Create writers
     let mut writers: HashMap<String, BufWriter<File>> = HashMap::new();
@@ -341,8 +299,6 @@ pub fn trim_matches(
     progress_bar.set_prefix("Processing");
 
     // Process reads
-    progress.step("Processing reads");
-    progress.indent();
     let mut reader = Reader::from_path(read_fastq_file).expect("Failed to open FASTQ file");
 
     while let Some(record) = reader.next() {
@@ -386,26 +342,12 @@ pub fn trim_matches(
     }
 
     // Flush all writers
-    progress.substep("Flushing output files");
     for (group, writer) in writers.iter_mut() {
         writer.flush().expect("Failed to flush output");
     }
-    progress.dedent();
 
     // Finish progress bar and print summary
     progress_bar.finish_with_message("Done!");
-
-    // Print summary
-    print_summary_stats(
-        total_reads,
-        mapped_reads,
-        trimmed_reads,
-        trimmed_split_reads,
-        progress.elapsed(),
-    );
-
-    progress.success("Trimming completed successfully");
-    progress.print_elapsed();
 }
 
 #[cfg(test)]

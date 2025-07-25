@@ -10,11 +10,6 @@ pub fn collapse_overlapping_matches(
         return Vec::new();
     }
 
-    //println!("Filtering matches");
-    // for m in matches.iter() {
-    //     println!("m: {:?}", m);
-    // }
-
     let mut sorted = matches.to_vec();
     sorted.sort_by_key(|m| m.read_start_flank);
 

@@ -1,6 +1,5 @@
 use crate::annotate::barcodes::BarcodeType;
 use crate::annotate::searcher::BarbellMatch;
-use crate::progress::{ProgressTracker, print_header};
 use sassy::Strand;
 use std::collections::HashMap;
 use std::error::Error;
@@ -105,17 +104,6 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
 }
 
 pub fn inspect(annotated_file: &str, top_n: usize) -> Result<(), Box<dyn Error>> {
-    let mut progress = ProgressTracker::new();
-    print_header("Pattern Inspection");
-
-    progress.step("Configuration");
-    progress.indent();
-    progress.substep(&format!("Input: {}", annotated_file));
-    progress.substep(&format!("Top N: {}", top_n));
-    progress.dedent();
-
-    progress.step("Reading annotations");
-    progress.indent();
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(b'\t')
         .from_path(annotated_file)
@@ -155,30 +143,19 @@ pub fn inspect(annotated_file: &str, top_n: usize) -> Result<(), Box<dyn Error>>
         *pattern_count.entry(label).or_insert(0) += 1;
     }
 
-    progress.substep(&format!("Processed {} read groups", total_groups));
-    progress.substep(&format!("Found {} unique patterns", pattern_count.len()));
-    progress.dedent();
+    println!("Processed {} read groups", total_groups);
+    println!("Found {} unique patterns", pattern_count.len());
 
     // Show top n most common patterns
-    progress.step("Top patterns");
-    progress.indent();
     let mut pattern_count_vec: Vec<(String, usize)> = pattern_count.into_iter().collect();
     pattern_count_vec.sort_by(|a, b| b.1.cmp(&a.1));
 
     for (i, (pattern, count)) in pattern_count_vec.iter().take(top_n).enumerate() {
-        progress.substep(&format!("Pattern {}: {} occurrences", i + 1, count));
-        progress.info(&format!("  {}", pattern));
+        println!("Pattern {}: {} occurrences", i + 1, count);
+        println!("  {}", pattern);
     }
 
-    progress.substep(&format!(
-        "Showed {} / {} patterns",
-        top_n,
-        pattern_count_vec.len()
-    ));
-    progress.dedent();
-
-    progress.success("Inspection completed successfully");
-    progress.print_elapsed();
+    println!("Showed {} / {} patterns", top_n, pattern_count_vec.len());
 
     Ok(())
 }

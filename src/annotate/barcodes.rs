@@ -1,7 +1,3 @@
-use crate::progress::{
-    ProgressTracker, print_barcode_group_info, print_cutoffs_horizontal, print_header,
-    print_tuning_progress,
-};
 use colored::*;
 use needletail::{FastxReader, Sequence, parse_fastx_file};
 use rand::Rng;
@@ -120,8 +116,7 @@ impl BarcodeGroup {
     }
 
     pub fn new_from_fasta(fasta_file: &str, bar_type: BarcodeType) -> Self {
-        println!("Fast file: {}", fasta_file);
-        let mut reader = parse_fastx_file(fasta_file).expect("valid path/file");
+        let mut reader = parse_fastx_file(fasta_file).expect("Query file not found");
         let mut bar_seqs: Vec<Vec<u8>> = Vec::new();
         let mut labels = Vec::new();
 
