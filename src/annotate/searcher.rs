@@ -479,7 +479,7 @@ mod tests {
             BarcodeType::Fbar,
         );
         //bar_group.tune_group_random_sequences(1000, 0.001, 0.5, 1);
-        bar_group.tune_set_perc_threshold(0.1);
+        bar_group.set_perc_threshold(0.1);
 
         demuxer.add_query_group(bar_group);
 
@@ -585,7 +585,7 @@ mod tests {
             vec!["bar22_fwd".to_string(), "bar4_fwd".to_string()],
             BarcodeType::Fbar,
         );
-        fwd_barcode_group.tune_set_perc_threshold(0.2);
+        fwd_barcode_group.set_perc_threshold(0.2);
         let mut demuxer = Demuxer::new(0.5);
         demuxer.add_query_group(fwd_barcode_group);
         println!("FWD demux");
@@ -601,7 +601,7 @@ mod tests {
             vec!["bar22_rc".to_string(), "bar4_rc".to_string()],
             BarcodeType::Fbar,
         );
-        rc_barcode_group.tune_set_perc_threshold(0.2);
+        rc_barcode_group.set_perc_threshold(0.2);
         let mut demuxer_rc = Demuxer::new(0.5);
         demuxer_rc.add_query_group(rc_barcode_group);
         println!("RC demux");
@@ -652,7 +652,7 @@ mod tests {
         );
 
         let tune_start_time = std::time::Instant::now();
-        fwd_barcode_group.tune_set_perc_threshold(0.2);
+        fwd_barcode_group.set_perc_threshold(0.2);
         let tune_end_time = std::time::Instant::now();
         println!(
             "Tune time: {:?}",
@@ -672,7 +672,7 @@ mod tests {
     fn test_full_rapid_flow() {
         let example_file = "examples/rapid_bars.fasta";
         let mut barcode_group = BarcodeGroup::new_from_fasta(example_file, BarcodeType::Fbar);
-        barcode_group.tune_set_perc_threshold(0.2);
+        barcode_group.set_perc_threshold(0.2);
         let mut demuxer = Demuxer::new(0.5);
         demuxer.add_query_group(barcode_group);
 
@@ -781,7 +781,7 @@ mod tests {
             vec!["5R".to_string(), "6R".to_string()],
             BarcodeType::Rbar,
         );
-        fwd_barcode_group.tune_set_perc_threshold(0.2);
+        fwd_barcode_group.set_perc_threshold(0.2);
         demuxer.add_query_group(fwd_barcode_group);
         println!("FWD demux");
         let fwd_matches = demuxer.demux("test", read.as_slice());

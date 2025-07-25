@@ -1,5 +1,4 @@
 use crate::annotate::searcher::BarbellMatch;
-use pa_types::Cost;
 use sassy::Strand;
 
 pub fn collapse_overlapping_matches(

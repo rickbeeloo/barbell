@@ -7,10 +7,6 @@ use sassy::profiles::{Iupac, Profile};
 use serde::{Deserialize, Serialize};
 use std::thread_local;
 
-thread_local! {
-    static TUNING_SEARCHER: std::cell::RefCell<Option<Searcher<Iupac>>> = std::cell::RefCell::new(None);
-}
-
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
 pub enum BarcodeType {
     Fbar,
@@ -24,7 +20,7 @@ impl BarcodeType {
         match self {
             BarcodeType::Fbar => BarcodeType::Fflank,
             BarcodeType::Rbar => BarcodeType::Rflank,
-            _ => panic!("Cannot convert {:?} to flank", self),
+            _ => panic!("Cannot convert {self:?} to flank"),
         }
     }
 }
@@ -55,8 +51,8 @@ impl Barcode {
 pub struct BarcodeGroup {
     pub flank: Vec<u8>,
     pub bar_region: (usize, usize),
-    pub barcodes: Vec<Barcode>,  // Think always assume IUPAC anyway
-    pub k_cutoff: Option<usize>, // Should be 'tuned'
+    pub barcodes: Vec<Barcode>, // Think always assume IUPAC anyway
+    pub k_cutoff: Option<usize>,
 }
 
 impl BarcodeGroup {
@@ -96,10 +92,6 @@ impl BarcodeGroup {
         for (i, seq) in query_seqs.iter().enumerate() {
             let start = prefix_len;
             let end = start + mask_size;
-            // println!(
-            //     "Barcode region: {:?}",
-            //     String::from_utf8_lossy(&seq[start..end])
-            // );
             barcodes.push(Barcode::new(
                 &seq[start..end],
                 &query_labels[i],
@@ -130,19 +122,11 @@ impl BarcodeGroup {
         Self::new(bar_seqs, labels, bar_type)
     }
 
-    pub fn tune_set_perc_threshold(&mut self, perc: f32) {
+    pub fn set_perc_threshold(&mut self, perc: f32) {
         self.k_cutoff = Some((self.flank.len() as f32 * perc) as usize);
         // Also set k for each barcode
         for barcode in self.barcodes.iter_mut() {
             barcode.k_cutoff = Some((barcode.seq.len() as f32 * perc) as usize);
-        }
-    }
-
-    pub fn tune_group_manual(&mut self, main_k: usize, bar_ks: Vec<usize>) {
-        self.k_cutoff = Some(main_k);
-        assert_eq!(bar_ks.len(), self.barcodes.len());
-        for (i, barcode) in self.barcodes.iter_mut().enumerate() {
-            barcode.k_cutoff = Some(bar_ks[i]);
         }
     }
 
@@ -237,7 +221,7 @@ mod tests {
 
     #[test]
     fn test_barcode_group() {
-        let seqs = vec![b"AAATTTGGG".as_slice(), b"AAACCCGGG".as_slice()];
+        let seqs = [b"AAATTTGGG".as_slice(), b"AAACCCGGG".as_slice()];
         let labels = vec!["s1".to_string(), "s2".to_string()];
         let barcode_type = BarcodeType::Fbar;
         let barcode_group = BarcodeGroup::new(
@@ -255,7 +239,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_barcode_group_invalid_seq() {
-        let seqs = vec![b"@@@@@@@@@".as_slice(), b"AAACCCGGG".as_slice()];
+        let seqs = [b"@@@@@@@@@".as_slice(), b"AAACCCGGG".as_slice()];
         let labels = vec!["s1".to_string(), "s2".to_string()];
         let barcode_type = BarcodeType::Fbar;
         let _ = BarcodeGroup::new(
@@ -268,7 +252,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_barcode_group_unequal_length() {
-        let seqs = vec![b"AAATTTGGG".as_slice(), b"AAAAAAACCCGGG".as_slice()];
+        let seqs = [b"AAATTTGGG".as_slice(), b"AAAAAAACCCGGG".as_slice()];
         let labels = vec!["s1".to_string(), "s2".to_string()];
         let barcode_type = BarcodeType::Fbar;
         let _ = BarcodeGroup::new(
