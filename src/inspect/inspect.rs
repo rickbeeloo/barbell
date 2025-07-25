@@ -1,7 +1,6 @@
 use crate::annotate::barcodes::BarcodeType;
 use crate::annotate::searcher::BarbellMatch;
 use crate::progress::{ProgressTracker, print_header};
-use colored::Colorize;
 use sassy::Strand;
 use std::collections::HashMap;
 use std::error::Error;

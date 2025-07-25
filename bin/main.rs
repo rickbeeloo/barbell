@@ -1,4 +1,4 @@
-use barbell::annotate::annotate::*;
+use barbell::annotate::annotator::*;
 use barbell::annotate::barcodes::{BarcodeGroup, BarcodeType};
 use barbell::annotate::searcher::Demuxer;
 use barbell::filter::filter::filter_from_text_file;

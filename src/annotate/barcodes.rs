@@ -1,5 +1,3 @@
-use crate::annotate::distribution::{TailSide, get_fp_threshold};
-use crate::annotate::tune::*;
 use crate::progress::{
     ProgressTracker, print_barcode_group_info, print_cutoffs_horizontal, print_header,
     print_tuning_progress,
@@ -145,135 +143,12 @@ impl BarcodeGroup {
         }
     }
 
-    /// Tune the group (flank) and all barcodes in parallel
-    pub fn tune_group_random_sequences(
-        &mut self,
-        n_iter: usize,
-        fp_target: f32,
-        alpha: f32,
-        n_threads: usize,
-    ) {
-        let mut progress = ProgressTracker::new();
-        print_header("Barcode Group Tuning (Random)");
-
-        progress.step("Initializing tuning process");
-        progress.indent();
-
-        // Collect all sequences to tune: flank + all barcodes
-        let mut sequences = vec![self.flank.as_slice()];
-        for barcode in &self.barcodes {
-            sequences.push(barcode.seq.as_slice());
-        }
-
-        progress.substep(&format!("Found {} sequences to tune", sequences.len()));
-        progress.substep(&format!("Using {} random sequences per iteration", n_iter));
-        progress.substep(&format!("Target false positive rate: {:.6}", fp_target));
-        progress.substep(&format!("Alpha parameter: {:.2}", alpha));
-        progress.substep(&format!("Threads: {}", n_threads));
-
-        // Show tuning configuration
-        progress.substep("Tuning configuration:");
-        progress.info(&format!("  Sequences to tune: {}", sequences.len()));
-        progress.info(&format!("  Random iterations: {}", n_iter));
-        progress.info(&format!("  False positive target: {:.6}", fp_target));
-
-        progress.substep("Starting parallel tuning with random sequences");
-
-        // Tune all sequences in parallel
-        let cutoffs = tune_sequences_parallel(&sequences, n_iter, fp_target, alpha, n_threads);
-
-        progress.substep("Tuning completed, applying cutoffs");
-
-        // Set the cutoffs
-        self.k_cutoff = Some(cutoffs[0]); // First cutoff is for the flank
-        for (i, barcode) in self.barcodes.iter_mut().enumerate() {
-            barcode.k_cutoff = Some(cutoffs[i + 1]); // Skip first (flank), rest are barcodes
-        }
-
-        // Print results
-        let labels: Vec<&str> = std::iter::once("flank")
-            .chain(self.barcodes.iter().map(|b| b.label.as_str()))
-            .collect();
-        print_cutoffs_horizontal(&cutoffs, &labels);
-
-        // Show detailed barcode group information
-        print_barcode_group_info(&self.flank, &self.barcodes, &cutoffs);
-
-        progress.dedent();
-        progress.success("Barcode group tuning completed successfully");
-        progress.print_elapsed();
-    }
-
     pub fn tune_group_manual(&mut self, main_k: usize, bar_ks: Vec<usize>) {
         self.k_cutoff = Some(main_k);
         assert_eq!(bar_ks.len(), self.barcodes.len());
         for (i, barcode) in self.barcodes.iter_mut().enumerate() {
             barcode.k_cutoff = Some(bar_ks[i]);
         }
-    }
-
-    /// Tune the group (flank) and all barcodes in parallel using real sequences from FASTA files
-    pub fn tune_group_with_fasta(
-        &mut self,
-        fasta_files: &[&str],
-        fp_target: f32,
-        alpha: f32,
-        n_threads: usize,
-        max_tune_seqs: usize,
-    ) {
-        let mut progress = ProgressTracker::new();
-        print_header("Barcode Group Tuning");
-
-        progress.step("Initializing tuning process");
-        progress.indent();
-
-        // Collect all sequences to tune: flank + all barcodes
-        let mut sequences = vec![self.flank.as_slice()];
-        for barcode in &self.barcodes {
-            sequences.push(barcode.seq.as_slice());
-        }
-
-        progress.substep(&format!("Found {} sequences to tune", sequences.len()));
-        progress.substep(&format!(
-            "Using {} FASTA files for real data",
-            fasta_files.len()
-        ));
-
-        // Show tuning configuration
-        print_tuning_progress(&sequences, fasta_files, max_tune_seqs);
-
-        progress.substep("Starting parallel tuning with real sequences");
-
-        // Tune all sequences in parallel using real data
-        let cutoffs = tune_sequences_parallel_with_fasta(
-            &sequences,
-            fasta_files,
-            fp_target,
-            alpha,
-            n_threads,
-            max_tune_seqs,
-        );
-
-        progress.substep("Tuning completed, applying cutoffs");
-
-        // Set the cutoffs
-        self.k_cutoff = Some(cutoffs[0]); // First cutoff is for the flank
-        for (i, barcode) in self.barcodes.iter_mut().enumerate() {
-            barcode.k_cutoff = Some(cutoffs[i + 1]); // Skip first (flank), rest are barcodes
-        }
-
-        // Print results
-        let labels: Vec<&str> = std::iter::once("flank")
-            .chain(self.barcodes.iter().map(|b| b.label.as_str()))
-            .collect();
-        print_cutoffs_horizontal(&cutoffs, &labels);
-
-        // Show detailed barcode group information
-        print_barcode_group_info(&self.flank, &self.barcodes, &cutoffs);
-
-        progress.dedent();
-        progress.success("Barcode group tuning completed successfully");
-        progress.print_elapsed();
     }
 
     pub fn get_flanks(seqs: &[&[u8]]) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
@@ -406,48 +281,6 @@ mod tests {
             labels,
             barcode_type,
         );
-    }
-
-    #[test]
-    fn test_barcode_tune_k() {
-        let barcode = b"CACAAAGACACCGACAACTTTCTT";
-        let cutoff = tune_single_sequence(barcode, 10000, 0.01, 0.5);
-        // We always expect k to be less than half of the length of the barcode
-        // as that is what we get for random sequences on average
-        println!("Got cut off: {}", cutoff);
-        assert!(cutoff < barcode.len() / 2);
-    }
-
-    #[test]
-    fn test_barcode_group_tune_k() {
-        let mut barcode_group = BarcodeGroup::new(
-            vec![
-                b"CACAAAGACACAAAAAAAAAAAGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA"
-                    .to_vec(),
-                b"CACAAAGACACTTTTTTTTTTTGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA"
-                    .to_vec(),
-            ],
-            vec!["s1".to_string(), "s2".to_string()],
-            BarcodeType::Fbar,
-        );
-        barcode_group.tune_group_random_sequences(1000, 0.01, 0.5, 4);
-        // We always expect k to be less than half of the length of the barocde
-        // as that is what we get for random sequences on average
-        println!(
-            "Got cut off: {}",
-            barcode_group.k_cutoff.unwrap_or(usize::MAX)
-        );
-        assert!(barcode_group.k_cutoff.unwrap_or(usize::MAX) < barcode_group.flank.len() / 2);
-
-        // Also check that barcodes were tuned
-        for barcode in &barcode_group.barcodes {
-            assert!(barcode.k_cutoff.is_some());
-            println!(
-                "Barcode {} cutoff: {}",
-                barcode.label,
-                barcode.k_cutoff.unwrap()
-            );
-        }
     }
 
     #[test]
