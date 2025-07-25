@@ -1,5 +1,4 @@
 use crate::annotate::searcher::BarbellMatch;
-use sassy::Strand;
 
 pub fn collapse_overlapping_matches(
     matches: &[BarbellMatch],
@@ -52,552 +51,180 @@ fn select_best_match(group: Vec<BarbellMatch>) -> BarbellMatch {
     candidates[0].clone()
 }
 
-// #[cfg(test)]
-// mod tests {
+#[cfg(test)]
+mod tests {
 
-//     use super::*;
-//     use crate::search::barcodes::BarcodeType;
+    use rand::seq::SliceRandom;
 
-//     fn create_match(
-//         read_start_bar: usize,
-//         read_end_bar: usize,
-//         read_start_flank: usize,
-//         read_end_flank: usize,
-//         bar_start: usize,
-//         bar_end: usize,
-//         match_type: BarcodeType,
-//         flank_cost: Cost,
-//         barcode_cost: Cost,
-//         label: &str,
-//         strand: Strand,
-//         read_len: usize,
-//     ) -> BarbellMatch {
-//         BarbellMatch::new(
-//             read_start_bar,
-//             read_end_bar,
-//             read_start_flank,
-//             read_end_flank,
-//             bar_start,
-//             bar_end,
-//             match_type,
-//             flank_cost,
-//             barcode_cost,
-//             label.to_string(),
-//             strand,
-//             read_len,
-//         )
-//     }
+    use super::*;
+    use crate::annotate::barcodes::BarcodeType;
+    use crate::filter::pattern::Cut;
+    use pa_types::Cost;
+    use sassy::Strand;
 
-//     #[test]
-//     fn test_collapse_overlapping_matches() {
-//         // Test empty input
-//         let matches: Vec<BarbellMatch> = Vec::new();
-//         let result = collapse_overlapping_matches(&matches, 0.5);
-//         assert_eq!(result.len(), 0);
+    fn create_match(
+        read_start_bar: usize,
+        read_end_bar: usize,
+        read_start_flank: usize,
+        read_end_flank: usize,
+        bar_start: usize,
+        bar_end: usize,
+        match_type: BarcodeType,
+        flank_cost: Cost,
+        barcode_cost: Cost,
+        label: &str,
+        strand: Strand,
+        read_len: usize,
+        read_id: String,
+        rel_dist_to_end: isize,
+        cuts: Option<Vec<(Cut, usize)>>,
+    ) -> BarbellMatch {
+        BarbellMatch::new(
+            read_start_bar,
+            read_end_bar,
+            read_start_flank,
+            read_end_flank,
+            bar_start,
+            bar_end,
+            match_type,
+            flank_cost,
+            barcode_cost,
+            label.to_string(),
+            strand,
+            read_len,
+            read_id,
+            rel_dist_to_end,
+            cuts,
+        )
+    }
 
-//         // Test single match
-//         let matches = vec![create_match(
-//             0,
-//             10,
-//             10,
-//             20,
-//             0,
-//             10,
-//             BarcodeType::Fbar,
-//             5,
-//             3,
-//             "test1",
-//             Strand::Fwd,
-//         )];
-//         let result = collapse_overlapping_matches(&matches, 0.5);
-//         assert_eq!(result.len(), 1);
-//         assert_eq!(result[0].label, "test1");
+    fn create_match_template(
+        start: usize,
+        end: usize,
+        match_type: BarcodeType,
+        barcode_cost: usize,
+        label: &str,
+    ) -> BarbellMatch {
+        create_match(
+            start,
+            end,
+            start,
+            end,
+            0,
+            10,
+            match_type,
+            0,
+            barcode_cost as Cost,
+            &label,
+            Strand::Fwd,
+            100,
+            "test".to_string(),
+            0,
+            None,
+        )
+    }
 
-//         // Test non-overlapping matches
-//         let matches = vec![
-//             create_match(
-//                 0,
-//                 10,
-//                 10,
-//                 20,
-//                 0,
-//                 10,
-//                 BarcodeType::Fbar,
-//                 5,
-//                 3,
-//                 "test1",
-//                 Strand::Fwd,
-//             ),
-//             create_match(
-//                 0,
-//                 10,
-//                 30,
-//                 40,
-//                 0,
-//                 10,
-//                 BarcodeType::Fbar,
-//                 4,
-//                 2,
-//                 "test2",
-//                 Strand::Fwd,
-//             ),
-//         ];
-//         let result = collapse_overlapping_matches(&matches, 0.5);
-//         assert_eq!(result.len(), 2);
-//         assert_eq!(result[0].label, "test1");
-//         assert_eq!(result[1].label, "test2");
+    #[test]
+    fn test_empty_input() {
+        // Test empty input
+        let matches: Vec<BarbellMatch> = Vec::new();
+        let result = collapse_overlapping_matches(&matches, 0.5);
+        assert_eq!(result.len(), 0);
+    }
 
-//         // Test overlapping matches - should collapse to best one
-//         let matches = vec![
-//             create_match(
-//                 0,
-//                 10,
-//                 10,
-//                 20,
-//                 0,
-//                 10,
-//                 BarcodeType::Fbar,
-//                 5,
-//                 3,
-//                 "test1",
-//                 Strand::Fwd,
-//             ),
-//             create_match(
-//                 0,
-//                 10,
-//                 15,
-//                 25,
-//                 0,
-//                 10,
-//                 BarcodeType::Fbar,
-//                 4,
-//                 2,
-//                 "test2",
-//                 Strand::Fwd,
-//             ), // Better cost
-//         ];
-//         let result = collapse_overlapping_matches(&matches, 0.5);
-//         assert_eq!(result.len(), 1);
-//         assert_eq!(result[0].label, "test2"); // Should select the one with lower cost
+    #[test]
+    fn test_single_match() {
+        // Test single match
+        let matches = vec![create_match_template(0, 10, BarcodeType::Fbar, 3, "test1")];
+        let result = collapse_overlapping_matches(&matches, 0.5);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].label, "test1");
+    }
 
-//         // Test multiple overlapping groups
-//         let matches = vec![
-//             create_match(
-//                 0,
-//                 10,
-//                 10,
-//                 20,
-//                 0,
-//                 10,
-//                 BarcodeType::Fbar,
-//                 5,
-//                 3,
-//                 "test1",
-//                 Strand::Fwd,
-//             ),
-//             create_match(
-//                 0,
-//                 10,
-//                 15,
-//                 25,
-//                 0,
-//                 10,
-//                 BarcodeType::Fbar,
-//                 4,
-//                 2,
-//                 "test2",
-//                 Strand::Fwd,
-//             ),
-//             create_match(
-//                 0,
-//                 10,
-//                 40,
-//                 50,
-//                 0,
-//                 10,
-//                 BarcodeType::Fbar,
-//                 3,
-//                 1,
-//                 "test3",
-//                 Strand::Fwd,
-//             ),
-//             create_match(
-//                 0,
-//                 10,
-//                 45,
-//                 55,
-//                 0,
-//                 10,
-//                 BarcodeType::Fbar,
-//                 6,
-//                 4,
-//                 "test4",
-//                 Strand::Fwd,
-//             ),
-//         ];
-//         let result = collapse_overlapping_matches(&matches, 0.5);
-//         assert_eq!(result.len(), 2);
-//         assert_eq!(result[0].label, "test2"); // Best from first group
-//         assert_eq!(result[1].label, "test3"); // Best from second group
-//     }
+    #[test]
+    fn test_doulbe_no_overlap() {
+        // Test non-overlapping matches
+        let matches = vec![
+            create_match_template(0, 10, BarcodeType::Fbar, 3, "test1"),
+            create_match_template(10, 20, BarcodeType::Fbar, 3, "test2"),
+        ];
+        let result = collapse_overlapping_matches(&matches, 0.5);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].label, "test1");
+        assert_eq!(result[1].label, "test2");
+    }
 
-//     #[test]
-//     fn test_is_overlap() {
-//         let match1 = create_match(
-//             0,
-//             10,
-//             10,
-//             20,
-//             0,
-//             10,
-//             BarcodeType::Fbar,
-//             5,
-//             3,
-//             "test1",
-//             Strand::Fwd,
-//         );
-//         let match2 = create_match(
-//             0,
-//             10,
-//             15,
-//             25,
-//             0,
-//             10,
-//             BarcodeType::Fbar,
-//             4,
-//             2,
-//             "test2",
-//             Strand::Fwd,
-//         );
+    #[test]
+    fn test_collapse_overlapping_matches() {
+        // Test overlapping matches - should collapse to best one
+        let matches = vec![
+            create_match_template(0, 20, BarcodeType::Fbar, 0, "test1"),
+            create_match_template(15, 20, BarcodeType::Fbar, 3, "test2"),
+        ];
+        let result = collapse_overlapping_matches(&matches, 0.5);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].label, "test1");
+    }
 
-//         // Test overlapping matches
-//         assert!(is_overlap(&match1, &match2, 0.5));
-//         assert!(is_overlap(&match2, &match1, 0.5));
+    #[test]
+    fn test_overlap_threshold() {
+        let matches = vec![
+            create_match_template(0, 20, BarcodeType::Fbar, 0, "test1"),
+            create_match_template(10, 35, BarcodeType::Fbar, 3, "test2"),
+        ];
+        // They now overlap at 5, which is 50% of the smaller length
+        let result = collapse_overlapping_matches(&matches, 0.5);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].label, "test1");
+        // If we now change it to 0.6, it should not collapse
+        let result = collapse_overlapping_matches(&matches, 0.6);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].label, "test1");
+        assert_eq!(result[1].label, "test2");
+    }
 
-//         // Test non-overlapping matches
-//         let match3 = create_match(
-//             0,
-//             10,
-//             30,
-//             40,
-//             0,
-//             10,
-//             BarcodeType::Fbar,
-//             3,
-//             1,
-//             "test3",
-//             Strand::Fwd,
-//         );
-//         assert!(!is_overlap(&match1, &match3, 0.5));
-//         assert!(!is_overlap(&match3, &match1, 0.5));
+    #[test]
+    fn test_correct_sorting() {
+        let mut matches = vec![
+            create_match_template(0, 10, BarcodeType::Fbar, 0, "test1"),
+            create_match_template(10, 20, BarcodeType::Fbar, 3, "test2"),
+            create_match_template(0, 15, BarcodeType::Fbar, 3, "test2"),
+            create_match_template(100, 110, BarcodeType::Fbar, 3, "test3"),
+        ];
+        // Random shuffle the matches vector
+        let mut rng = rand::thread_rng();
+        for _ in 0..10 {
+            matches.shuffle(&mut rng);
+            let result = collapse_overlapping_matches(&matches, 0.5);
+            assert_eq!(result.len(), 2);
+            assert_eq!(result[0].label, "test1");
+            assert_eq!(result[1].label, "test3");
+        }
+    }
 
-//         // Test adjacent matches (no overlap)
-//         let match4 = create_match(
-//             0,
-//             10,
-//             20,
-//             30,
-//             0,
-//             10,
-//             BarcodeType::Fbar,
-//             2,
-//             1,
-//             "test4",
-//             Strand::Fwd,
-//         );
-//         assert!(!is_overlap(&match1, &match4, 0.5));
-
-//         // Test threshold behavior
-//         let match5 = create_match(
-//             0,
-//             10,
-//             18,
-//             22,
-//             0,
-//             10,
-//             BarcodeType::Fbar,
-//             1,
-//             1,
-//             "test5",
-//             Strand::Fwd,
-//         );
-//         // Overlap is 2, min_len is 4, so overlap ratio is 0.5
-//         assert!(is_overlap(&match1, &match5, 0.5));
-//         assert!(!is_overlap(&match1, &match5, 0.6)); // Higher threshold
-//     }
-
-//     #[test]
-//     fn test_select_best_match() {
-//         // Test single match
-//         let matches = vec![create_match(
-//             0,
-//             10,
-//             10,
-//             20,
-//             0,
-//             10,
-//             BarcodeType::Fbar,
-//             5,
-//             3,
-//             "test1",
-//             Strand::Fwd,
-//         )];
-//         let result = select_best_match(matches);
-//         assert_eq!(result.label, "test1");
-
-//         // Test multiple matches with different costs
-//         let matches = vec![
-//             create_match(
-//                 0,
-//                 10,
-//                 10,
-//                 20,
-//                 0,
-//                 10,
-//                 BarcodeType::Fbar,
-//                 5,
-//                 3,
-//                 "test1",
-//                 Strand::Fwd,
-//             ),
-//             create_match(
-//                 0,
-//                 10,
-//                 10,
-//                 20,
-//                 0,
-//                 10,
-//                 BarcodeType::Fbar,
-//                 4,
-//                 2,
-//                 "test2",
-//                 Strand::Fwd,
-//             ), // Lower cost
-//             create_match(
-//                 0,
-//                 10,
-//                 10,
-//                 20,
-//                 0,
-//                 10,
-//                 BarcodeType::Fbar,
-//                 6,
-//                 4,
-//                 "test3",
-//                 Strand::Fwd,
-//             ),
-//         ];
-//         let result = select_best_match(matches);
-//         assert_eq!(result.label, "test2"); // Should select the one with lowest total cost
-
-//         // Test matches with different types (Fbar < Rbar in ordering)
-//         let matches = vec![
-//             create_match(
-//                 0,
-//                 10,
-//                 10,
-//                 20,
-//                 0,
-//                 10,
-//                 BarcodeType::Rbar,
-//                 1,
-//                 1,
-//                 "test1",
-//                 Strand::Fwd,
-//             ),
-//             create_match(
-//                 0,
-//                 10,
-//                 10,
-//                 20,
-//                 0,
-//                 10,
-//                 BarcodeType::Fbar,
-//                 5,
-//                 5,
-//                 "test2",
-//                 Strand::Fwd,
-//             ), // Lower type
-//         ];
-//         let result = select_best_match(matches);
-//         assert_eq!(result.label, "test2"); // Should select Fbar over Rbar
-
-//         // Test matches with same type and cost - should select first one
-//         let matches = vec![
-//             create_match(
-//                 0,
-//                 10,
-//                 10,
-//                 20,
-//                 0,
-//                 10,
-//                 BarcodeType::Fbar,
-//                 5,
-//                 3,
-//                 "test1",
-//                 Strand::Fwd,
-//             ),
-//             create_match(
-//                 0,
-//                 10,
-//                 10,
-//                 20,
-//                 0,
-//                 10,
-//                 BarcodeType::Fbar,
-//                 5,
-//                 3,
-//                 "test2",
-//                 Strand::Fwd,
-//             ),
-//         ];
-//         let result = select_best_match(matches);
-//         assert_eq!(result.label, "test1"); // Should select first one when tied
-//     }
-
-//     #[test]
-//     fn test_edge_cases() {
-//         // Test zero-length matches
-//         let match1 = create_match(
-//             0,
-//             0,
-//             10,
-//             10,
-//             0,
-//             0,
-//             BarcodeType::Fbar,
-//             5,
-//             3,
-//             "test1",
-//             Strand::Fwd,
-//         );
-//         let match2 = create_match(
-//             0,
-//             0,
-//             10,
-//             10,
-//             0,
-//             0,
-//             BarcodeType::Fbar,
-//             4,
-//             2,
-//             "test2",
-//             Strand::Fwd,
-//         );
-//         assert!(!is_overlap(&match1, &match2, 0.5)); // No overlap for zero-length
-
-//         // Test matches with very small overlap
-//         let match1 = create_match(
-//             0,
-//             2,
-//             10,
-//             12,
-//             0,
-//             2,
-//             BarcodeType::Fbar,
-//             5,
-//             3,
-//             "test1",
-//             Strand::Fwd,
-//         );
-//         let match2 = create_match(
-//             0,
-//             2,
-//             11,
-//             13,
-//             0,
-//             2,
-//             BarcodeType::Fbar,
-//             4,
-//             2,
-//             "test2",
-//             Strand::Fwd,
-//         );
-//         // Overlap is 1, min_len is 2, so overlap ratio is 0.5
-//         assert!(is_overlap(&match1, &match2, 0.5));
-//         assert!(!is_overlap(&match1, &match2, 0.6)); // Higher threshold
-
-//         // Test matches with different strands
-//         let match1 = create_match(
-//             0,
-//             10,
-//             10,
-//             20,
-//             0,
-//             10,
-//             BarcodeType::Fbar,
-//             5,
-//             3,
-//             "test1",
-//             Strand::Fwd,
-//         );
-//         let match2 = create_match(
-//             0,
-//             10,
-//             15,
-//             25,
-//             0,
-//             10,
-//             BarcodeType::Fbar,
-//             4,
-//             2,
-//             "test2",
-//             Strand::Rc,
-//         );
-//         // Overlap detection should work regardless of strand
-//         assert!(is_overlap(&match1, &match2, 0.5));
-//     }
-
-//     #[test]
-//     fn test_sorting_behavior() {
-//         // Test that matches are sorted by read_start before processing
-//         let matches = vec![
-//             create_match(
-//                 0,
-//                 10,
-//                 30,
-//                 40,
-//                 0,
-//                 10,
-//                 BarcodeType::Fbar,
-//                 5,
-//                 3,
-//                 "test3",
-//                 Strand::Fwd,
-//             ),
-//             create_match(
-//                 0,
-//                 10,
-//                 10,
-//                 20,
-//                 0,
-//                 10,
-//                 BarcodeType::Fbar,
-//                 4,
-//                 2,
-//                 "test1",
-//                 Strand::Fwd,
-//             ),
-//             create_match(
-//                 0,
-//                 10,
-//                 20,
-//                 30,
-//                 0,
-//                 10,
-//                 BarcodeType::Fbar,
-//                 3,
-//                 1,
-//                 "test2",
-//                 Strand::Fwd,
-//             ),
-//         ];
-//         let result = collapse_overlapping_matches(&matches, 0.5);
-//         // Should still return 3 matches since they don't overlap
-//         assert_eq!(result.len(), 3);
-//         // Order should be preserved based on read_start
-//         assert_eq!(result[0].label, "test1");
-//         assert_eq!(result[1].label, "test2");
-//         assert_eq!(result[2].label, "test3");
-//     }
-// }
+    #[test]
+    fn test_small_ovlerap() {
+        let mut matches = vec![
+            create_match_template(0, 10, BarcodeType::Fbar, 3, "test1"),
+            create_match_template(10, 20, BarcodeType::Fbar, 1, "test2"),
+        ];
+        for _ in 0..4 {
+            matches[1].read_start_flank -= 1;
+            matches[1].read_end_flank -= 1;
+            let result = collapse_overlapping_matches(&matches, 0.5);
+            println!(
+                "Match 1 from {} to {}",
+                matches[1].read_start_flank, matches[1].read_end_flank
+            );
+            assert_eq!(result.len(), 2);
+            assert_eq!(result[0].label, "test1");
+            assert_eq!(result[1].label, "test2");
+        }
+        // Going one more would put it at 15, and thus trigger collapse
+        matches[1].read_start_flank -= 1;
+        matches[1].read_end_flank -= 1;
+        let result = collapse_overlapping_matches(&matches, 0.5);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].label, "test2");
+    }
+}
