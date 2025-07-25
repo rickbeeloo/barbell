@@ -69,7 +69,12 @@ enum Commands {
         /// File containing patterns to filter by
         #[arg(short = 'f', long, required = true)]
         file: String,
+
+        /// Write dropped read annotation to this file
+        #[arg(long)]
+        dropped: Option<String>,
     },
+
     /// Trim and sort reads based on filtered annotations
     Trim {
         /// Input filtered annotation file
@@ -169,10 +174,11 @@ fn main() {
             input,
             output,
             file,
+            dropped,
         } => {
             println!("{}", "Starting filtering...".green());
 
-            match filter_from_text_file(input, file, output) {
+            match filter_from_text_file(input, file, output, dropped.as_deref()) {
                 Ok(_) => println!("{}", "Filtering successful!".green()),
                 Err(e) => println!("{} {}", "Filtering failed:".red(), e),
             }

@@ -1,3 +1,4 @@
+use colored::Colorize;
 use colored::*;
 use needletail::{FastxReader, Sequence, parse_fastx_file};
 use rand::Rng;
@@ -21,6 +22,15 @@ impl BarcodeType {
             BarcodeType::Fbar => BarcodeType::Fflank,
             BarcodeType::Rbar => BarcodeType::Rflank,
             _ => panic!("Cannot convert {self:?} to flank"),
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            BarcodeType::Fbar => "Fbar",
+            BarcodeType::Rbar => "Rbar",
+            BarcodeType::Fflank => "Fflank",
+            BarcodeType::Rflank => "Rflank",
         }
     }
 }
@@ -53,6 +63,7 @@ pub struct BarcodeGroup {
     pub bar_region: (usize, usize),
     pub barcodes: Vec<Barcode>, // Think always assume IUPAC anyway
     pub k_cutoff: Option<usize>,
+    pub barcode_type: BarcodeType,
 }
 
 impl BarcodeGroup {
@@ -104,6 +115,31 @@ impl BarcodeGroup {
             bar_region: (prefix_len, prefix_len + mask_size - 1),
             barcodes,
             k_cutoff: None,
+            barcode_type,
+        }
+    }
+
+    pub fn display(&self) {
+        let (mask_start, mask_end) = self.bar_region;
+        let left_flank = &self.flank[..mask_start];
+        let right_flank = &self.flank[mask_end + 1..]; // As exclusive end
+        // Create colored string to show flank composition
+        // left flank & right_flank = blue, mask = cyan
+        let left_flank_str = String::from_utf8_lossy(left_flank).blue();
+        let right_flank_str = String::from_utf8_lossy(right_flank).blue();
+        let mask_size = mask_end - mask_start + 1;
+        let mask_str = "-".repeat(mask_size).to_string().bright_yellow();
+
+        println!("{left_flank_str}{mask_str}{right_flank_str}");
+        for barcode in self.barcodes.iter().take(5) {
+            println!(
+                "{}: {}",
+                barcode.label.green(),
+                String::from_utf8_lossy(&barcode.seq).bright_yellow()
+            );
+        }
+        if self.barcodes.len() > 2 {
+            println!("...+{} more", self.barcodes.len() - 2);
         }
     }
 
@@ -196,6 +232,23 @@ impl BarcodeGroup {
 mod tests {
     use super::*;
     // use crate::annotate::tune::tune_single_sequence;
+
+    #[test]
+    fn test_display() {
+        let seqs = [
+            b"AAATTTGGG".as_slice(),
+            b"AAACCCGGG".as_slice(),
+            b"AAATATGGG".as_slice(),
+        ];
+        let labels = vec!["s1".to_string(), "s2".to_string(), "s3".to_string()];
+        let barcode_type = BarcodeType::Fbar;
+        let barcode_group = BarcodeGroup::new(
+            vec![seqs[0].to_vec(), seqs[1].to_vec(), seqs[2].to_vec()],
+            labels,
+            barcode_type,
+        );
+        barcode_group.display();
+    }
 
     #[test]
     fn test_longest_common_prefix() {

@@ -1,25 +1,60 @@
-use crate::annotate::barcodes::BarcodeType;
 use crate::annotate::searcher::BarbellMatch;
 use crate::filter::pattern::*;
 use crate::pattern_from_str;
-use colored::Colorize;
-use indicatif::ProgressStyle;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::error::Error;
-use std::time::Instant;
+use std::fs::File;
+use std::time::Duration;
+
+fn create_progress_bar() -> (ProgressBar, ProgressBar, ProgressBar) {
+    // Create multiprogress bar
+    let multi_progress = MultiProgress::new();
+    let total_bar = multi_progress.add(ProgressBar::new_spinner());
+    let kept_bar = multi_progress.add(ProgressBar::new_spinner());
+    let dropped_bar = multi_progress.add(ProgressBar::new_spinner());
+
+    // Style the progress bars with colors - more compact layout
+    total_bar.set_style(
+        ProgressStyle::with_template(
+            "{spinner:.cyan} {prefix:.bold.white:<8} {msg:.bold.cyan:>6} {elapsed:.dim}",
+        )
+        .unwrap()
+        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
+    );
+    kept_bar.set_style(
+        ProgressStyle::with_template(
+            "{spinner:.green} {prefix:.bold.white:<8} {msg:.bold.green:>6} {elapsed:.dim}",
+        )
+        .unwrap()
+        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
+    );
+    dropped_bar.set_style(
+        ProgressStyle::with_template(
+            "{spinner:.red} {prefix:.bold.white:<8} {msg:.bold.red:>6} {elapsed:.dim}",
+        )
+        .unwrap()
+        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
+    );
+
+    total_bar.enable_steady_tick(Duration::from_millis(100));
+    kept_bar.enable_steady_tick(Duration::from_millis(120)); // Slightly different timing for visual variety
+    dropped_bar.enable_steady_tick(Duration::from_millis(140));
+
+    total_bar.set_prefix("Total:");
+    kept_bar.set_prefix("Kept:");
+    dropped_bar.set_prefix("Dropped:");
+
+    (total_bar, kept_bar, dropped_bar)
+}
 
 pub fn filter(
     annotated_file: &str,
     output_file: &str,
+    dropped_out_file: Option<&str>,
     filters: Vec<Pattern>,
 ) -> Result<(), Box<dyn Error>> {
     // Setup progress bar
-    let progress_bar = indicatif::ProgressBar::new_spinner();
-    progress_bar.set_style(
-        ProgressStyle::with_template("{spinner:.blue} {prefix:<12} {msg:>6} {elapsed_precise}")
-            .unwrap()
-            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
-    );
-    progress_bar.set_prefix("Processing:");
+    let (total_bar, kept_bar, dropped_bar) = create_progress_bar();
 
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(b'\t')
@@ -32,9 +67,17 @@ pub fn filter(
         .from_path(output_file)
         .unwrap();
 
-    // Counters
-    let mut total_reads = 0;
-    let mut kept_reads = 0;
+    // In case dropped reads should also be written to another file open
+    // dropped writer if provided
+    let mut dropped_writer: Option<csv::Writer<File>> = None;
+    if let Some(dropped_out_file) = dropped_out_file {
+        dropped_writer = Some(
+            csv::WriterBuilder::new()
+                .delimiter(b'\t')
+                .from_path(dropped_out_file)
+                .unwrap(),
+        );
+    }
 
     // Process reads one group at a time
     let mut current_read_id: Option<String> = None;
@@ -45,37 +88,64 @@ pub fn filter(
 
         if let Some(read_id) = &current_read_id {
             if read_id != &record.read_id {
+                total_bar.inc(1);
                 // Process previous group
                 if check_filter_pass(&mut current_group, &filters) {
-                    kept_reads += 1;
+                    kept_bar.inc(1);
                     for annotation in &current_group {
                         writer.serialize(annotation)?;
+                    }
+                } else {
+                    dropped_bar.inc(1);
+                    if let Some(dropped_writer) = &mut dropped_writer {
+                        for annotation in &current_group {
+                            dropped_writer.serialize(annotation)?;
+                        }
                     }
                 }
                 current_group.clear();
                 current_read_id = Some(record.read_id.clone());
-                total_reads += 1;
             }
         } else {
             current_read_id = Some(record.read_id.clone());
-            total_reads += 1;
         }
 
         current_group.push(record);
-        progress_bar.set_message(format!("{}", total_reads));
     }
 
     // Process the last group
-    if !current_group.is_empty() && check_filter_pass(&mut current_group, &filters) {
-        kept_reads += 1;
-        for annotation in &current_group {
-            writer.serialize(annotation)?;
+    if !current_group.is_empty() {
+        total_bar.inc(1);
+        if check_filter_pass(&mut current_group, &filters) {
+            kept_bar.inc(1);
+            for annotation in &current_group {
+                writer.serialize(annotation)?;
+            }
+        } else {
+            dropped_bar.inc(1);
+            if let Some(dropped_writer) = &mut dropped_writer {
+                for annotation in &current_group {
+                    dropped_writer.serialize(annotation)?;
+                }
+            }
         }
     }
 
     writer.flush()?;
-    progress_bar.finish_with_message("Done!");
-    println!("Total reads: {}, Kept reads: {}", total_reads, kept_reads);
+
+    // Flush dropped writer if it exists
+    if let Some(mut dropped_writer) = dropped_writer {
+        dropped_writer.flush()?;
+    }
+
+    // Finish the progress bars with final counts
+    let total_count = total_bar.position();
+    let kept_count = kept_bar.position();
+    let dropped_count = dropped_bar.position();
+
+    total_bar.finish_with_message(format!("{total_count} reads"));
+    kept_bar.finish_with_message(format!("{kept_count} reads"));
+    dropped_bar.finish_with_message(format!("{dropped_count} reads"));
 
     Ok(())
 }
@@ -84,16 +154,18 @@ pub fn filter_from_pattern_str(
     annotated_file: &str,
     pattern_str: &str,
     output_file: &str,
+    dropped_out_file: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
     // use pattern macro to convert pattern_str to pattern
     let pattern = pattern_from_str!(pattern_str);
-    filter(annotated_file, output_file, vec![pattern])
+    filter(annotated_file, output_file, dropped_out_file, vec![pattern])
 }
 
 pub fn filter_from_text_file(
     annotated_file: &str,
     text_file: &str,
     output_file: &str,
+    dropped_out_file: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
     // read the text file into a vector of strings
     let patterns = std::fs::read_to_string(text_file)?;
@@ -105,7 +177,7 @@ pub fn filter_from_text_file(
         .iter()
         .map(|s| pattern_from_str!(s))
         .collect::<Vec<Pattern>>();
-    filter(annotated_file, output_file, patterns)
+    filter(annotated_file, output_file, dropped_out_file, patterns)
 }
 
 fn check_filter_pass(annotations: &mut [BarbellMatch], patterns: &[Pattern]) -> bool {
@@ -126,8 +198,9 @@ fn check_filter_pass(annotations: &mut [BarbellMatch], patterns: &[Pattern]) -> 
     }
 
     // If we have a match and cut positions, update all annotations in the group
-    if max_matches > 0 && best_cut_positions.is_some() {
-        let cut_positions = best_cut_positions.unwrap();
+    if max_matches > 0
+        && let Some(cut_positions) = best_cut_positions
+    {
         for (cut_match_idx, cut) in cut_positions {
             if let Some(existing_cuts) = &mut annotations[cut_match_idx].cuts {
                 existing_cuts.push((cut, cut_match_idx));

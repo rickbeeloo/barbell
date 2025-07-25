@@ -13,7 +13,7 @@ use thread_id;
 
 // Macro as otherwise init logic is unclear below
 macro_rules! thread_local_demuxer {
-    ($name:ident, $alpha:expr, $query_files:expr, $query_types:expr, $max_error_perc:expr) => {
+    ($name:ident, $alpha:expr, $query_groups:expr) => {
         thread_local! {
             static $name: std::cell::RefCell<Option<Demuxer>> = std::cell::RefCell::new(None);
         }
@@ -23,14 +23,11 @@ macro_rules! thread_local_demuxer {
                 #[cfg(feature = "verbose")]
                 println!("Thread {:?} initializing demuxer", thread_id::get());
                 *cell.borrow_mut() = Some(Demuxer::new($alpha));
-                for (query_file, query_type) in $query_files.iter().zip($query_types.iter()) {
-                    let mut query_group =
-                        BarcodeGroup::new_from_fasta(query_file, query_type.clone());
-                    query_group.set_perc_threshold($max_error_perc);
+                for query_group in $query_groups.iter() {
                     cell.borrow_mut()
                         .as_mut()
                         .unwrap()
-                        .add_query_group(query_group);
+                        .add_query_group(query_group.clone());
                 }
             }
         });
@@ -95,10 +92,24 @@ pub fn annotate(
             .unwrap(),
     ));
 
+    // Get query groups
+    let mut query_groups = Vec::new();
+    for (query_file, query_type) in query_files.iter().zip(query_types.iter()) {
+        let mut query_group = BarcodeGroup::new_from_fasta(query_file, query_type.clone());
+        query_group.set_perc_threshold(max_error_perc);
+        query_groups.push(query_group);
+    }
+    // Dispaly to user
+    for (i, query_group) in query_groups.iter().enumerate() {
+        println!("{}: {}", query_group.barcode_type.as_str(), i);
+        query_group.display();
+    }
+
     // Create progress bars
     let (total_bar, found_bar, missed_bar) = create_progress_bar();
 
-    // Track counts
+    // Track counts, we need atomics here as multiple threads update the counters
+    // we then use these to update the progressbars again
     let total = Arc::new(AtomicUsize::new(0));
     let found = Arc::new(AtomicUsize::new(0));
     let missed = Arc::new(AtomicUsize::new(0));
@@ -109,7 +120,7 @@ pub fn annotate(
         10,
         |record_set| {
             // Create thread local demuxer if not init for current thread yet
-            thread_local_demuxer!(DEMUXER, alpha, query_files, query_types, max_error_perc);
+            thread_local_demuxer!(DEMUXER, alpha, query_groups);
 
             // Go over the
             let mut record_set_annotations = Vec::new();

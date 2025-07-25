@@ -95,7 +95,7 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
     let mut wildcard_count = 0;
     for (label, count) in label_map {
         if count > 1 {
-            pattern_string = pattern_string.replace(&label, &format!("?{}", wildcard_count));
+            pattern_string = pattern_string.replace(&label, &format!("?{wildcard_count}"));
             wildcard_count += 1;
         }
     }
@@ -143,7 +143,7 @@ pub fn inspect(annotated_file: &str, top_n: usize) -> Result<(), Box<dyn Error>>
         *pattern_count.entry(label).or_insert(0) += 1;
     }
 
-    println!("Processed {} read groups", total_groups);
+    println!("Processed {total_groups} read groups");
     println!("Found {} unique patterns", pattern_count.len());
 
     // Show top n most common patterns
@@ -152,7 +152,7 @@ pub fn inspect(annotated_file: &str, top_n: usize) -> Result<(), Box<dyn Error>>
 
     for (i, (pattern, count)) in pattern_count_vec.iter().take(top_n).enumerate() {
         println!("Pattern {}: {} occurrences", i + 1, count);
-        println!("  {}", pattern);
+        println!("  {pattern}");
     }
 
     println!("Showed {} / {} patterns", top_n, pattern_count_vec.len());

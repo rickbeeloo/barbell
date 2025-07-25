@@ -116,14 +116,14 @@ fn check_match_type_and_label(m: &BarbellMatch, pattern_element: &PatternElement
                 //if let Some(ref m_label) = m.label {
                 if expected_label.starts_with("~") {
                     // we do substring check
-                    if let Some(substring) = expected_label.strip_prefix('~') {
-                        if !m.label.contains(substring) {
-                            // println!(
-                            //     "Substring label mismatch: {:?} not in {:?}",
-                            //     expected_label, &m.label
-                            // );
-                            return false;
-                        }
+                    if let Some(substring) = expected_label.strip_prefix('~')
+                        && !m.label.contains(substring)
+                    {
+                        // println!(
+                        //     "Substring label mismatch: {:?} not in {:?}",
+                        //     expected_label, &m.label
+                        // );
+                        return false;
                     }
                 } else if expected_label != &m.label {
                     // println!("no substring prefix");
