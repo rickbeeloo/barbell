@@ -1,12 +1,7 @@
 use colored::Colorize;
-use colored::*;
-use needletail::{FastxReader, Sequence, parse_fastx_file};
-use rand::Rng;
-use rayon::prelude::*;
-use sassy::Searcher;
+use needletail::{Sequence, parse_fastx_file};
 use sassy::profiles::{Iupac, Profile};
 use serde::{Deserialize, Serialize};
-use std::thread_local;
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
 pub enum BarcodeType {

@@ -6,20 +6,6 @@ use barbell::inspect::inspect;
 use barbell::trim::trim::trim_matches;
 use clap::{Parser, Subcommand};
 use colored::*;
-use csv::WriterBuilder;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use needletail::{FastxReader, Sequence, parse_fastx_file};
-use rand::Rng;
-use seq_io::fastq::Reader as FastqReader;
-use std::fs::File;
-use std::io::{BufWriter, Write};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::thread_local;
-use std::time::Instant;
-use std::{
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
