@@ -15,9 +15,9 @@ const MAX_TRIM: usize = 20;
 const MIN_DOULBE_SPACE: usize = 10;
 
 const BARCODE_PATH: &str = "data/rapid_bars.txt";
-const RC_FRACTION: f64 = 0.5;
+// const RC_FRACTION: f64 = 0.5;
 
-const MAX_EDITS: usize = 10;
+const MAX_EDITS: usize = 6;
 
 // Assuming barcode is 5' - barcode - 3'
 fn get_adapter_region(barcode: &[u8]) -> Vec<u8> {
@@ -127,12 +127,12 @@ impl ReadCollection {
         self.reads.push((read, truth));
     }
 
-    pub fn dump(&mut self) {
+    pub fn dump(&mut self, rc_frac: f64) {
         for (read, truth) in &mut self.reads {
             let mut seq = read.render();
 
             // If we have a RC_FRACTION chance, we reverse complement the sequence
-            if rand::rng().random_range(0.0..1.0) < RC_FRACTION {
+            if rand::rng().random_range(0.0..1.0) < rc_frac {
                 seq = reverse_complement(&seq);
             }
 
@@ -160,16 +160,16 @@ impl ReadCollection {
     }
 }
 
-fn group1(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str) {
+fn group1(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_frac: f64) {
     let mut read_collection = ReadCollection::new(fasta_out, truth_out);
     for i in 0..n {
         let read = MockRead::new_rand_len(format!("seq_{i}"));
         read_collection.add_read(read, None);
     }
-    read_collection.dump();
+    read_collection.dump(rc_frac);
 }
 
-fn group2(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str) {
+fn group2(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_frac: f64) {
     // Read all barcodes for rapdi barcoding kit
     let barcodes = read_barcodes(barcode_path);
     let n_barcodes = barcodes.len();
@@ -193,11 +193,11 @@ fn group2(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str) {
     }
 
     // Dump the read collection
-    read_collection.dump();
+    read_collection.dump(rc_frac);
 }
 
 ///Group III = Group II + random trim left end
-fn group3(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str) {
+fn group3(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_frac: f64) {
     // Read all barcodes for rapdi barcoding kit
     let barcodes = read_barcodes(barcode_path);
     let n_barcodes = barcodes.len();
@@ -213,8 +213,9 @@ fn group3(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str) {
         let barcode_idx = rand::rng().random_range(0..n_barcodes);
         let (barcode_name, barcode_seq) = &barcodes[barcode_idx];
         let adapter_region = get_adapter_region(barcode_seq);
-        // Do random trim on the adapter region
-        let trimmed_adapter_region = random_trim_side(&adapter_region, MAX_TRIM);
+        // Do random trim on the adapter region ONLY on the left side in this case as we prefix it so
+        // experimentally only expect trimming on "overhang"
+        let trimmed_adapter_region = random_trim_side(&adapter_region, MAX_TRIM, true, false);
         assert!(trimmed_adapter_region.len() <= adapter_region.len());
         // Add to read as PREFIX (index = 0)
         read.add_element(&trimmed_adapter_region, 0);
@@ -224,10 +225,10 @@ fn group3(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str) {
     }
 
     // Dump the read collection
-    read_collection.dump();
+    read_collection.dump(rc_frac);
 }
 
-fn group4(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str) {
+fn group4(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_frac: f64) {
     // Read all barcodes for rapdi barcoding kit
     let barcodes = read_barcodes(barcode_path);
     let n_barcodes = barcodes.len();
@@ -277,10 +278,10 @@ fn group4(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str) {
     }
 
     // Dump the read collection
-    read_collection.dump();
+    read_collection.dump(rc_frac);
 }
 
-fn group5(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str) {
+fn group5(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_frac: f64) {
     // Read all barcodes for rapdi barcoding kit
     let barcodes = read_barcodes(barcode_path);
     let n_barcodes = barcodes.len();
@@ -327,7 +328,7 @@ fn group5(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str) {
     }
 
     // Dump the read collection
-    read_collection.dump();
+    read_collection.dump(rc_frac);
 }
 
 fn reverse_complement(seq: &[u8]) -> Vec<u8> {
@@ -344,7 +345,7 @@ fn reverse_complement(seq: &[u8]) -> Vec<u8> {
     rev_comp
 }
 
-fn group6(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str) {
+fn group6(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_frac: f64) {
     // Read all barcodes for rapdi barcoding kit
     let barcodes = read_barcodes(barcode_path);
     let n_barcodes = barcodes.len();
@@ -396,7 +397,7 @@ fn group6(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str) {
     }
 
     // Dump the read collection
-    read_collection.dump();
+    read_collection.dump(rc_frac);
 }
 
 #[derive(Debug)]
@@ -416,7 +417,7 @@ impl std::fmt::Display for TestGroup {
     }
 }
 
-pub fn create_testdata(n: usize, sim_out_dir: &str, barcode_file: &str) {
+pub fn create_testdata(n: usize, sim_out_dir: &str, barcode_file: &str, rc_frac: f64) {
     // If sim_out_dir does not exist, create it
     if !Path::new(sim_out_dir).exists() {
         println!("Creating directory: {sim_out_dir}");
@@ -435,7 +436,13 @@ pub fn create_testdata(n: usize, sim_out_dir: &str, barcode_file: &str) {
     for (group, group_fn) in all_groups.iter().zip(group_fns) {
         let fasta_out = format!("{sim_out_dir}/{group}.fastq");
         let truth_out = format!("{sim_out_dir}/{group}_truth.txt");
-        group_fn(fasta_out.as_str(), truth_out.as_str(), n, barcode_file);
+        group_fn(
+            fasta_out.as_str(),
+            truth_out.as_str(),
+            n,
+            barcode_file,
+            rc_frac,
+        );
     }
 }
 
@@ -486,6 +493,6 @@ mod tests {
         let n = 100;
         let sim_out_dir = "simulated_data";
         let barcode_file = "data/rapid_bars.txt";
-        create_testdata(n, sim_out_dir, barcode_file);
+        create_testdata(n, sim_out_dir, barcode_file, 0.0);
     }
 }

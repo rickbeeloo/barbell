@@ -1,5 +1,6 @@
 use crate::annotate::barcodes::BarcodeType;
 use crate::annotate::searcher::BarbellMatch;
+use colored::*;
 use sassy::Strand;
 use std::collections::HashMap;
 use std::error::Error;
@@ -17,6 +18,12 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
     if group.is_empty() {
         return String::new();
     }
+
+    // Better colors for printing
+    let light_pink: CustomColor = CustomColor::new(255, 182, 193);
+    let dark_pink: CustomColor = CustomColor::new(231, 84, 128);
+    let light_blue: CustomColor = CustomColor::new(173, 216, 230);
+    let dark_blue: CustomColor = CustomColor::new(0, 0, 139);
 
     // Hashmap to keep track of all the labels we see to later replace in pattern if applicable
     // just count with labels
@@ -68,10 +75,10 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
 
             // Get match type matching pattern defined in filter
             let match_type = match annotation.match_type {
-                BarcodeType::Fflank => "Fflank",
-                BarcodeType::Rflank => "Rflank",
-                BarcodeType::Fbar => "Fbarcode",
-                BarcodeType::Rbar => "Rbarcode",
+                BarcodeType::Fflank => "Fflank".custom_color(light_pink),
+                BarcodeType::Fbar => "Fbarcode".custom_color(dark_pink),
+                BarcodeType::Rflank => "Rflank".custom_color(light_blue),
+                BarcodeType::Rbar => "Rbarcode".custom_color(dark_blue),
             };
 
             format!(
@@ -143,7 +150,6 @@ pub fn inspect(annotated_file: &str, top_n: usize) -> Result<(), Box<dyn Error>>
         *pattern_count.entry(label).or_insert(0) += 1;
     }
 
-    println!("Processed {total_groups} read groups");
     println!("Found {} unique patterns", pattern_count.len());
 
     // Show top n most common patterns
@@ -151,8 +157,8 @@ pub fn inspect(annotated_file: &str, top_n: usize) -> Result<(), Box<dyn Error>>
     pattern_count_vec.sort_by(|a, b| b.1.cmp(&a.1));
 
     for (i, (pattern, count)) in pattern_count_vec.iter().take(top_n).enumerate() {
-        println!("Pattern {}: {} occurrences", i + 1, count);
-        println!("  {pattern}");
+        println!("\tPattern {}: {} occurrences", i + 1, count);
+        println!("\t\t{pattern}");
     }
 
     println!("Showed {} / {} patterns", top_n, pattern_count_vec.len());

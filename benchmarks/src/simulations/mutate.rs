@@ -30,18 +30,23 @@ pub fn mutate_sequence(sequence: &[u8], min_edits: usize, max_edits: usize) -> V
     seq
 }
 
-pub fn random_trim_side(seq: &[u8], max_trim: usize) -> Vec<u8> {
+pub fn random_trim_side(
+    seq: &[u8],
+    max_trim: usize,
+    allow_front: bool,
+    allow_back: bool,
+) -> Vec<u8> {
     let mut rng = rand::rng();
     let mut seq = String::from_utf8_lossy(seq).to_string();
     let trim_length = rng.random_range(1..=max_trim);
     let trim_front = rng.random_bool(0.5);
     let trim_back = rng.random_bool(0.5);
 
-    if trim_front {
+    if trim_front && allow_front {
         seq.drain(0..trim_length);
     }
 
-    if trim_back {
+    if trim_back && allow_back {
         seq.drain(seq.len() - trim_length..seq.len());
     }
 
@@ -54,7 +59,7 @@ mod tests {
     #[test]
     fn test_random_trim_side() {
         let seq: &'static [u8; 12] = b"ACGTACGTACGT";
-        let trimmed = super::random_trim_side(seq, 2);
+        let trimmed = super::random_trim_side(seq, 2, true, true);
         assert!(trimmed.len() < seq.len());
     }
 

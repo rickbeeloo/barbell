@@ -1,5 +1,5 @@
 use colored::Colorize;
-use needletail::{Sequence, parse_fastx_file};
+use needletail::{Sequence, parse_fastx_file, parse_fastx_stdin};
 use sassy::profiles::{Iupac, Profile};
 use serde::{Deserialize, Serialize};
 
@@ -146,7 +146,7 @@ impl BarcodeGroup {
         // Collect all records first
         while let Some(record) = reader.next() {
             let seqrec = record.expect("invalid record");
-            let norm_seq = seqrec.normalize(false);
+            let norm_seq = seqrec.normalize(false); // Makes all uppercase, important for set_perc threshold
             labels.push(std::str::from_utf8(seqrec.id()).unwrap().to_string());
             bar_seqs.push(norm_seq.into_owned());
         }
@@ -154,7 +154,22 @@ impl BarcodeGroup {
     }
 
     pub fn set_perc_threshold(&mut self, perc: f32) {
-        self.k_cutoff = Some((self.flank.len() as f32 * perc) as usize);
+        // The flank has an N mask so we should not count these in the perc as
+        // they always match. Also the user can supply N so we just count N instead then
+        let n_count: usize = self.flank.iter().filter(|&c| *c == b'N').count();
+        let informative_flank = self.flank.len() - n_count;
+        println!(
+            "Flank len: {}, n_count: {}, informative len: {}",
+            self.flank.len(),
+            n_count,
+            self.flank.len() - n_count
+        );
+        self.k_cutoff = Some((informative_flank as f32 * perc).ceil() as usize);
+        println!(
+            "Flank cutoff: {} and N count: {}",
+            self.k_cutoff.unwrap(),
+            n_count
+        );
         // Also set k for each barcode
         for barcode in self.barcodes.iter_mut() {
             barcode.k_cutoff = Some((barcode.seq.len() as f32 * perc) as usize);

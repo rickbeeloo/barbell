@@ -97,6 +97,7 @@ pub fn annotate(
     for (query_file, query_type) in query_files.iter().zip(query_types.iter()) {
         let mut query_group = BarcodeGroup::new_from_fasta(query_file, query_type.clone());
         query_group.set_perc_threshold(max_error_perc);
+        println!("Setting threshold for {} to {}", query_file, max_error_perc);
         query_groups.push(query_group);
     }
     // Dispaly to user

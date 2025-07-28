@@ -294,6 +294,7 @@ fn create_progress_bar() -> (ProgressBar, ProgressBar, ProgressBar, ProgressBar)
 
     (total_bar, trimmed_bar, trimmed_split_bar, failed_bar)
 }
+
 pub fn trim_matches(
     filtered_match_file: &str,
     read_fastq_file: &str,
@@ -302,7 +303,6 @@ pub fn trim_matches(
     add_orientation: bool,
     add_flank: bool,
     sort_labels: bool,
-    _n_threads: usize,
 ) {
     // Create output folder if it doesn't exist
     if !Path::new(output_folder).exists() {

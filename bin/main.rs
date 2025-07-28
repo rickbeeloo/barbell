@@ -3,6 +3,8 @@ use barbell::annotate::barcodes::{BarcodeGroup, BarcodeType};
 use barbell::annotate::searcher::Demuxer;
 use barbell::filter::filter::filter_from_text_file;
 use barbell::inspect::inspect;
+use barbell::preset::presets::PresetName;
+use barbell::preset::presets::use_preset;
 use barbell::trim::trim::trim_matches;
 use clap::{Parser, Subcommand};
 use colored::*;
@@ -90,10 +92,6 @@ enum Commands {
         /// Sort barcode labels in output filenames
         #[arg(long, default_value_t = false)]
         sort_labels: bool,
-
-        /// Number of threads
-        #[arg(short = 't', long, default_value_t = 1)]
-        threads: usize,
     },
 
     /// View most common patterns in annotation
@@ -105,6 +103,30 @@ enum Commands {
         /// Top N
         #[arg(short = 'n', long, default_value_t = 10)]
         top_n: usize,
+    },
+
+    /// Run a preset
+    Preset {
+        /// Preset to use
+        #[arg(short = 'p', long)]
+        preset: PresetName,
+
+        /// Input FASTQ file
+        #[arg(short = 'i', long)]
+        input: String,
+
+        /// Number of threads
+        #[arg(short = 't', long, default_value_t = 10)]
+        threads: usize,
+
+        /// Output folder
+        #[arg(short = 'o', long)]
+        output: String,
+
+        /// Maximum cost allowed in queries
+        /// 0.5 is the default value
+        #[arg(short = 'e', long, default_value = "0.2")]
+        max_edit_perc: f32,
     },
 }
 
@@ -178,7 +200,6 @@ fn main() {
             no_orientation,
             no_flanks,
             sort_labels,
-            threads,
         } => {
             println!("{}", "Starting trimming...".green());
             trim_matches(
@@ -189,7 +210,6 @@ fn main() {
                 !no_orientation,
                 !no_flanks,
                 *sort_labels,
-                *threads,
             );
         }
 
@@ -200,6 +220,16 @@ fn main() {
                 Ok(_) => println!("{}", "Inspection complete!".green()),
                 Err(e) => println!("{} {}", "Inspection failed:".red(), e),
             }
+        }
+
+        Commands::Preset {
+            preset,
+            input,
+            threads,
+            output,
+            max_edit_perc,
+        } => {
+            use_preset(preset.clone(), input, *threads, output, *max_edit_perc);
         }
     }
 }

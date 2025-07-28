@@ -1,0 +1,70 @@
+use std::io::Write;
+use std::path::Path;
+
+use crate::annotate::{annotator::annotate, barcodes::BarcodeType};
+use crate::filter::filter::filter;
+use crate::inspect::inspect::inspect;
+use crate::pattern_from_str;
+use crate::trim::trim::trim_matches;
+use colored::*;
+use tempfile::NamedTempFile;
+
+pub fn demux_rapid_barcodes(
+    fastq_file: &str,
+    threads: usize,
+    output_folder: &str,
+    max_edit_perc: f32,
+) {
+    // Create temp file for string content
+    let mut tmp_query_file = NamedTempFile::new().expect("Failed to create temporary file");
+    tmp_query_file
+        .write_all(crate::RAPID_BARS_CONTENT.as_bytes())
+        .expect("Failed to write to temporary file");
+    tmp_query_file
+        .flush()
+        .expect("Failed to flush temporary file");
+
+    // Create output folder if not exists yet
+    if !Path::new(output_folder).exists() {
+        std::fs::create_dir_all(output_folder).expect("Failed to create output folder");
+    }
+
+    println!("\n{}", "Running annotation".purple().bold());
+    annotate(
+        fastq_file,
+        vec![tmp_query_file.path().to_str().unwrap()],
+        vec![BarcodeType::Fbar],
+        format!("{output_folder}/annotation.tsv").as_str(),
+        max_edit_perc, // Max error, 20%
+        0.5,           // Overhang alpha
+        threads as u32,
+    )
+    .expect("Annotation failed");
+
+    // // After annotating we show inspect
+    // println!("\n{}", "Top 4 most common patterns".purple().bold());
+    // inspect(format!("{output_folder}/annotation.tsv").as_str(), 4).expect("Inspect failed");
+
+    // Filter
+    println!("\n{}", "Running annotation filter".purple().bold());
+    let pattern = pattern_from_str!("Fbarcode[fw, *, @left(0 to 250), >>]");
+    filter(
+        format!("{output_folder}/annotation.tsv").as_str(),
+        format!("{output_folder}/filtered.tsv").as_str(),
+        None,
+        vec![pattern],
+    )
+    .expect("Filter failed");
+
+    // Trimming
+    println!("\n{}", "Running trimming".purple().bold());
+    trim_matches(
+        format!("{output_folder}/filtered.tsv").as_str(),
+        fastq_file,
+        output_folder,
+        true,
+        true,
+        true,
+        true,
+    );
+}
