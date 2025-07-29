@@ -254,7 +254,7 @@ impl Demuxer {
             // If we found a flank, we slice out the masked region and search for the barcodes in the
             // masked region, we should be AWARE OF THE STRAND as sassy now returns both directions (Fwd, Rc)
             for flank_match in flank_matches {
-                let (mask_region, (mask_start, _mask_end)) =
+                let (mask_region, (mask_start, mask_end)) =
                     self.slice_masked_region(read, barcode_group, &flank_match);
                 // If no mask match found we can just skip to the next one
                 if mask_region.is_empty() {
@@ -273,6 +273,17 @@ impl Demuxer {
 
                     // We make sure they flank and barcode match on the same strand
                     for bm in bms.iter().filter(|bm| bm.strand == flank_match.strand) {
+                        // In case overhang is used, we recheck with expanded mask to make sure we redo the alignment with slighlty
+                        // expand mask region
+                        // We on purpose give too much room to align in, such that if we go beyond the "end", it cheats
+                        // it's way in overhang
+                        let barcode_start = bm.text_start + mask_start;
+                        let barcode_end = bm.text_end + mask_start;
+                        if barcode_start <= mask_start || barcode_end >= mask_end {
+                            // println!("Skipping cheating match: {:?} for read: {}", bm, read_id);
+                            continue;
+                        }
+
                         barcode_found = true;
                         let rel_dist = rel_dist_to_end(flank_match.text_start as isize, read.len());
                         results.push(BarbellMatch::new(

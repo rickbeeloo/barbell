@@ -5,8 +5,9 @@ pub mod preset;
 pub mod trim;
 
 /// Extra padding around barcode to ensure correct "alignment"
-/// when comparing to masked region
-pub(crate) const WIGGLE_ROOM: usize = 5;
+/// we on purpose give more room then needed so we can discard matches
+/// that "cheat" their score by using the overhang cost
+pub(crate) const WIGGLE_ROOM: usize = 10;
 
 // For presets we compile the strings, this costs quite some space thouhg in the binary
 // better ideas?
