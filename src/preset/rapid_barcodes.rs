@@ -35,7 +35,7 @@ pub fn demux_rapid_barcodes(
         vec![tmp_query_file.path().to_str().unwrap()],
         vec![BarcodeType::Fbar],
         format!("{output_folder}/annotation.tsv").as_str(),
-        max_edit_perc, // Max error, 20%
+        max_edit_perc, 
         0.5,           // Overhang alpha
         threads as u32,
     )

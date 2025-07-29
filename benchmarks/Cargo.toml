@@ -8,3 +8,4 @@ barbell-sassy-rewrite = { path = ".." }
 clap = { version = "4.5.40", features = ["derive"] } 
 rand = "0.9.1"
 needletail = "0.6.3"
+glob = "0.3.2"

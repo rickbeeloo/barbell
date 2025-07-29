@@ -574,8 +574,7 @@ mod tests {
         demuxer.add_query_group(barcode_group);
 
         // Read file test
-        let mut reader =
-            parse_fastx_file("/home/solprof/Downloads/sub.fastq").expect("valid path/file");
+        let mut reader = parse_fastx_file("~/Downloads/sub.fastq").expect("valid path/file");
         while let Some(record) = reader.next() {
             let seqrec = record.expect("invalid record");
             let norm_seq = seqrec.normalize(false);

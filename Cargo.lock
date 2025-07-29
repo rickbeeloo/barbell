@@ -102,6 +102,7 @@ version = "0.1.0"
 dependencies = [
  "barbell-sassy-rewrite",
  "clap",
+ "glob",
  "needletail",
  "rand 0.9.1",
 ]
@@ -408,6 +409,12 @@ dependencies = [
  "r-efi",
  "wasi 0.14.2+wasi-0.2.4",
 ]
+
+[[package]]
+name = "glob"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8d1add55171497b4705a648c6b583acafb01d58050a51727785f0b2c8e0a2b2"
 
 [[package]]
 name = "heck"
@@ -841,6 +848,7 @@ checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
 [[package]]
 name = "sassy"
 version = "0.1.2"
+source = "git+https://github.com/RagnarGrootKoerkamp/sassy.git?branch=master#63936e8e2c5324b125a40b75f844db9cab3db80d"
 dependencies = [
  "clap",
  "env_logger",
