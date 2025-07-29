@@ -31,71 +31,99 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
     // just count with labels
     let mut label_map: HashMap<String, usize> = HashMap::new();
 
-    let pattern_elements: Vec<String> = group
-        .iter()
-        .map(|annotation| {
-            // We always use the flank positions
-            let start = annotation.read_start_bar;
-            let end = annotation.read_end_bar;
+    // We will build the pattern elements in a for-loop so we can
+    // also look at the previous match when deciding the position tag
+    let mut pattern_elements: Vec<String> = Vec::new();
+    let mut prev_end_pos: Option<usize> = None;
 
-            // Bucket the positions into ranges
+    for annotation in group {
+        // We always use the flank positions
+        let start = annotation.read_start_bar;
+        let end = annotation.read_end_bar;
+
+        // ----- Decide which relative position tag to use -----
+        // By default we use @left if the annotation is closer to the
+        // left end of the read ( annotation.rel_dist_to_end > 0 ).
+        // Otherwise we decide between @right and @prev_left.  If both
+        // are possible we prefer @prev_left when the annotation is
+        // closer to the previous element than to the right end.
+        let position_tag = if annotation.rel_dist_to_end > 0 {
+            // --- left side ---
             let start_bucket = bucket_position(start);
-            let end_bucket = bucket_position(end);
-
-            // Determine if it's closer to left or right end
-            //FIXME: would be nice to also add prev_left check here
-            let position = if annotation.rel_dist_to_end > 0 {
-                format!("@left({} to {})", start_bucket, end_bucket + BUCKET_SIZE)
-            } else {
-                let right_start = bucket_position(annotation.read_len.saturating_sub(end));
-                let right_end = bucket_position(annotation.read_len.saturating_sub(start));
-                format!("@right({} to {})", right_start, right_end + BUCKET_SIZE)
-            };
-
-            // Get the label of the annotation
-            let label = annotation.label.clone();
-
-            // Count the label
-            if !label.contains("Flank") {
-                *label_map.entry(label.to_string()).or_insert(0) += 1;
-            }
-
-            // Get cut direction if present
-            let cut = if let Some(cuts) = &annotation.cuts {
-                if !cuts.is_empty() {
-                    match annotation.strand {
-                        Strand::Fwd => ", <<",
-                        Strand::Rc => ", >>",
-                    }
+            let end_bucket = bucket_position(end) + BUCKET_SIZE;
+            format!("@left({} to {})", start_bucket, end_bucket)
+        } else {
+            // Potentially right or prev_left
+            let distance_to_right = annotation.read_len.saturating_sub(end);
+            if let Some(prev_end) = prev_end_pos {
+                let distance_to_prev = start.saturating_sub(prev_end);
+                if distance_to_prev < distance_to_right {
+                    // Closer to previous element – use prev_left
+                    let gap_start_bucket = bucket_position(distance_to_prev);
+                    let gap_end_bucket =
+                        bucket_position(end.saturating_sub(prev_end)) + BUCKET_SIZE;
+                    format!("@prev_left({} to {})", gap_start_bucket, gap_end_bucket)
                 } else {
-                    ""
+                    // Closer to right end – keep right
+                    let right_start = bucket_position(annotation.read_len.saturating_sub(end));
+                    let right_end =
+                        bucket_position(annotation.read_len.saturating_sub(start)) + BUCKET_SIZE;
+                    format!("@right({} to {})", right_start, right_end)
                 }
-                .to_string()
             } else {
-                "".to_string()
-            };
+                // There is no previous element, so only right makes sense
+                let right_start = bucket_position(annotation.read_len.saturating_sub(end));
+                let right_end =
+                    bucket_position(annotation.read_len.saturating_sub(start)) + BUCKET_SIZE;
+                format!("@right({} to {})", right_start, right_end)
+            }
+        };
 
-            // Get match type matching pattern defined in filter
-            let match_type = match annotation.match_type {
-                BarcodeType::Fflank => "Fflank".custom_color(light_pink),
-                BarcodeType::Fbar => "Fbarcode".custom_color(dark_pink),
-                BarcodeType::Rflank => "Rflank".custom_color(light_blue),
-                BarcodeType::Rbar => "Rbarcode".custom_color(dark_blue),
-            };
+        // ----- Handle label counting -----
+        let label = annotation.label.clone();
+        if !label.contains("Flank") {
+            *label_map.entry(label.to_string()).or_insert(0) += 1;
+        }
 
-            format!(
-                "{}[{}, *{}, {}]",
-                match_type,
-                if annotation.strand == Strand::Fwd {
-                    "fw"
-                } else {
-                    "rc"
-                },
-                cut,
-                position
-            )
-        })
-        .collect();
+        // ----- Cut marker -----
+        let cut = if let Some(cuts) = &annotation.cuts {
+            if !cuts.is_empty() {
+                match annotation.strand {
+                    Strand::Fwd => ", <<",
+                    Strand::Rc => ", >>",
+                }
+            } else {
+                ""
+            }
+            .to_string()
+        } else {
+            "".to_string()
+        };
+
+        // ----- Match type colouring -----
+        let match_type = match annotation.match_type {
+            BarcodeType::Fflank => "Fflank".custom_color(light_pink),
+            BarcodeType::Fbar => "Fbarcode".custom_color(dark_pink),
+            BarcodeType::Rflank => "Rflank".custom_color(light_blue),
+            BarcodeType::Rbar => "Rbarcode".custom_color(dark_blue),
+        };
+
+        // Build element string and push
+        pattern_elements.push(format!(
+            "{}[{}, *{}, {}]",
+            match_type,
+            if annotation.strand == Strand::Fwd {
+                "fw"
+            } else {
+                "rc"
+            },
+            cut,
+            position_tag
+        ));
+
+        // Update prev_end for next iteration
+        prev_end_pos = Some(end);
+    }
 
     // Pattern as string
     let mut pattern_string = pattern_elements.join("__");
