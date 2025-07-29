@@ -51,7 +51,7 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
             // We have a previous element – choose between prev_left and right
             let distance_to_prev = start.saturating_sub(prev_end);
             let distance_to_right = annotation.read_len.saturating_sub(end);
-            if distance_to_prev < distance_to_right {
+            if distance_to_prev <= distance_to_right {
                 // Prefer prev_left
                 let gap_start_bucket = bucket_position(distance_to_prev);
                 let gap_end_bucket = bucket_position(end.saturating_sub(prev_end)) + BUCKET_SIZE;
