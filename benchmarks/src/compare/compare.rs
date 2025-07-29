@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::Path;
 use std::process::Command;
+use std::time::Instant;
 
 pub struct Dorado {
     pub exec_path: String,
@@ -379,9 +380,12 @@ pub fn run_all_tools(
 
     // -- Dorado --
     let dorado = Dorado::new(dorado_exec_path);
+    let start_time = Instant::now();
     dorado
         .run(fastq_file, &dorado_output_folder, threads, None)
         .unwrap();
+    let dorado_time = start_time.elapsed();
+    println!("Dorado time: {:?}", dorado_time);
     dorado.parse_output(
         &dorado_output_folder,
         &format!("{annotation_output_folder}/dorado_parsed.tsv"),
@@ -391,9 +395,12 @@ pub fn run_all_tools(
 
     // -- Barbell --
     let barbell = Barbell::new(barbell_exec_path);
+    let start_time = Instant::now();
     barbell
         .run(fastq_file, &barbell_output_folder, threads, None)
         .unwrap();
+    let barbell_time = start_time.elapsed();
+    println!("Barbell time: {:?}", barbell_time);
     barbell.parse_output(
         &barbell_output_folder,
         &format!("{annotation_output_folder}/barbell_parsed.tsv"),
@@ -403,6 +410,7 @@ pub fn run_all_tools(
 
     // -- Flexiplex --
     let flexiplex = Flexiplex::new(flexiplex_exec_path);
+    let start_time = Instant::now();
     flexiplex
         .run(
             fastq_file,
@@ -411,12 +419,19 @@ pub fn run_all_tools(
             extra_file.clone(),
         )
         .unwrap();
+    let flexiplex_time = start_time.elapsed();
+    println!("Flexiplex time: {:?}", flexiplex_time);
     flexiplex.parse_output(
         &flexiplex_output_folder,
         &format!("{annotation_output_folder}/flexiplex_parsed.tsv"),
         &format!("{trimmed_output_folder}/flexiplex_trimmed.fasta"),
         extra_file.clone(),
     );
+    println!("All done!");
+    println!("Timings");
+    println!("Dorado: {:?}", dorado_time);
+    println!("Barbell: {:?}", barbell_time);
+    println!("Flexiplex: {:?}", flexiplex_time);
 }
 
 /*
