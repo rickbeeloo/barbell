@@ -330,14 +330,13 @@ impl Tool for Flexiplex {
                 .next()
                 .unwrap();
             let barcode_id = barcode_map.get(barcode_seq).unwrap();
+            // CTTTCGTTGTTGACTCGACGGTAG_#2b86d04f-daf8-48a2-a083-b0b50b1138d6_-1of1
             let read_id = read_id
                 .split("#")
                 .nth(1)
                 .unwrap()
-                .split("+")
+                .split("_")
                 .next()
-                .unwrap()
-                .strip_suffix("_")
                 .unwrap();
             // TODO: we could use the 1 of 1 for double split cases to make the ids unique
             // but will make joining later more complex
@@ -381,9 +380,9 @@ pub fn run_all_tools(
     // -- Dorado --
     let dorado = Dorado::new(dorado_exec_path);
     let start_time = Instant::now();
-    dorado
-        .run(fastq_file, &dorado_output_folder, threads, None)
-        .unwrap();
+    // dorado
+    //     .run(fastq_file, &dorado_output_folder, threads, None)
+    //     .unwrap();
     let dorado_time = start_time.elapsed();
     println!("Dorado time: {:?}", dorado_time);
     dorado.parse_output(
@@ -396,9 +395,9 @@ pub fn run_all_tools(
     // -- Barbell --
     let barbell = Barbell::new(barbell_exec_path);
     let start_time = Instant::now();
-    barbell
-        .run(fastq_file, &barbell_output_folder, threads, None)
-        .unwrap();
+    // barbell
+    //     .run(fastq_file, &barbell_output_folder, threads, None)
+    //     .unwrap();
     let barbell_time = start_time.elapsed();
     println!("Barbell time: {:?}", barbell_time);
     barbell.parse_output(
@@ -411,14 +410,14 @@ pub fn run_all_tools(
     // -- Flexiplex --
     let flexiplex = Flexiplex::new(flexiplex_exec_path);
     let start_time = Instant::now();
-    flexiplex
-        .run(
-            fastq_file,
-            &flexiplex_output_folder,
-            threads,
-            extra_file.clone(),
-        )
-        .unwrap();
+    // flexiplex
+    //     .run(
+    //         fastq_file,
+    //         &flexiplex_output_folder,
+    //         threads,
+    //         extra_file.clone(),
+    //     )
+    //     .unwrap();
     let flexiplex_time = start_time.elapsed();
     println!("Flexiplex time: {:?}", flexiplex_time);
     flexiplex.parse_output(

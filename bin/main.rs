@@ -103,6 +103,10 @@ enum Commands {
         /// Top N
         #[arg(short = 'n', long, default_value_t = 10)]
         top_n: usize,
+
+        /// Write pattern for each read to this file (optional)
+        #[arg(short = 'o', long)]
+        read_pattern_out: Option<String>,
     },
 
     /// Run a preset
@@ -213,10 +217,14 @@ fn main() {
             );
         }
 
-        Commands::Inspect { input, top_n } => {
+        Commands::Inspect {
+            input,
+            top_n,
+            read_pattern_out,
+        } => {
             println!("{}", "Inspecting...".green());
 
-            match inspect::inspect(input, *top_n) {
+            match inspect::inspect(input, *top_n, read_pattern_out.clone()) {
                 Ok(_) => println!("{}", "Inspection complete!".green()),
                 Err(e) => println!("{} {}", "Inspection failed:".red(), e),
             }

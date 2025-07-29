@@ -35,15 +35,21 @@ pub fn demux_rapid_barcodes(
         vec![tmp_query_file.path().to_str().unwrap()],
         vec![BarcodeType::Fbar],
         format!("{output_folder}/annotation.tsv").as_str(),
-        max_edit_perc, 
-        0.5,           // Overhang alpha
+        max_edit_perc,
+        0.5, // Overhang alpha
         threads as u32,
     )
     .expect("Annotation failed");
 
     // // After annotating we show inspect
-    // println!("\n{}", "Top 4 most common patterns".purple().bold());
-    // inspect(format!("{output_folder}/annotation.tsv").as_str(), 4).expect("Inspect failed");
+    println!("\n{}", "Top 10 most common patterns".purple().bold());
+    let pattern_per_read_out = format!("{output_folder}/pattern_per_read.tsv");
+    inspect(
+        format!("{output_folder}/annotation.tsv").as_str(),
+        10,
+        Some(pattern_per_read_out),
+    )
+    .expect("Inspect failed");
 
     // Filter
     println!("\n{}", "Running annotation filter".purple().bold());

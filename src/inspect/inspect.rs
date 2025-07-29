@@ -4,6 +4,8 @@ use colored::*;
 use sassy::Strand;
 use std::collections::HashMap;
 use std::error::Error;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 
 const BUCKET_SIZE: usize = 250;
 
@@ -110,7 +112,11 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
     pattern_string
 }
 
-pub fn inspect(annotated_file: &str, top_n: usize) -> Result<(), Box<dyn Error>> {
+pub fn inspect(
+    annotated_file: &str,
+    top_n: usize,
+    read_pattern_out: Option<String>,
+) -> Result<(), Box<dyn Error>> {
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(b'\t')
         .from_path(annotated_file)
@@ -119,6 +125,14 @@ pub fn inspect(annotated_file: &str, top_n: usize) -> Result<(), Box<dyn Error>>
     // Process reads one group at a time
     let mut current_read_id: Option<String> = None;
     let mut current_group: Vec<BarbellMatch> = Vec::new();
+
+    // If we should write the pattern for each read open handle
+    let mut read_pattern_out_handle: Option<BufWriter<File>> = None;
+    if let Some(read_pattern_out) = read_pattern_out {
+        read_pattern_out_handle = Some(BufWriter::new(
+            File::create(read_pattern_out).expect("Failed to create read pattern output file"),
+        ));
+    }
 
     // Keep track of how often we see a pattern
     let mut pattern_count: HashMap<String, usize> = HashMap::new();
@@ -131,6 +145,11 @@ pub fn inspect(annotated_file: &str, top_n: usize) -> Result<(), Box<dyn Error>>
             if *read_id != record.read_id.clone() {
                 // Process previous group
                 let label = get_group_structure(&current_group);
+                let prev_read_id = current_read_id.unwrap();
+                if let Some(read_pattern_out_handle) = &mut read_pattern_out_handle {
+                    writeln!(read_pattern_out_handle, "{prev_read_id}\t{label}")
+                        .expect("Failed to write read pattern to file");
+                }
                 *pattern_count.entry(label).or_insert(0) += 1;
                 current_group.clear();
                 current_read_id = Some(record.read_id.clone());
@@ -147,6 +166,11 @@ pub fn inspect(annotated_file: &str, top_n: usize) -> Result<(), Box<dyn Error>>
     // Process the last group
     if !current_group.is_empty() {
         let label = get_group_structure(&current_group);
+        let prev_read_id = current_read_id.unwrap();
+        if let Some(read_pattern_out_handle) = &mut read_pattern_out_handle {
+            writeln!(read_pattern_out_handle, "{prev_read_id}\t{label}")
+                .expect("Failed to write read pattern to file");
+        }
         *pattern_count.entry(label).or_insert(0) += 1;
     }
 
