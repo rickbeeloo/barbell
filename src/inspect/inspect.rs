@@ -47,36 +47,33 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
         // Otherwise we decide between @right and @prev_left.  If both
         // are possible we prefer @prev_left when the annotation is
         // closer to the previous element than to the right end.
-        let position_tag = if annotation.rel_dist_to_end > 0 {
-            // --- left side ---
-            let start_bucket = bucket_position(start);
-            let end_bucket = bucket_position(end) + BUCKET_SIZE;
-            format!("@left({} to {})", start_bucket, end_bucket)
-        } else {
-            // Potentially right or prev_left
+        let position_tag = if let Some(prev_end) = prev_end_pos {
+            // We have a previous element – choose between prev_left and right
+            let distance_to_prev = start.saturating_sub(prev_end);
             let distance_to_right = annotation.read_len.saturating_sub(end);
-            if let Some(prev_end) = prev_end_pos {
-                let distance_to_prev = start.saturating_sub(prev_end);
-                if distance_to_prev < distance_to_right {
-                    // Closer to previous element – use prev_left
-                    let gap_start_bucket = bucket_position(distance_to_prev);
-                    let gap_end_bucket =
-                        bucket_position(end.saturating_sub(prev_end)) + BUCKET_SIZE;
-                    format!("@prev_left({} to {})", gap_start_bucket, gap_end_bucket)
-                } else {
-                    // Closer to right end – keep right
-                    let right_start = bucket_position(annotation.read_len.saturating_sub(end));
-                    let right_end =
-                        bucket_position(annotation.read_len.saturating_sub(start)) + BUCKET_SIZE;
-                    format!("@right({} to {})", right_start, right_end)
-                }
+            if distance_to_prev < distance_to_right {
+                // Prefer prev_left
+                let gap_start_bucket = bucket_position(distance_to_prev);
+                let gap_end_bucket = bucket_position(end.saturating_sub(prev_end)) + BUCKET_SIZE;
+                format!("@prev_left({} to {})", gap_start_bucket, gap_end_bucket)
             } else {
-                // There is no previous element, so only right makes sense
+                // Closer to right end
                 let right_start = bucket_position(annotation.read_len.saturating_sub(end));
                 let right_end =
                     bucket_position(annotation.read_len.saturating_sub(start)) + BUCKET_SIZE;
                 format!("@right({} to {})", right_start, right_end)
             }
+        } else if annotation.rel_dist_to_end > 0 {
+            // No previous element and on the left half – tag as left
+            let start_bucket = bucket_position(start);
+            let end_bucket = bucket_position(end) + BUCKET_SIZE;
+            format!("@left({} to {})", start_bucket, end_bucket)
+        } else {
+            // No previous element, right side
+            let right_start = bucket_position(annotation.read_len.saturating_sub(end));
+            let right_end =
+                bucket_position(annotation.read_len.saturating_sub(start)) + BUCKET_SIZE;
+            format!("@right({} to {})", right_start, right_end)
         };
 
         // ----- Handle label counting -----
@@ -100,12 +97,12 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
             "".to_string()
         };
 
-        // ----- Match type colouring -----
+        // ----- Match type plain text -----
         let match_type = match annotation.match_type {
-            BarcodeType::Fflank => "Fflank".custom_color(light_pink),
-            BarcodeType::Fbar => "Fbarcode".custom_color(dark_pink),
-            BarcodeType::Rflank => "Rflank".custom_color(light_blue),
-            BarcodeType::Rbar => "Rbarcode".custom_color(dark_blue),
+            BarcodeType::Fflank => "Fflank".to_string(),
+            BarcodeType::Fbar => "Fbarcode".to_string(),
+            BarcodeType::Rflank => "Rflank".to_string(),
+            BarcodeType::Rbar => "Rbarcode".to_string(),
         };
 
         // Build element string and push
@@ -129,15 +126,29 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
     let mut pattern_string = pattern_elements.join("__");
 
     // Now we use incremental wildcards to replace the labels
-    let mut wildcard_count = 0;
-    for (label, count) in label_map {
-        if count > 1 {
-            pattern_string = pattern_string.replace(&label, &format!("?{wildcard_count}"));
-            wildcard_count += 1;
-        }
-    }
+    // let mut wildcard_count = 0;
+    // for (label, count) in label_map {
+    //     if count > 1 {
+    //         pattern_string = pattern_string.replace(&label, &format!("?{wildcard_count}"));
+    //         wildcard_count += 1;
+    //     }
+    // }
 
     pattern_string
+}
+
+// Apply terminal colours when printing but keep underlying string clean
+fn colorize_pattern(input: &str) -> String {
+    let light_pink: CustomColor = CustomColor::new(255, 182, 193);
+    let dark_pink: CustomColor = CustomColor::new(231, 84, 128);
+    let light_blue: CustomColor = CustomColor::new(173, 216, 230);
+    let dark_blue: CustomColor = CustomColor::new(0, 0, 139);
+
+    input
+        .replace("Fflank", &"Fflank".custom_color(light_pink).to_string())
+        .replace("Fbarcode", &"Fbarcode".custom_color(dark_pink).to_string())
+        .replace("Rflank", &"Rflank".custom_color(light_blue).to_string())
+        .replace("Rbarcode", &"Rbarcode".custom_color(dark_blue).to_string())
 }
 
 pub fn inspect(
@@ -209,8 +220,9 @@ pub fn inspect(
     pattern_count_vec.sort_by(|a, b| b.1.cmp(&a.1));
 
     for (i, (pattern, count)) in pattern_count_vec.iter().take(top_n).enumerate() {
+        let colored = colorize_pattern(pattern);
         println!("\tPattern {}: {} occurrences", i + 1, count);
-        println!("\t\t{pattern}");
+        println!("\t\t{}", colored);
     }
 
     println!("Showed {} / {} patterns", top_n, pattern_count_vec.len());
