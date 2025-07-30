@@ -12,8 +12,9 @@ const BUCKET_SIZE: usize = 250;
 // Helper function to bucket positions into ranges
 // For example: 0-50 -> (0 to 50), 51-100 -> (50 to 100), etc.
 fn bucket_position(pos: usize) -> usize {
-    // We can adjust this
-    (pos / BUCKET_SIZE) * BUCKET_SIZE
+    // Inclusive bucket: positions 0..=249 → 0, 250..=499 → 250, etc.
+    // For pos=0 we keep 0, otherwise subtract 1 before division to treat upper bound inclusively.
+    (pos.saturating_sub(1) / BUCKET_SIZE) * BUCKET_SIZE
 }
 
 pub fn get_group_structure(group: &[BarbellMatch]) -> String {
@@ -65,7 +66,7 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
         } else if annotation.rel_dist_to_end > 0 {
             // No previous element and on the left half – tag as left
             let start_bucket = bucket_position(start);
-            let end_bucket = bucket_position(end) + BUCKET_SIZE;
+            let end_bucket = start_bucket + BUCKET_SIZE;
             format!("@left({} to {})", start_bucket, end_bucket)
         } else {
             // No previous element, right side
