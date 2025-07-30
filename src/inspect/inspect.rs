@@ -120,7 +120,7 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
     }
 
     // Pattern as string
-    pattern_elements.join("__");
+    pattern_elements.join("__")
 
     // Now we use incremental wildcards to replace the labels
     // let mut wildcard_count = 0;
