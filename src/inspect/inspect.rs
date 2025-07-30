@@ -29,7 +29,7 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
 
     // Hashmap to keep track of all the labels we see to later replace in pattern if applicable
     // just count with labels
-    let mut label_map: HashMap<String, usize> = HashMap::new();
+    //let mut label_map: HashMap<String, usize> = HashMap::new();
 
     // We will build the pattern elements in a for-loop so we can
     // also look at the previous match when deciding the position tag
@@ -41,7 +41,6 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
         let start = annotation.read_start_bar;
         let end = annotation.read_end_bar;
 
-        // ----- Decide which relative position tag to use -----
         // By default we use @left if the annotation is closer to the
         // left end of the read ( annotation.rel_dist_to_end > 0 ).
         // Otherwise we decide between @right and @prev_left.  If both
@@ -76,13 +75,11 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
             format!("@right({} to {})", right_start, right_end)
         };
 
-        // ----- Handle label counting -----
-        let label = annotation.label.clone();
-        if !label.contains("Flank") {
-            *label_map.entry(label.to_string()).or_insert(0) += 1;
-        }
+        // let label = annotation.label.clone();
+        // if !label.contains("Flank") {
+        //     *label_map.entry(label.to_string()).or_insert(0) += 1;
+        // }
 
-        // ----- Cut marker -----
         let cut = if let Some(cuts) = &annotation.cuts {
             if !cuts.is_empty() {
                 match annotation.strand {
@@ -123,7 +120,7 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
     }
 
     // Pattern as string
-    let mut pattern_string = pattern_elements.join("__");
+    pattern_elements.join("__");
 
     // Now we use incremental wildcards to replace the labels
     // let mut wildcard_count = 0;
@@ -134,7 +131,7 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
     //     }
     // }
 
-    pattern_string
+    //pattern_string
 }
 
 // Apply terminal colours when printing but keep underlying string clean
