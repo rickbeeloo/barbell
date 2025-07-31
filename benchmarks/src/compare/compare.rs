@@ -379,6 +379,23 @@ pub fn run_all_tools(
     std::fs::create_dir_all(&trimmed_output_folder)
         .expect("Failed to create trimmed output folder");
 
+    // We first create a file that has the original (untrimmed) sequence length
+    // for each of the reads
+    let untrimmed_lengths_file = format!("{output_folder}/untrimmed_lengths.tsv");
+    let untrimmed_lengths_handle =
+        File::create(untrimmed_lengths_file).expect("Failed to create untrimmed lengths file");
+    let mut untrimmed_lengths_writer = BufWriter::new(untrimmed_lengths_handle);
+    let mut reader = parse_fastx_file(fastq_file).expect("valid path/file");
+    while let Some(record) = reader.next() {
+        let record = record.unwrap();
+        let seq_len = record.seq().len();
+        let read_id = String::from_utf8_lossy(record.id());
+        let read_len_line = format!("{read_id}\t{seq_len}\n");
+        untrimmed_lengths_writer
+            .write_all(read_len_line.as_bytes())
+            .expect("Failed to write untrimmed lengths");
+    }
+
     // -- Dorado --
     let dorado = Dorado::new(dorado_exec_path);
     let start_time = Instant::now();
