@@ -123,7 +123,8 @@ impl Tool for Dorado {
                 let norm_seq = record.seq().normalize(false).to_vec();
                 let seq = String::from_utf8_lossy(&norm_seq);
                 let read_id = String::from_utf8_lossy(record.id());
-                let anno_line: String = format!("{read_id}\t{barcode_id}\n");
+                let seq_len = record.seq().len();
+                let anno_line = format!("{read_id}\t{barcode_id}\t{seq_len}\n");
                 let seq_line = format!(">{read_id}\n{seq}\n");
 
                 writer
@@ -215,7 +216,8 @@ impl Tool for Barbell {
                 let norm_seq = record.seq().normalize(false).to_vec();
                 let seq = String::from_utf8_lossy(&norm_seq);
                 let read_id = String::from_utf8_lossy(record.id());
-                let anno_line: String = format!("{read_id}\t{barcode_id}\n");
+                let seq_len = record.seq().len();
+                let anno_line = format!("{read_id}\t{barcode_id}\t{seq_len}\n");
                 let seq_line = format!(">{read_id}\n{seq}\n");
 
                 writer
@@ -340,8 +342,8 @@ impl Tool for Flexiplex {
                 .unwrap();
             // TODO: we could use the 1 of 1 for double split cases to make the ids unique
             // but will make joining later more complex
-
-            let anno_line = format!("{read_id}\t{barcode_id}\n");
+            let seq_len = record.seq().len();
+            let anno_line = format!("{read_id}\t{barcode_id}\t{seq_len}\n");
             let seq_line = format!(">{read_id}\n{seq}\n");
 
             writer
