@@ -414,7 +414,7 @@ mod tests {
                 8, // read_end_flank
                 0, // bar_start
                 4, // bar_end
-                BarcodeType::Fbar,
+                BarcodeType::Ftag,
                 0, // flank_cost
                 0, // barcode_cost
                 "Fbar".to_string(),
@@ -431,7 +431,7 @@ mod tests {
                 16, // read_end_flank
                 0,  // bar_start
                 4,  // bar_end
-                BarcodeType::Rbar,
+                BarcodeType::Rtag,
                 0, // flank_cost
                 0, // barcode_cost
                 "Rbar".to_string(),

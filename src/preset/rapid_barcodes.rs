@@ -33,7 +33,7 @@ pub fn demux_rapid_barcodes(
     annotate(
         fastq_file,
         vec![tmp_query_file.path().to_str().unwrap()],
-        vec![BarcodeType::Fbar],
+        vec![BarcodeType::Ftag],
         format!("{output_folder}/annotation.tsv").as_str(),
         max_edit_perc,
         0.5, // Overhang alpha

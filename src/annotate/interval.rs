@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn test_single_match() {
         // Test single match
-        let matches = vec![create_match_template(0, 10, BarcodeType::Fbar, 3, "test1")];
+        let matches = vec![create_match_template(0, 10, BarcodeType::Ftag, 3, "test1")];
         let result = collapse_overlapping_matches(&matches, 0.5);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].label, "test1");
@@ -145,8 +145,8 @@ mod tests {
     fn test_doulbe_no_overlap() {
         // Test non-overlapping matches
         let matches = vec![
-            create_match_template(0, 10, BarcodeType::Fbar, 3, "test1"),
-            create_match_template(10, 20, BarcodeType::Fbar, 3, "test2"),
+            create_match_template(0, 10, BarcodeType::Ftag, 3, "test1"),
+            create_match_template(10, 20, BarcodeType::Ftag, 3, "test2"),
         ];
         let result = collapse_overlapping_matches(&matches, 0.5);
         assert_eq!(result.len(), 2);
@@ -158,8 +158,8 @@ mod tests {
     fn test_collapse_overlapping_matches() {
         // Test overlapping matches - should collapse to best one
         let matches = vec![
-            create_match_template(0, 20, BarcodeType::Fbar, 0, "test1"),
-            create_match_template(15, 20, BarcodeType::Fbar, 3, "test2"),
+            create_match_template(0, 20, BarcodeType::Ftag, 0, "test1"),
+            create_match_template(15, 20, BarcodeType::Ftag, 3, "test2"),
         ];
         let result = collapse_overlapping_matches(&matches, 0.5);
         assert_eq!(result.len(), 1);
@@ -169,8 +169,8 @@ mod tests {
     #[test]
     fn test_overlap_threshold() {
         let matches = vec![
-            create_match_template(0, 20, BarcodeType::Fbar, 0, "test1"),
-            create_match_template(10, 35, BarcodeType::Fbar, 3, "test2"),
+            create_match_template(0, 20, BarcodeType::Ftag, 0, "test1"),
+            create_match_template(10, 35, BarcodeType::Ftag, 3, "test2"),
         ];
         // They now overlap at 5, which is 50% of the smaller length
         let result = collapse_overlapping_matches(&matches, 0.5);
@@ -186,10 +186,10 @@ mod tests {
     #[test]
     fn test_correct_sorting() {
         let mut matches = vec![
-            create_match_template(0, 10, BarcodeType::Fbar, 0, "test1"),
-            create_match_template(10, 20, BarcodeType::Fbar, 3, "test2"),
-            create_match_template(0, 15, BarcodeType::Fbar, 3, "test2"),
-            create_match_template(100, 110, BarcodeType::Fbar, 3, "test3"),
+            create_match_template(0, 10, BarcodeType::Ftag, 0, "test1"),
+            create_match_template(10, 20, BarcodeType::Ftag, 3, "test2"),
+            create_match_template(0, 15, BarcodeType::Ftag, 3, "test2"),
+            create_match_template(100, 110, BarcodeType::Ftag, 3, "test3"),
         ];
         // Random shuffle the matches vector
         let mut rng = rand::thread_rng();
@@ -205,8 +205,8 @@ mod tests {
     #[test]
     fn test_small_ovlerap() {
         let mut matches = vec![
-            create_match_template(0, 10, BarcodeType::Fbar, 3, "test1"),
-            create_match_template(10, 20, BarcodeType::Fbar, 1, "test2"),
+            create_match_template(0, 10, BarcodeType::Ftag, 3, "test1"),
+            create_match_template(10, 20, BarcodeType::Ftag, 1, "test2"),
         ];
         for _ in 0..4 {
             matches[1].read_start_flank -= 1;

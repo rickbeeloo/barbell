@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
 pub enum BarcodeType {
-    Fbar,
-    Rbar,
+    Ftag,
+    Rtag,
     Fflank, // Not public, in case Fbar is not detected
     Rflank, // Not public, in case Rbar is not detected
 }
@@ -14,16 +14,16 @@ pub enum BarcodeType {
 impl BarcodeType {
     pub fn as_flank(&self) -> Self {
         match self {
-            BarcodeType::Fbar => BarcodeType::Fflank,
-            BarcodeType::Rbar => BarcodeType::Rflank,
+            BarcodeType::Ftag => BarcodeType::Fflank,
+            BarcodeType::Rtag => BarcodeType::Rflank,
             _ => panic!("Cannot convert {self:?} to flank"),
         }
     }
 
     pub fn as_str(&self) -> &str {
         match self {
-            BarcodeType::Fbar => "Fbar",
-            BarcodeType::Rbar => "Rbar",
+            BarcodeType::Ftag => "Ftag",
+            BarcodeType::Rtag => "Rtag",
             BarcodeType::Fflank => "Fflank",
             BarcodeType::Rflank => "Rflank",
         }
@@ -251,7 +251,7 @@ mod tests {
             b"AAATATGGG".as_slice(),
         ];
         let labels = vec!["s1".to_string(), "s2".to_string(), "s3".to_string()];
-        let barcode_type = BarcodeType::Fbar;
+        let barcode_type = BarcodeType::Ftag;
         let barcode_group = BarcodeGroup::new(
             vec![seqs[0].to_vec(), seqs[1].to_vec(), seqs[2].to_vec()],
             labels,
@@ -286,7 +286,7 @@ mod tests {
     fn test_barcode_group() {
         let seqs = [b"AAATTTGGG".as_slice(), b"AAACCCGGG".as_slice()];
         let labels = vec!["s1".to_string(), "s2".to_string()];
-        let barcode_type = BarcodeType::Fbar;
+        let barcode_type = BarcodeType::Ftag;
         let barcode_group = BarcodeGroup::new(
             vec![seqs[0].to_vec(), seqs[1].to_vec()],
             labels,
@@ -304,7 +304,7 @@ mod tests {
     fn test_barcode_group_invalid_seq() {
         let seqs = [b"@@@@@@@@@".as_slice(), b"AAACCCGGG".as_slice()];
         let labels = vec!["s1".to_string(), "s2".to_string()];
-        let barcode_type = BarcodeType::Fbar;
+        let barcode_type = BarcodeType::Ftag;
         let _ = BarcodeGroup::new(
             vec![seqs[0].to_vec(), seqs[1].to_vec()],
             labels,
@@ -317,7 +317,7 @@ mod tests {
     fn test_barcode_group_unequal_length() {
         let seqs = [b"AAATTTGGG".as_slice(), b"AAAAAAACCCGGG".as_slice()];
         let labels = vec!["s1".to_string(), "s2".to_string()];
-        let barcode_type = BarcodeType::Fbar;
+        let barcode_type = BarcodeType::Ftag;
         let _ = BarcodeGroup::new(
             vec![seqs[0].to_vec(), seqs[1].to_vec()],
             labels,
@@ -328,12 +328,13 @@ mod tests {
     #[test]
     fn test_fasta_read() {
         let example_file = "examples/rapid_bars.fasta";
-        let barcode_group = BarcodeGroup::new_from_fasta(example_file, BarcodeType::Fbar);
-        let expected_flank = b"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCNNNNNNNNNNNNNNNNNNNNNNNNGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
+        let barcode_group = BarcodeGroup::new_from_fasta(example_file, BarcodeType::Ftag);
+        let expected_flank = b"GCTTGGGTGTTTAACCNNNNNNNNNNNNNNNNNNNNNNNNGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
         let flank = barcode_group.flank;
         assert_eq!(flank, expected_flank);
-        assert_eq!(barcode_group.bar_region, (52, 75));
-        assert_eq!(barcode_group.barcodes.len(), 97);
+        assert_eq!(barcode_group.bar_region, (16, 39));
+        assert_eq!(&flank[16..=39], b"NNNNNNNNNNNNNNNNNNNNNNNN");
+        assert_eq!(barcode_group.barcodes.len(), 96);
         assert_eq!(
             barcode_group.barcodes[0].seq,
             b"AAGAAAGTTGTCGGTGTCTTTGTG".to_vec() // NB01 fwd

@@ -11,7 +11,7 @@ pub enum CutDirection {
     After,  // > cut at match.end
 }
 
-// Records where to cut, in what direction, and also with id it belongs in case of paired cuts
+// Records where..cut, in what direction, and also with id it belongs in case of paired cuts
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cut {
     pub group_id: usize,
@@ -25,7 +25,7 @@ pub struct PatternElement {
     pub label: Option<String>,      // Only used for Barcode matches
     pub placeholder: Option<usize>, // For referencing previous matches like $1, $2, etc.
     pub range: (isize, isize),      // Minimum and maximum positions (distance)
-    pub relative_to: Option<RelativePosition>, // Relative to left or right ends, or previous match
+    pub relative_to: Option<RelativePosition>, // Relative..left or right ends, or previous match
     pub cuts: Option<Vec<Cut>>,     // Multiple cuts with identifiers
 }
 
@@ -69,7 +69,7 @@ impl Cut {
     pub fn from_pattern_string(pat_str: &str) -> Option<Self> {
         let two_char_prefix = &pat_str[..2];
 
-        // Default to id = 0 if users does not specify it
+        // Default..id = 0 if users does not specify it
         let id = if pat_str.len() == 2 {
             0
         } else {
@@ -107,10 +107,10 @@ fn check_match_type_and_label(m: &BarbellMatch, pattern_element: &PatternElement
     }
 
     match pattern_element.match_type {
-        // If Fbar/Rbar, and we have a label in the pattern
+        // If Ftag/Rtag, and we have a label in the pattern
         // the pattern label should match, otherwise we assume pattern
         // is label *, and can match any label
-        BarcodeType::Fbar | BarcodeType::Rbar => {
+        BarcodeType::Ftag | BarcodeType::Rtag => {
             if let Some(ref expected_label) = pattern_element.label {
                 // Labels are not the same
                 //if let Some(ref m_label) = m.label {
@@ -277,7 +277,7 @@ macro_rules! pattern_from_str {
         fn parse_range(range_str: &str) -> Option<(isize, isize)> {
             let parts: Vec<&str> = range_str
                 .trim_matches(|p| p == '(' || p == ')')
-                .split("to")
+                .split("..")
                 .collect();
             if parts.len() == 2 {
                 let start = parts[0].trim().parse::<isize>().ok()?;
@@ -316,8 +316,8 @@ macro_rules! pattern_from_str {
 
             // Parse the match type
             let match_type = match parts[0].trim() {
-                "Fbarcode" => BarcodeType::Fbar,
-                "Rbarcode" => BarcodeType::Rbar,
+                "Ftag" => BarcodeType::Ftag,
+                "Rtag" => BarcodeType::Rtag,
                 "Fflank" => BarcodeType::Fflank,
                 "Rflank" => BarcodeType::Rflank,
                 "Flank" | "flank" => panic!("Flank is not valid, use Fflank or Rflank"),
@@ -400,7 +400,7 @@ mod tests {
     #[test]
     fn test_pattern_macro() {
         let pattern = pattern_from_str!(
-            "Fbarcode[fw, *, @left(0 to 250)]__Fflank[fw, @prev_left(5 to 100)]__Rbarcode[?1, fw, @right(0 to 20)]"
+            "Ftag[fw, *, @left(0..250)]__Fflank[fw, @prev_left(5..100)]__Rtag[?1, fw, @right(0..20)]"
         );
         assert_eq!(pattern.elements.len(), 3);
         assert_eq!(
@@ -408,7 +408,7 @@ mod tests {
             Pattern {
                 elements: vec![
                     PatternElement {
-                        match_type: BarcodeType::Fbar,
+                        match_type: BarcodeType::Ftag,
                         orientation: Some(Strand::Fwd),
                         label: None,
                         placeholder: None,
@@ -426,7 +426,7 @@ mod tests {
                         cuts: None,
                     },
                     PatternElement {
-                        match_type: BarcodeType::Rbar,
+                        match_type: BarcodeType::Rtag,
                         orientation: Some(Strand::Fwd),
                         label: None,
                         placeholder: Some(1),
@@ -441,8 +441,8 @@ mod tests {
 
     #[test]
     fn test_distance_to_left_end() {
-        // let pattern = pattern_from_str!("Fbarcode[fw, *, @left(0-250)]");
-        let pattern = pattern_from_str!("Fbarcode[fw, *, @left(0 to 250)]");
+        // let pattern = pattern_from_str!("Ftag[fw, *, @left(0-250)]");
+        let pattern = pattern_from_str!("Ftag[fw, *, @left(0..250)]");
 
         let mut matches = vec![BarbellMatch::new(
             0,   // read_start_bar
@@ -451,7 +451,7 @@ mod tests {
             100, // read_end_flank
             0,   // bar_start
             24,  // bar_end
-            BarcodeType::Fbar,
+            BarcodeType::Ftag,
             0, // flank_cost
             0, // barcode_cost
             "XXX".to_string(),
@@ -481,7 +481,7 @@ mod tests {
 
     #[test]
     fn test_distance_to_right_end() {
-        let pattern = pattern_from_str!("Fbarcode[fw, *, @right(0 to 250)]");
+        let pattern = pattern_from_str!("Ftag[fw, *, @right(0..250)]");
 
         let mut matches = vec![BarbellMatch::new(
             0,   // read_start_bar
@@ -490,7 +490,7 @@ mod tests {
             100, // read_end_flank
             0,   // bar_start
             100, // bar_end
-            BarcodeType::Fbar,
+            BarcodeType::Ftag,
             0, // flank_cost
             0, // barcode_cost
             "XXX".to_string(),
@@ -521,7 +521,7 @@ mod tests {
     #[test]
     fn test_distance_to_prev_left() {
         let pattern =
-            pattern_from_str!("Fbarcode[fw, *, @left(0 to 250)]__Fflank[fw, @prev_left(5 to 100)]");
+            pattern_from_str!("Ftag[fw, *, @left(0..250)]__Fflank[fw, @prev_left(5..100)]");
         println!("Pattern: {:?}", pattern);
 
         let mut matches = vec![
@@ -532,7 +532,7 @@ mod tests {
                 100, // read_end_flank
                 0,   // bar_start
                 100, // bar_end
-                BarcodeType::Fbar,
+                BarcodeType::Ftag,
                 0, // flank_cost
                 0, // barcode_cost
                 "XXX".to_string(),
@@ -590,9 +590,8 @@ mod tests {
     #[test]
     fn test_placeholder() {
         // Means any label for front, but the last label should be the same as the first label
-        let pattern = pattern_from_str!(
-            "Fbarcode[fw, ?1, @left(0 to 250)]__Rbarcode[fw, ?1, @right(0 to 250)]"
-        );
+        let pattern =
+            pattern_from_str!("Ftag[fw, ?1, @left(0..250)]__Rtag[fw, ?1, @right(0..250)]");
         println!("Pattern: {:?}", pattern);
         let mut matches = vec![
             BarbellMatch::new(
@@ -602,7 +601,7 @@ mod tests {
                 100, // read_end_flank
                 0,   // bar_start
                 100, // bar_end
-                BarcodeType::Fbar,
+                BarcodeType::Ftag,
                 0, // flank_cost
                 0, // barcode_cost
                 "XXX".to_string(),
@@ -619,7 +618,7 @@ mod tests {
                 200, // read_end_flank
                 0,   // bar_start
                 100, // bar_end
-                BarcodeType::Rbar,
+                BarcodeType::Rtag,
                 0, // flank_cost
                 0, // barcode_cost
                 "XXX".to_string(),
@@ -634,7 +633,7 @@ mod tests {
         let (is_match, _) = match_pattern(&matches, &pattern);
         assert!(is_match);
 
-        // Edit to different labels
+        // Edit..different labels
         matches[1].label = "yyyy".to_string();
 
         let (is_match, _) = match_pattern(&matches, &pattern);
@@ -644,9 +643,8 @@ mod tests {
     #[test]
     fn test_placeholder_mixed_labels() {
         // Means any label for front, but the last label should be the same as the first label
-        let pattern = pattern_from_str!(
-            "Fbarcode[fw, ?1, @left(0 to 250)]__Rbarcode[fw, ?2, @right(0 to 250)]"
-        );
+        let pattern =
+            pattern_from_str!("Ftag[fw, ?1, @left(0..250)]__Rtag[fw, ?2, @right(0..250)]");
         println!("Pattern: {:?}", pattern);
         let mut matches = vec![
             BarbellMatch::new(
@@ -656,7 +654,7 @@ mod tests {
                 100, // read_end_flank
                 0,   // bar_start
                 100, // bar_end
-                BarcodeType::Fbar,
+                BarcodeType::Ftag,
                 0, // flank_cost
                 0, // barcode_cost
                 "XXX".to_string(),
@@ -673,7 +671,7 @@ mod tests {
                 200, // read_end_flank
                 0,   // bar_start
                 100, // bar_end
-                BarcodeType::Rbar,
+                BarcodeType::Rtag,
                 0, // flank_cost
                 0, // barcode_cost
                 "XXX".to_string(),
@@ -693,7 +691,7 @@ mod tests {
     fn test_placeholder_not_ordered() {
         // Means any label for front, but the last label should be the same as the first label
         let pattern = pattern_from_str!(
-            "Fbarcode[fw, ?1, @left(0 to 250)]__Fbarcode[fw, ?2, @prev_left(0 to 250)]__Fbarcode[fw, ?1, @left(0 to 250)]"
+            "Ftag[fw, ?1, @left(0..250)]__Ftag[fw, ?2, @prev_left(0..250)]__Ftag[fw, ?1, @left(0..250)]"
         );
         println!("Pattern: {:?}", pattern);
         let mut matches = vec![
@@ -704,7 +702,7 @@ mod tests {
                 100, // read_end_flank
                 0,   // bar_start
                 100, // bar_end
-                BarcodeType::Fbar,
+                BarcodeType::Ftag,
                 0, // flank_cost
                 0, // barcode_cost
                 "XXX".to_string(),
@@ -721,7 +719,7 @@ mod tests {
                 200, // read_end_flank
                 0,   // bar_start
                 100, // bar_end
-                BarcodeType::Fbar,
+                BarcodeType::Ftag,
                 0, // flank_cost
                 0, // barcode_cost
                 "YYY".to_string(),
@@ -738,7 +736,7 @@ mod tests {
                 600, // read_end_flank
                 0,   // bar_start
                 100, // bar_end
-                BarcodeType::Fbar,
+                BarcodeType::Ftag,
                 0, // flank_cost
                 0, // barcode_cost
                 "XXX".to_string(),
@@ -756,9 +754,8 @@ mod tests {
 
     #[test]
     fn test_pattern_with_cuts_default_fallback() {
-        let pattern = pattern_from_str!(
-            "Fbarcode[fw, *, >>, @left(0 to 250)]__Fflank[fw, <<, @prev_left(5 to 100)]"
-        );
+        let pattern =
+            pattern_from_str!("Ftag[fw, *, >>, @left(0..250)]__Fflank[fw, <<, @prev_left(5..100)]");
 
         let matches = vec![
             BarbellMatch::new(
@@ -768,7 +765,7 @@ mod tests {
                 10, // read_end_flank
                 0,  // bar_start
                 10, // bar_end
-                BarcodeType::Fbar,
+                BarcodeType::Ftag,
                 0, // flank_cost
                 0, // barcode_cost
                 "XXX".to_string(),
@@ -811,7 +808,7 @@ mod tests {
     #[test]
     fn test_pattern_with_cuts_single_group() {
         let pattern = pattern_from_str!(
-            "Fbarcode[fw, *, >>1, @left(0 to 250)]__Fflank[fw, <<1, @prev_left(5 to 100)]"
+            "Ftag[fw, *, >>1, @left(0..250)]__Fflank[fw, <<1, @prev_left(5..100)]"
         );
 
         let matches = vec![
@@ -822,7 +819,7 @@ mod tests {
                 10, // read_end_flank
                 0,  // bar_start
                 10, // bar_end
-                BarcodeType::Fbar,
+                BarcodeType::Ftag,
                 0, // flank_cost
                 0, // barcode_cost
                 "XXX".to_string(),
@@ -865,7 +862,7 @@ mod tests {
     #[test]
     fn test_pattern_with_multiple_cuts_fallback() {
         let pattern = pattern_from_str!(
-            "Fbarcode[fw, *, >>1, @left(0 to 250)]__Fflank[fw, <<1, @prev_left(5 to 100)]__Rbarcode[fw, *, <<2, @right(0 to 20)]"
+            "Ftag[fw, *, >>1, @left(0..250)]__Fflank[fw, <<1, @prev_left(5..100)]__Rtag[fw, *, <<2, @right(0..20)]"
         );
 
         let matches = vec![
@@ -876,7 +873,7 @@ mod tests {
                 10, // read_end_flank
                 0,  // bar_start
                 10, // bar_end
-                BarcodeType::Fbar,
+                BarcodeType::Ftag,
                 0, // flank_cost
                 0, // barcode_cost
                 "XXX".to_string(),
@@ -910,7 +907,7 @@ mod tests {
                 40, // read_end_flank
                 0,  // bar_start
                 10, // bar_end
-                BarcodeType::Rbar,
+                BarcodeType::Rtag,
                 0, // flank_cost
                 0, // barcode_cost
                 "YYY".to_string(),

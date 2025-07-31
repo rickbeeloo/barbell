@@ -96,12 +96,7 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
         };
 
         // ----- Match type plain text -----
-        let match_type = match annotation.match_type {
-            BarcodeType::Fflank => "Fflank".to_string(),
-            BarcodeType::Fbar => "Fbarcode".to_string(),
-            BarcodeType::Rflank => "Rflank".to_string(),
-            BarcodeType::Rbar => "Rbarcode".to_string(),
-        };
+        let match_type = annotation.match_type.as_str();
 
         // Build element string and push
         pattern_elements.push(format!(

@@ -160,8 +160,8 @@ fn main() {
             let barcode_types_vec: Vec<BarcodeType> = barcode_types
                 .split(',')
                 .map(|s| match s.trim() {
-                    "Fbar" => BarcodeType::Fbar,
-                    "Rbar" => BarcodeType::Rbar,
+                    "Ftag" => BarcodeType::Ftag,
+                    "Rtag" => BarcodeType::Rtag,
                     "Fflank" => BarcodeType::Fflank,
                     "Rflank" => BarcodeType::Rflank,
                     _ => panic!("Unknown barcode type: {}", s),

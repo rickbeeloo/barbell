@@ -250,6 +250,11 @@ impl Demuxer {
                     //vec![]
                 }
             });
+            println!(
+                "Found {} flank matches\n{:?}",
+                flank_matches.len(),
+                flank_matches
+            );
 
             // If we found a flank, we slice out the masked region and search for the barcodes in the
             // masked region, we should be AWARE OF THE STRAND as sassy now returns both directions (Fwd, Rc)
@@ -264,6 +269,11 @@ impl Demuxer {
                 for barcode in barcode_group.barcodes.iter() {
                     let bms = OVERHANG_SEARCHER.with(|cell| {
                         let k = barcode.k_cutoff.unwrap_or(0);
+                        println!(
+                            "Searching for barcode: {:?} with k: {}",
+                            String::from_utf8_lossy(&barcode.seq),
+                            k
+                        );
                         if let Some(ref mut searcher) = *cell.borrow_mut() {
                             searcher.search(&barcode.seq, &mask_region, k)
                         } else {
@@ -273,14 +283,21 @@ impl Demuxer {
 
                     // We make sure they flank and barcode match on the same strand
                     for bm in bms.iter().filter(|bm| bm.strand == flank_match.strand) {
-                        // In case overhang is used, we recheck with expanded mask to make sure we redo the alignment with slighlty
-                        // expand mask region
-                        // We on purpose give too much room to align in, such that if we go beyond the "end", it cheats
-                        // it's way in overhang
+                        // we gave "too much" room to align, so we consider a match cheating if it's tries to use
+                        // overhang cost where normally a sequence exists. E.g.:
+                        /*
+                                   ACATACATCGATCACTACCACTACTACGACTACTACGAC
+                                    [         ] mask
+                                         [             ] <- alignement is "cheating" using overhang cost in seq region
+                            [         ]                  <- this is fine as we can "cheat" at read boundaries
+
+                        */
                         let barcode_start = bm.text_start + mask_start;
                         let barcode_end = bm.text_end + mask_start;
-                        if barcode_start <= mask_start || barcode_end >= mask_end {
-                            // println!("Skipping cheating match: {:?} for read: {}", bm, read_id);
+
+                        if (barcode_start <= mask_start && barcode_start > 0)
+                            || (barcode_end >= mask_end && barcode_end < read.len())
+                        {
                             continue;
                         }
 
@@ -357,7 +374,7 @@ mod tests {
         let flank = BarcodeGroup::new(
             vec![b"AAATTTGGG".to_vec(), b"AAAXXXGGG".to_vec()],
             vec!["s1".to_string(), "s2".to_string()],
-            BarcodeType::Fbar,
+            BarcodeType::Ftag,
         );
         demuxer.add_query_group(flank);
 
@@ -368,7 +385,7 @@ mod tests {
         assert_eq!(matches[0].read_end_bar, 11); // Exclusive index
         assert_eq!(matches[0].bar_start, 0);
         assert_eq!(matches[0].bar_end, 3); // This is inclusive, maybe we should stay consistent exclusive?
-        assert_eq!(matches[0].match_type, BarcodeType::Fbar);
+        assert_eq!(matches[0].match_type, BarcodeType::Ftag);
         assert_eq!(matches[0].barcode_cost, 0);
         assert_eq!(matches[0].strand, Strand::Fwd);
     }
@@ -384,7 +401,7 @@ mod tests {
                 Iupac::reverse_complement("AAACCCCCCCCCCCGGG".as_bytes()).to_vec(),
             ],
             vec!["s1".to_string(), "s2".to_string()],
-            BarcodeType::Fbar,
+            BarcodeType::Ftag,
         );
         //bar_group.tune_group_random_sequences(1000, 0.001, 0.5, 1);
         bar_group.set_perc_threshold(0.1);
@@ -401,7 +418,7 @@ mod tests {
         assert_eq!(matches[0].read_end_bar, 19); // Exclusive index
         assert_eq!(matches[0].bar_start, 0);
         assert_eq!(matches[0].bar_end, 11); // This is inclusive, maybe we should stay consistent exclusive?
-        assert_eq!(matches[0].match_type, BarcodeType::Fbar);
+        assert_eq!(matches[0].match_type, BarcodeType::Ftag);
         assert_eq!(matches[0].barcode_cost, 0);
         assert_eq!(matches[0].strand, Strand::Rc); // Same as above EXCEPT strand
     }
@@ -410,14 +427,14 @@ mod tests {
     fn test_just_overhang() {
         let mut demuxer = Demuxer::new(0.5);
         let read = b"TTTTTTGGGXXXXXXXXXXXXXXXXXXXXXXXXXXXx".to_vec();
-        //                    |||||| -> 4 * 0.5 = 2 cost
+        //                    ||||||||| -> 7 * 0.5 = 4 cost, barcode = 0.5 * 4 = 2 cost
         //             AAATTTTTTTTTTGGG <- match (0 edits/cost)
         //            TTTTTT
         //         TTTTTTTTTT
         let mut flank = BarcodeGroup::new(
             vec![b"AAATTTTTTTTTTGGG".to_vec(), b"AAACCCCCCCCCCGGG".to_vec()],
             vec!["s1".to_string(), "s2".to_string()],
-            BarcodeType::Fbar,
+            BarcodeType::Ftag,
         );
         // Tune flank seq
         flank.k_cutoff = Some(4);
@@ -437,7 +454,7 @@ mod tests {
 
         assert_within_wiggle_room(matches[0].bar_start, 3, crate::WIGGLE_ROOM);
         assert_within_wiggle_room(matches[0].bar_end, 10, crate::WIGGLE_ROOM); // This is inclusive, maybe we should stay consistent exclusive?
-        assert_eq!(matches[0].match_type, BarcodeType::Fbar);
+        assert_eq!(matches[0].match_type, BarcodeType::Ftag);
         assert_eq!(matches[0].barcode_cost, 2);
         assert_eq!(matches[0].strand, Strand::Fwd); // Same as above EXCEPT strand
     }
@@ -450,7 +467,7 @@ mod tests {
         let flank = BarcodeGroup::new(
             vec![b"AAATTTTTTTTTTTGGG".to_vec(), b"AAACCCCCCCCCCCGGG".to_vec()],
             vec!["s1".to_string(), "s2".to_string()],
-            BarcodeType::Fbar,
+            BarcodeType::Ftag,
         );
         demuxer.add_query_group(flank);
 
@@ -461,7 +478,7 @@ mod tests {
         assert_eq!(res[1].read_end_bar, 27); // Exclusive index
         assert_eq!(res[1].bar_start, 0);
         assert_eq!(res[1].bar_end, 11); // This is inclusive, maybe we should stay consistent exclusive?
-        assert_eq!(res[1].match_type, BarcodeType::Fbar);
+        assert_eq!(res[1].match_type, BarcodeType::Ftag);
         assert_eq!(res[1].barcode_cost, 0);
         assert_eq!(res[1].strand, Strand::Fwd);
     }
@@ -474,7 +491,7 @@ mod tests {
         let flank = BarcodeGroup::new(
             vec![b"AAATTTTTTTTTTTGGG".to_vec(), b"AAACCCCCCCCCCCGGG".to_vec()],
             vec!["s1".to_string(), "s2".to_string()],
-            BarcodeType::Fbar,
+            BarcodeType::Ftag,
         );
         demuxer.add_query_group(flank);
     }
@@ -491,7 +508,7 @@ mod tests {
                 b"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCTTCGGATTCTATCGTGTTTCCCTAGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA".to_vec()
             ],
             vec!["bar22_fwd".to_string(), "bar4_fwd".to_string()],
-            BarcodeType::Fbar,
+            BarcodeType::Ftag,
         );
         fwd_barcode_group.set_perc_threshold(0.2);
         let mut demuxer = Demuxer::new(0.5);
@@ -507,7 +524,7 @@ mod tests {
                 Iupac::reverse_complement("TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCTTCGGATTCTATCGTGTTTCCCTAGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA".as_bytes()).to_vec()
             ],
             vec!["bar22_rc".to_string(), "bar4_rc".to_string()],
-            BarcodeType::Fbar,
+            BarcodeType::Ftag,
         );
         rc_barcode_group.set_perc_threshold(0.2);
         let mut demuxer_rc = Demuxer::new(0.5);
@@ -556,7 +573,7 @@ mod tests {
         let mut fwd_barcode_group = BarcodeGroup::new(
             vec![bar10.to_vec(), bar11.to_vec()],
             vec!["bar22".to_string(), "bar16".to_string()],
-            BarcodeType::Fbar,
+            BarcodeType::Ftag,
         );
 
         let tune_start_time = std::time::Instant::now();
@@ -579,7 +596,7 @@ mod tests {
     #[ignore = "Full test only for debugging"]
     fn test_full_rapid_flow() {
         let example_file = "examples/rapid_bars.fasta";
-        let mut barcode_group = BarcodeGroup::new_from_fasta(example_file, BarcodeType::Fbar);
+        let mut barcode_group = BarcodeGroup::new_from_fasta(example_file, BarcodeType::Ftag);
         barcode_group.set_perc_threshold(0.2);
         let mut demuxer = Demuxer::new(0.5);
         demuxer.add_query_group(barcode_group);
@@ -611,7 +628,7 @@ mod tests {
             10,
             0,
             10,
-            BarcodeType::Fbar,
+            BarcodeType::Ftag,
             0,
             0,
             "test".to_string(),
@@ -638,7 +655,7 @@ mod tests {
             10,
             0,
             10,
-            BarcodeType::Fbar,
+            BarcodeType::Ftag,
             0,
             0,
             "test".to_string(),
@@ -686,7 +703,7 @@ mod tests {
                 b"AATGTACTTCGTTCAGTTACGTATTGCTGGTGCTGCTTGTCCAGGGTTTGTGTAACCTTTTAACCTTCGTCGGCAGCGTCAGATGTGTATAAGAGACAGTACCTGGTTGATYCTG".to_vec(),
                 b"AATGTACTTCGTTCAGTTACGTATTGCTGGTGCTGTTCTCGCAAAGGCAGAAAGTAGTCTTAACCTTCGTCGGCAGCGTCAGATGTGTATAAGAGACAGTACCTGGTTGATYCTG".to_vec()],
             vec!["5R".to_string(), "6R".to_string()],
-            BarcodeType::Rbar,
+            BarcodeType::Rtag,
         );
         fwd_barcode_group.set_perc_threshold(0.2);
         demuxer.add_query_group(fwd_barcode_group);
