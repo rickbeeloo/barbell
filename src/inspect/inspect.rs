@@ -22,12 +22,6 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
         return String::new();
     }
 
-    // Better colors for printing
-    let light_pink: CustomColor = CustomColor::new(255, 182, 193);
-    let dark_pink: CustomColor = CustomColor::new(231, 84, 128);
-    let light_blue: CustomColor = CustomColor::new(173, 216, 230);
-    let dark_blue: CustomColor = CustomColor::new(0, 0, 139);
-
     // Hashmap to keep track of all the labels we see to later replace in pattern if applicable
     // just count with labels
     //let mut label_map: HashMap<String, usize> = HashMap::new();
@@ -139,9 +133,9 @@ fn colorize_pattern(input: &str) -> String {
 
     input
         .replace("Fflank", &"Fflank".custom_color(light_pink).to_string())
-        .replace("Fbarcode", &"Fbarcode".custom_color(dark_pink).to_string())
+        .replace("Ftag", &"Ftag".custom_color(dark_pink).to_string())
         .replace("Rflank", &"Rflank".custom_color(light_blue).to_string())
-        .replace("Rbarcode", &"Rbarcode".custom_color(dark_blue).to_string())
+        .replace("Rtag", &"Rtag".custom_color(dark_blue).to_string())
 }
 
 pub fn inspect(
@@ -168,7 +162,6 @@ pub fn inspect(
 
     // Keep track of how often we see a pattern
     let mut pattern_count: HashMap<String, usize> = HashMap::new();
-    let mut total_groups = 0;
 
     for result in reader.deserialize() {
         let record: BarbellMatch = result?;
@@ -185,11 +178,9 @@ pub fn inspect(
                 *pattern_count.entry(label).or_insert(0) += 1;
                 current_group.clear();
                 current_read_id = Some(record.read_id.clone());
-                total_groups += 1;
             }
         } else {
             current_read_id = Some(record.read_id.clone());
-            total_groups += 1;
         }
 
         current_group.push(record);
