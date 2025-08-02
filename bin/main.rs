@@ -145,7 +145,7 @@ enum Commands {
         output: String,
 
         /// Maximum errors as percentage of flank / barcode length
-        #[arg(short = 'e', long)]
+        #[arg(short = 'e', long, default_value = "0.3")]
         max_error_perc: Option<f32>,
     },
 
