@@ -3,3 +3,4 @@
 /benchmarks/simulated_data/*
 filter.txt
 /oxec*
+*.fastq

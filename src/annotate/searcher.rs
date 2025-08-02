@@ -258,7 +258,6 @@ impl Demuxer {
             // ); found a flank, we slice out the masked region and search for the barcodes in the
             // masked region, we should be AWARE OF THE STRAND as sassy now returns both directions (Fwd, Rc)
             for flank_match in flank_matches {
-                // println!("Flank match: {:?}", flank_match);
                 let (mask_region, (mask_start, mask_end)) =
                     self.slice_masked_region(read, barcode_group, &flank_match);
                 // If no mask match found we can just skip to the next one
@@ -327,8 +326,8 @@ impl Demuxer {
                 if !barcode_found {
                     results.push(BarbellMatch::new(
                         //t - storing flank matches to more accurately filter out overlaps later on
-                        flank_match.text_start + mask_start,
-                        flank_match.text_end + mask_start,
+                        flank_match.text_start,
+                        flank_match.text_end,
                         flank_match.text_start,
                         flank_match.text_end,
                         //q
@@ -341,13 +340,13 @@ impl Demuxer {
                         flank_match.strand,
                         read.len(),
                         read_id.to_string(),
-                        rel_dist_to_end((flank_match.text_start + mask_start) as isize, read.len()),
+                        rel_dist_to_end(flank_match.text_start as isize, read.len()),
                         None, // Only added after filtering is used
                     ));
                 }
             }
         }
-        collapse_overlapping_matches(&results, 0.5)
+        collapse_overlapping_matches(&results, 0.8)
     }
 }
 

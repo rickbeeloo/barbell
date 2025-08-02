@@ -163,7 +163,7 @@ impl Tool for Barbell {
         }
 
         let cmd = format!(
-            "{0} preset -p rapid -i {fastq_file} -o {output_folder} -t {threads} -e 0.25",
+            "{0} preset -p rapid -i {fastq_file} -o {output_folder} -t {threads}",
             self.exec_path
         );
         let result: std::process::Output = Command::new("bash").arg("-c").arg(cmd).output()?;
@@ -199,7 +199,7 @@ impl Tool for Barbell {
         for entry in glob(&format!("{output_folder}/*.fastq")).expect("Failed to read glob pattern")
         {
             let fastq_path = entry.unwrap();
-
+            //println!("Fastq file: {}", fastq_path.display());
             // Split path on / and get last element
             let barcode_id = fastq_path
                 .file_name()
@@ -216,6 +216,7 @@ impl Tool for Barbell {
                 let norm_seq = record.seq().normalize(false).to_vec();
                 let seq = String::from_utf8_lossy(&norm_seq);
                 let read_id = String::from_utf8_lossy(record.id());
+                //println!("Read id: {}", read_id);
                 let seq_len = record.seq().len();
                 let anno_line = format!("{read_id}\t{barcode_id}\t{seq_len}\n");
                 let seq_line = format!(">{read_id}\n{seq}\n");
@@ -260,7 +261,7 @@ impl Tool for Flexiplex {
         let output_handle = File::create(&output_file)?;
 
         let cmd = format!(
-            "{0} -x GCTTGGGTGTTTAACC -b ???????????????????????? -x GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA -e 6 -f 17 -p {threads} -k {barcode_file} -s true -n {output_folder} {fastq_file}",
+            "{0} -x GCTTGGGTGTTTAACC -b ???????????????????????? -x GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA -e 6 -f 26 -p {threads} -k {barcode_file} -s true -n {output_folder} {fastq_file}",
             self.exec_path
         );
 
@@ -317,12 +318,14 @@ impl Tool for Flexiplex {
             File::create(trimmed_out_file).expect("Failed to create trim output file");
         let mut trimmed_writer = BufWriter::new(trimmed_out_handle);
 
+        println!("output file: {}", flexiplex_output);
         let mut reader = parse_fastx_file(&flexiplex_output).expect("valid path/file");
         while let Some(record) = reader.next() {
             let record = record.unwrap();
             let norm_seq = record.seq().normalize(false).to_vec();
             let seq = String::from_utf8_lossy(&norm_seq);
             let read_id = String::from_utf8_lossy(record.id());
+            // println!("Read id: {}", read_id);
 
             // Parse it
             let barcode_seq = read_id
@@ -366,13 +369,14 @@ pub fn run_all_tools(
     barbell_exec_path: &str,
     flexiplex_exec_path: &str,
 ) {
-    // We create additional output folders for each of the tools
+    // // We create additional output folders for each of the tools
     let output_folder = format!("{output_folder}/all_tools");
     let dorado_output_folder = format!("{output_folder}/dorado");
     let barbell_output_folder = format!("{output_folder}/barbell");
     let flexiplex_output_folder = format!("{output_folder}/flexiplex");
     let annotation_output_folder = format!("{output_folder}/annotation");
     let trimmed_output_folder = format!("{output_folder}/trimmed");
+
     // Create annotationa nd trimmed folders if not existing
     std::fs::create_dir_all(&annotation_output_folder)
         .expect("Failed to create annotation output folder");
@@ -399,10 +403,11 @@ pub fn run_all_tools(
     // -- Dorado --
     let dorado = Dorado::new(dorado_exec_path);
     let start_time = Instant::now();
-    // dorado
-    //     .run(fastq_file, &dorado_output_folder, threads, None)
-    //     .unwrap();
-    let dorado_time = start_time.elapsed();
+    println!("Running Dorado");
+    dorado
+        .run(fastq_file, &dorado_output_folder, threads, None)
+        .unwrap();
+    let dorado_time: std::time::Duration = start_time.elapsed();
     println!("Dorado time: {:?}", dorado_time);
     dorado.parse_output(
         &dorado_output_folder,
@@ -412,11 +417,12 @@ pub fn run_all_tools(
     );
 
     // -- Barbell --
+    println!("Running Barbell");
     let barbell = Barbell::new(barbell_exec_path);
     let start_time = Instant::now();
-    // barbell
-    //     .run(fastq_file, &barbell_output_folder, threads, None)
-    //     .unwrap();
+    barbell
+        .run(fastq_file, &barbell_output_folder, threads, None)
+        .unwrap();
     let barbell_time = start_time.elapsed();
     println!("Barbell time: {:?}", barbell_time);
     barbell.parse_output(
@@ -426,17 +432,18 @@ pub fn run_all_tools(
         None,
     );
 
-    // -- Flexiplex --
+    // // -- Flexiplex --
     let flexiplex = Flexiplex::new(flexiplex_exec_path);
     let start_time = Instant::now();
-    // flexiplex
-    //     .run(
-    //         fastq_file,
-    //         &flexiplex_output_folder,
-    //         threads,
-    //         extra_file.clone(),
-    //     )
-    //     .unwrap();
+    println!("Running Flexiplex");
+    flexiplex
+        .run(
+            fastq_file,
+            &flexiplex_output_folder,
+            threads,
+            extra_file.clone(),
+        )
+        .unwrap();
     let flexiplex_time = start_time.elapsed();
     println!("Flexiplex time: {:?}", flexiplex_time);
     flexiplex.parse_output(

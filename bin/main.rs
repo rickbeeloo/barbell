@@ -6,7 +6,7 @@ use barbell::inspect::inspect;
 use barbell::preset::presets::PresetName;
 use barbell::preset::presets::use_preset;
 use barbell::trim::trim::trim_matches;
-use barbell::tune::tune::{TargetSide, tune};
+use barbell::tune::tune::tune;
 use clap::{Parser, Subcommand};
 use colored::*;
 
@@ -144,18 +144,14 @@ enum Commands {
         #[arg(short = 'o', long)]
         output: String,
 
-        /// Maximum errors allowed in flanks
-        #[arg(short = 'f', long, default_value_t = 26)]
-        flank_max_errors: usize,
-
-        /// Maximum errors allowed in barcodes
-        #[arg(short = 'b', long, default_value_t = 6)]
-        barcode_max_errors: usize,
+        /// Maximum errors as percentage of flank / barcode length
+        #[arg(short = 'e', long)]
+        max_error_perc: Option<f32>,
     },
 
-    /// Tune the parameters for a given query file
+    /// Tune the parameters for a given query file using Monte Carlo simulation
     Tune {
-        /// Input FASTQ file
+        /// Input FASTQ file (not used in simulation, kept for compatibility)
         #[arg(short = 'i', long)]
         input: String,
 
@@ -163,9 +159,9 @@ enum Commands {
         #[arg(short = 'q', long)]
         query: String,
 
-        /// Target side
-        #[arg(short = 't', long)]
-        target_side: TargetSide,
+        /// Confidence level for edit distance cutoff (default=0.999 for 99.9%)
+        #[arg(short = 'c', long, default_value = "0.999")]
+        confidence: f64,
     },
 }
 
@@ -274,25 +270,17 @@ fn main() {
             input,
             threads,
             output,
-            flank_max_errors,
-            barcode_max_errors,
+            max_error_perc,
         } => {
-            use_preset(
-                preset.clone(),
-                input,
-                *threads,
-                output,
-                *flank_max_errors,
-                *barcode_max_errors,
-            );
+            use_preset(preset.clone(), input, *threads, output, *max_error_perc);
         }
 
         Commands::Tune {
             input,
             query,
-            target_side,
+            confidence,
         } => {
-            tune(input, query, target_side.clone());
+            barbell::tune::tune::tune(input, query, None, None, Some(*confidence));
         }
     }
 }

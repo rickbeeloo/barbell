@@ -1,229 +1,120 @@
-use crate::WIGGLE_ROOM;
 use crate::annotate::barcodes::*;
-use indicatif::{ProgressBar, ProgressStyle};
-use needletail::{Sequence, parse_fastx_file};
-use plotpy::{Histogram, Plot, StrError};
-use rand::Rng;
-use rayon::prelude::*;
-use sassy::{profiles::Iupac, *};
-use std::collections::HashMap;
-use std::error::Error;
-use std::fs::File;
-use std::io::Write;
+use rand::{Rng, thread_rng};
+use sassy::*;
+use std::cmp::min;
 
-#[derive(Clone, Debug, PartialEq, clap::ValueEnum)]
-pub enum TargetSide {
-    Left,
-    Right,
-}
+/// Number of Monte Carlo samples to draw (increase for more precision).
+const NUM_SAMPLES: usize = 1_000_000;
+/// The alphabet to draw from.
+const ALPHABET: &[u8] = b"ACGT";
 
-fn random_dna_seq(length: usize) -> Vec<u8> {
-    let mut rng = rand::thread_rng();
-    let mut seq = Vec::with_capacity(length);
-    let bases = b"ACGT";
-    for _ in 0..length {
-        seq.push(bases[rng.gen_range(0..bases.len())]);
+/// Compute Levenshtein edit distance between two equal-length byte slices.
+fn edit_distance(a: &[u8], b: &[u8]) -> usize {
+    let len = a.len();
+    let mut prev = (0..=len).collect::<Vec<_>>();
+    let mut curr = vec![0; len + 1];
+
+    for i in 0..len {
+        curr[0] = i + 1;
+        for j in 0..len {
+            let cost = if a[i] == b[j] { 0 } else { 1 };
+            curr[j + 1] = min(
+                min(
+                    prev[j + 1] + 1, // deletion
+                    curr[j] + 1,
+                ), // insertion
+                prev[j] + cost, // substitution
+            );
+        }
+        std::mem::swap(&mut prev, &mut curr);
     }
-    seq
+    prev[len]
 }
 
-fn get_min_cost(matches: &[Match], q_len: usize) -> i32 {
-    matches.iter().map(|m| m.cost).min().unwrap_or(q_len as i32)
+/// Simulate `NUM_SAMPLES` random pairs of length-`n` sequences,
+/// then return the edit-distance cutoff at quantile `conf_val`.
+///
+/// # Arguments
+/// * `n` — length of each random sequence
+/// * `conf_val` — desired confidence level in (0.0, 1.0), e.g. 0.999 for 99.9%
+///
+/// # Returns
+/// * An integer edit-distance such that approximately `conf_val * 100%`
+///   of simulated distances lie at or below it.
+pub fn sim_edits(n: usize, conf_val: f64) -> usize {
+    assert!((0.0..1.0).contains(&conf_val), "conf_val must be in (0,1)");
+
+    let mut rng = thread_rng();
+    let mut dists = Vec::with_capacity(NUM_SAMPLES);
+
+    for _ in 0..NUM_SAMPLES {
+        // generate two random sequences of length n
+        let s1: Vec<u8> = (0..n)
+            .map(|_| ALPHABET[rng.gen_range(0..ALPHABET.len())])
+            .collect();
+        let s2: Vec<u8> = (0..n)
+            .map(|_| ALPHABET[rng.gen_range(0..ALPHABET.len())])
+            .collect();
+        let d = edit_distance(&s1, &s2);
+        // println!("d: {}", d);
+        dists.push(d);
+    }
+
+    dists.sort_unstable();
+    let idx = ((NUM_SAMPLES as f64) * conf_val).ceil() as usize - 1;
+    dists[idx.min(NUM_SAMPLES - 1)]
 }
 
-fn get_edits(
-    searcher: &mut Searcher<Iupac>,
-    window: &[u8],
-    random_window: &[u8],
-    query: &[u8],
-) -> (i32, i32) {
-    // We just get all edits, then the lowest
-    let k = query.len();
+pub fn tune(
+    _fastq_file: &str,
+    query_file: &str,
+    _max_fp_rate_cli: Option<f64>,
+    _fp_budget_cli: Option<u64>,
+    confidence_cli: Option<f64>,
+) {
+    // Create query group to get lengths
+    let barcode_group = BarcodeGroup::new_from_fasta(query_file, BarcodeType::Ftag);
 
-    // Do the real window
-    let matches = searcher.search_all(query, &window, k);
-    let lowest_edits = get_min_cost(&matches, query.len());
+    // Get flank length (excluding N's)
+    let flank_len = barcode_group.flank.iter().filter(|&&c| c != b'N').count();
 
-    // Do the random window
-    let random_matches = searcher.search_all(query, &random_window, k);
-    let random_lowest_edits = get_min_cost(&random_matches, query.len());
+    // Get barcode length (assuming all barcodes have same length)
+    let barcode_len = barcode_group.barcodes[0].seq.len();
 
-    (lowest_edits, random_lowest_edits)
-}
+    // Use confidence level (default to 0.999 for 99.9%)
+    let confidence = confidence_cli.unwrap_or(0.9999);
 
-fn find_best_cutoff(real: &[i32], random: &[i32], prevalence: f64) -> i32 {
-    assert!(
-        (0.0..=1.0).contains(&prevalence),
-        "prevalence must be in [0,1]"
+    println!("Simulating edit distances for:");
+    println!("  Flank length (excluding N's): {}", flank_len);
+    println!("  Barcode length: {}", barcode_len);
+    println!("  Confidence level: {:.1}%", confidence * 100.0);
+    println!();
+
+    // Simulate flank cutoffs
+    println!("Simulating flank edit distances...");
+    let flank_cutoff = sim_edits(flank_len, confidence);
+    println!(
+        "Flank cutoff at {:.1}% confidence: {}",
+        confidence * 100.0,
+        flank_cutoff
     );
 
-    let max_cost = *real
-        .iter()
-        .chain(random.iter())
-        .max()
-        .expect("No costs available");
+    // Simulate barcode cutoffs
+    println!("Simulating barcode edit distances...");
+    let barcode_cutoff = sim_edits(barcode_len, confidence);
+    println!(
+        "Barcode cutoff at {:.1}% confidence: {}",
+        confidence * 100.0,
+        barcode_cutoff
+    );
 
-    let real_total = real.len() as f64;
-    let random_total = random.len() as f64;
-
-    let mut best_cutoff = 0;
-    let mut best_error = f64::INFINITY;
-
-    for t in 0..=max_cost {
-        // False-negative rate among reads that truly contain the pattern
-        let fn_rate = real.iter().filter(|&&c| c > t).count() as f64 / real_total;
-        // False-positive rate among reads that truly do NOT contain the pattern
-        let fp_rate = random.iter().filter(|&&c| c <= t).count() as f64 / random_total;
-
-        // Expected overall misclassification probability given prevalence
-        let error_rate = prevalence * fn_rate + (1.0 - prevalence) * fp_rate;
-
-        // println!("Cut-off {t}: weighted error {error_rate:.4}");
-
-        if error_rate < best_error {
-            best_error = error_rate;
-            best_cutoff = t;
-        }
-    }
-
-    best_cutoff as i32
+    println!();
+    println!("Recommended settings:");
+    println!("  --flank-max-errors {}", flank_cutoff);
+    println!("  --barcode-max-errors {}", barcode_cutoff);
 }
 
-pub fn tune(fastq_file: &str, query_file: &str, target_side: TargetSide) {
-    // Store edits for flank and barcodes
-    let mut real_flank_edits = Vec::new();
-    let mut random_flank_edits = Vec::new();
-    let mut real_bar_edits = Vec::new();
-    let mut random_bar_edits = Vec::new();
-
-    // Create query group
-    let barcode_group = BarcodeGroup::new_from_fasta(query_file, BarcodeType::Ftag);
-    // Then we can extract the flank queries and barcode queries
-    let flank = barcode_group.flank;
-    let barcodes = barcode_group.barcodes;
-
-    // Reusable sassy searcher
-    let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.5);
-
-    // Window size is based on flank length + some wiggle room
-    let window_size = flank.len() + WIGGLE_ROOM;
-
-    // Progress bar
-    let pb = ProgressBar::new_spinner();
-    pb.set_style(ProgressStyle::with_template("processed: {pos}").unwrap());
-
-    // Then we go over the reads,
-    let mut reader = parse_fastx_file(fastq_file).unwrap();
-    while let Some(Ok(record)) = reader.next() {
-        let seq = record.seq();
-        let id = record.id();
-        // Check if we have at least the window size of read length
-        if seq.len() < window_size {
-            continue;
-        }
-        // Then we can extract the window
-        let window = if target_side == TargetSide::Left {
-            seq[0..window_size].to_vec()
-        } else {
-            seq[seq.len() - window_size..].to_vec()
-        };
-        // Then we create an equally long random sequence
-        let random_window = random_dna_seq(window_size);
-
-        // Get flank edits for this read
-        let (flank_real_edits, flank_rand_edits) =
-            get_edits(&mut searcher, &window, &random_window, &flank);
-
-        real_flank_edits.push(flank_real_edits);
-        random_flank_edits.push(flank_rand_edits);
-
-        // Parallel iterate over all barcodes and keep the lowest edit distance
-        let (min_bar_real, min_bar_rand) = barcodes
-            .par_iter()
-            .map_init(
-                || Searcher::<Iupac>::new_fwd_with_overhang(0.5),
-                |s, barcode| {
-                    let query = &barcode.seq;
-                    let k = query.len();
-
-                    let cost_real = {
-                        let matches_real = s.search_all(query, &window, k);
-                        get_min_cost(&matches_real, query.len())
-                    };
-
-                    let cost_rand = {
-                        let matches_rand = s.search_all(query, &random_window, k);
-                        get_min_cost(&matches_rand, query.len())
-                    };
-
-                    (cost_real, cost_rand)
-                },
-            )
-            .reduce(|| (i32::MAX, i32::MAX), |a, b| (a.0.min(b.0), a.1.min(b.1)));
-
-        real_bar_edits.push(min_bar_real);
-        random_bar_edits.push(min_bar_rand);
-
-        pb.inc(1);
-    }
-
-    pb.finish_and_clear();
-
-    // ----- Write cost count files -----
-    fn write_counts(path: &str, real: &[i32], random: &[i32]) -> std::io::Result<()> {
-        let mut counts: HashMap<i32, (u32, u32)> = HashMap::new();
-        for &v in real {
-            counts.entry(v).or_insert((0, 0)).0 += 1;
-        }
-        for &v in random {
-            counts.entry(v).or_insert((0, 0)).1 += 1;
-        }
-        // Write sorted by cost
-        let mut keys: Vec<_> = counts.keys().cloned().collect();
-        keys.sort();
-        let mut file = File::create(path)?;
-        writeln!(file, "cost\treal\trandom")?;
-        for k in keys {
-            let (r, rand) = counts[&k];
-            writeln!(file, "{k}\t{r}\t{rand}")?;
-        }
-        Ok(())
-    }
-
-    if let Err(e) = write_counts("flank_costs.tsv", &real_flank_edits, &random_flank_edits) {
-        eprintln!("Failed to write flank_costs.tsv: {e}");
-    }
-    if let Err(e) = write_counts("barcode_costs.tsv", &real_bar_edits, &random_bar_edits) {
-        eprintln!("Failed to write barcode_costs.tsv: {e}");
-    }
-
-    // Prepare data: two series of values
-    let values = vec![real_flank_edits.clone(), random_flank_edits.clone()];
-    let labels = ["Real edits", "Random edits"];
-
-    let mut histogram = Histogram::new();
-    histogram
-        .set_number_bins(30) // set number of bins
-        .set_style("stepfilled") // or "bar", "step", etc.
-        .set_stacked(false) // separate groups
-        .set_colors(&["#1f77b4", "#ff7f0e"]) // custom colors
-        .set_line_width(1.5);
-
-    histogram.draw(&values, &labels);
-
-    let mut plot = Plot::new();
-    plot.add(&histogram)
-        .grid_labels_legend("Edit Distance", "Frequency");
-    plot.set_title("Edit Distance Distributions");
-
-    plot.save("edit_hist.svg").expect("Plot save failed");
-    plot.show("edit_hist.svg").unwrap();
-
-    // Determine recommended cut-offs (assume ~80% of real reads contain a match)
-    const PREVALENCE: f64 = 0.8;
-    let flank_cutoff = find_best_cutoff(&real_flank_edits, &random_flank_edits, PREVALENCE);
-    let barcode_cutoff = find_best_cutoff(&real_bar_edits, &random_bar_edits, PREVALENCE);
-
-    println!("Recommended flank cut-off: {flank_cutoff}");
-    println!("Recommended barcode cut-off: {barcode_cutoff}");
+// Backwards compatibility for existing CLI: call with default FP settings
+pub fn tune_simple(fastq_file: &str, query_file: &str) {
+    tune(fastq_file, query_file, None, None, None);
 }

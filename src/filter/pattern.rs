@@ -137,12 +137,7 @@ fn check_match_type_and_label(m: &BarbellMatch, pattern_element: &PatternElement
             true
         }
         // Flanks are always ok
-        BarcodeType::Fflank
-        | BarcodeType::Rflank
-        | BarcodeType::Fleft_flank
-        | BarcodeType::Rleft_flank
-        | BarcodeType::Fright_flank
-        | BarcodeType::Rright_flank => true,
+        BarcodeType::Fflank | BarcodeType::Rflank => true,
     }
 }
 

@@ -9,10 +9,6 @@ pub enum BarcodeType {
     Rtag,
     Fflank, // Not public, in case Fbar is not detected
     Rflank, // Not public, in case Rbar is not detected
-    Fleft_flank,
-    Fright_flank,
-    Rleft_flank,
-    Rright_flank,
 }
 
 impl BarcodeType {
@@ -30,10 +26,6 @@ impl BarcodeType {
             BarcodeType::Rtag => "Rtag",
             BarcodeType::Fflank => "Fflank",
             BarcodeType::Rflank => "Rflank",
-            BarcodeType::Fleft_flank => "Fleft_flank",
-            BarcodeType::Fright_flank => "Fright_flank",
-            BarcodeType::Rleft_flank => "Rleft_flank",
-            BarcodeType::Rright_flank => "Rright_flank",
         }
     }
 }
@@ -63,12 +55,14 @@ impl Barcode {
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
 pub struct BarcodeGroup {
     pub flank: Vec<u8>,
-    pub left_flank: Vec<u8>,
-    pub right_flank: Vec<u8>,
+    pub flank_prefix: Vec<u8>,
+    pub flank_suffix: Vec<u8>,
     pub bar_region: (usize, usize),
     pub barcodes: Vec<Barcode>, // Think always assume IUPAC anyway
     pub k_cutoff: Option<usize>,
     pub barcode_type: BarcodeType,
+    pub prefix_k: Option<usize>,
+    pub suffix_k: Option<usize>,
 }
 
 impl BarcodeGroup {
@@ -117,12 +111,14 @@ impl BarcodeGroup {
 
         Self {
             flank,
-            left_flank: prefix.clone().unwrap_or_default(),
-            right_flank: suffix.clone().unwrap_or_default(),
+            flank_prefix: prefix.clone().unwrap_or_default(),
+            flank_suffix: suffix.clone().unwrap_or_default(),
             bar_region: (prefix_len, prefix_len + mask_size - 1),
             barcodes,
             k_cutoff: None,
             barcode_type,
+            prefix_k: None,
+            suffix_k: None,
         }
     }
 
@@ -170,22 +166,14 @@ impl BarcodeGroup {
         // they always match. Also the user can supply N so we just count N instead then
         let n_count: usize = self.flank.iter().filter(|&c| *c == b'N').count();
         let informative_flank = self.flank.len() - n_count;
-        println!(
-            "Flank len: {}, n_count: {}, informative len: {}",
-            self.flank.len(),
-            n_count,
-            self.flank.len() - n_count
-        );
         self.k_cutoff = Some((informative_flank as f32 * perc).ceil() as usize);
-        println!(
-            "Flank cutoff: {} and N count: {}",
-            self.k_cutoff.unwrap(),
-            n_count
-        );
         // Also set k for each barcode
         for barcode in self.barcodes.iter_mut() {
             barcode.k_cutoff = Some((barcode.seq.len() as f32 * perc) as usize);
         }
+        // Do the same for the suffixes
+        self.prefix_k = Some((self.flank_prefix.len() as f32 * perc).ceil() as usize);
+        self.suffix_k = Some((self.flank_suffix.len() as f32 * perc).ceil() as usize);
     }
 
     pub fn set_flank_threshold(&mut self, flank_threshold: usize) {

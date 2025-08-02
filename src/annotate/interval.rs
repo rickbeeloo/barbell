@@ -8,7 +8,6 @@ pub fn collapse_overlapping_matches(
     if matches.is_empty() {
         return Vec::new();
     }
-
     let mut sorted = matches.to_vec();
     sorted.sort_by_key(|m| m.read_start_flank);
 
@@ -45,34 +44,36 @@ fn is_overlap(a: &BarbellMatch, b: &BarbellMatch, threshold: f32) -> bool {
 fn select_best_match(group: Vec<BarbellMatch>) -> BarbellMatch {
     let mut candidates: Vec<_> = group.into_iter().collect();
 
-    // Priority order: 1) Ftag/Rtag (barcode matches), 2) Fflank/Rflank (flank matches), 3) Individual flanks
+    // Priority order: 1) Ftag/Rtag (barcode matches), 2) Fflank/Rflank (flank matches)
     candidates.sort_by(|a, b| {
         // Define priority levels
         let priority_a = match a.match_type {
             BarcodeType::Ftag | BarcodeType::Rtag => 1, // Highest priority - actual barcode matches
             BarcodeType::Fflank | BarcodeType::Rflank => 2, // Medium priority - full flank matches
-            BarcodeType::Fleft_flank
-            | BarcodeType::Fright_flank
-            | BarcodeType::Rleft_flank
-            | BarcodeType::Rright_flank => 3, // Lowest priority - individual flank parts
         };
 
         let priority_b = match b.match_type {
             BarcodeType::Ftag | BarcodeType::Rtag => 1,
             BarcodeType::Fflank | BarcodeType::Rflank => 2,
-            BarcodeType::Fleft_flank
-            | BarcodeType::Fright_flank
-            | BarcodeType::Rleft_flank
-            | BarcodeType::Rright_flank => 3,
         };
 
         // First sort by priority level
-        priority_a
-            .cmp(&priority_b)
-            // Then by barcode cost (lower is better)
-            .then_with(|| a.barcode_cost.cmp(&b.barcode_cost))
-            // Finally by flank cost as tiebreaker
-            .then_with(|| a.flank_cost.cmp(&b.flank_cost))
+        priority_a.cmp(&priority_b).then_with(|| {
+            // If both are Ftag/Rtag, prioritize by barcode_cost, then flank_cost
+            if priority_a == 1 && priority_b == 1 {
+                a.barcode_cost
+                    .cmp(&b.barcode_cost)
+                    .then_with(|| a.flank_cost.cmp(&b.flank_cost))
+            } else if priority_a == 2 && priority_b == 2 {
+                // If both are Fflank/Rflank, prioritize by longest flank length
+                let length_a = a.read_end_flank - a.read_start_flank;
+                let length_b = b.read_end_flank - b.read_start_flank;
+                length_b.cmp(&length_a) // Longer length first (reverse order)
+            //a.flank_cost.cmp(&b.flank_cost)
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
     });
 
     candidates[0].clone()
