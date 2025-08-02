@@ -80,7 +80,9 @@ pub fn annotate(
     query_files: Vec<&str>,
     query_types: Vec<BarcodeType>,
     out_file: &str,
-    max_error_perc: f32,
+    max_error_perc: Option<f32>,
+    max_flank_errors: Option<usize>,
+    max_bar_errors: Option<usize>,
     alpha: f32,
     n_threads: u32,
 ) -> anyhow::Result<()> {
@@ -92,12 +94,26 @@ pub fn annotate(
             .unwrap(),
     ));
 
+    // Make sure not percentage and other errors are set
+    if max_error_perc.is_some() && (max_flank_errors.is_some() || max_bar_errors.is_some()) {
+        return Err(anyhow::anyhow!(
+            "Cannot set both percentage and other errors"
+        ));
+    }
+
     // Get query groups
     let mut query_groups = Vec::new();
     for (query_file, query_type) in query_files.iter().zip(query_types.iter()) {
         let mut query_group = BarcodeGroup::new_from_fasta(query_file, query_type.clone());
-        query_group.set_perc_threshold(max_error_perc);
-        println!("Setting threshold for {} to {}", query_file, max_error_perc);
+        if let Some(max_error_perc) = max_error_perc {
+            query_group.set_perc_threshold(max_error_perc);
+        }
+        if let Some(max_flank_errors) = max_flank_errors {
+            query_group.set_flank_threshold(max_flank_errors);
+        }
+        if let Some(max_bar_errors) = max_bar_errors {
+            query_group.set_barcode_threshold(max_bar_errors);
+        }
         query_groups.push(query_group);
     }
     // Dispaly to user

@@ -6,6 +6,7 @@ use barbell::inspect::inspect;
 use barbell::preset::presets::PresetName;
 use barbell::preset::presets::use_preset;
 use barbell::trim::trim::trim_matches;
+use barbell::tune::tune::{TargetSide, tune};
 use clap::{Parser, Subcommand};
 use colored::*;
 
@@ -40,9 +41,25 @@ enum Commands {
         #[arg(short = 'b', long, default_value = "Fbar")]
         barcode_types: String,
 
-        /// Max errors, percentage of length
-        #[arg(short = 'e', long, default_value = "0.1")]
-        max_error_perc: f32,
+        /// Maximum errors as percentage of flank / barcode length (mutually exclusive with specific error counts)
+        #[arg(short = 'e', long, conflicts_with_all = ["flank_max_errors", "barcode_max_errors"])]
+        max_error_perc: Option<f32>,
+
+        /// Maximum absolute errors allowed in flanks (mutually exclusive with -e/--max-error-perc)
+        #[arg(
+            long = "flank-max-errors",
+            value_name = "INT",
+            conflicts_with = "max_error_perc"
+        )]
+        flank_max_errors: Option<usize>,
+
+        /// Maximum absolute errors allowed in barcodes (mutually exclusive with -e/--max-error-perc)
+        #[arg(
+            long = "barcode-max-errors",
+            value_name = "INT",
+            conflicts_with = "max_error_perc"
+        )]
+        barcode_max_errors: Option<usize>,
     },
     /// Filter annotation files based on pattern
     Filter {
@@ -127,10 +144,28 @@ enum Commands {
         #[arg(short = 'o', long)]
         output: String,
 
-        /// Maximum cost allowed in queries
-        /// 0.5 is the default value
-        #[arg(short = 'e', long, default_value = "0.2")]
-        max_edit_perc: f32,
+        /// Maximum errors allowed in flanks
+        #[arg(short = 'f', long, default_value_t = 26)]
+        flank_max_errors: usize,
+
+        /// Maximum errors allowed in barcodes
+        #[arg(short = 'b', long, default_value_t = 6)]
+        barcode_max_errors: usize,
+    },
+
+    /// Tune the parameters for a given query file
+    Tune {
+        /// Input FASTQ file
+        #[arg(short = 'i', long)]
+        input: String,
+
+        /// Query file
+        #[arg(short = 'q', long)]
+        query: String,
+
+        /// Target side
+        #[arg(short = 't', long)]
+        target_side: TargetSide,
     },
 }
 
@@ -147,6 +182,8 @@ fn main() {
             queries,
             barcode_types,
             max_error_perc,
+            flank_max_errors,
+            barcode_max_errors,
         } => {
             println!("{}", "Starting annotation...".green());
 
@@ -173,8 +210,10 @@ fn main() {
                 query_files_refs,
                 barcode_types_vec,
                 output,
-                *max_error_perc,
-                0.5, // user param?
+                max_error_perc.clone(),
+                flank_max_errors.clone(),
+                barcode_max_errors.clone(),
+                0.5,
                 *threads as u32,
             ) {
                 Ok(_) => println!("{}", "Annotation complete!".green()),
@@ -235,9 +274,25 @@ fn main() {
             input,
             threads,
             output,
-            max_edit_perc,
+            flank_max_errors,
+            barcode_max_errors,
         } => {
-            use_preset(preset.clone(), input, *threads, output, *max_edit_perc);
+            use_preset(
+                preset.clone(),
+                input,
+                *threads,
+                output,
+                *flank_max_errors,
+                *barcode_max_errors,
+            );
+        }
+
+        Commands::Tune {
+            input,
+            query,
+            target_side,
+        } => {
+            tune(input, query, target_side.clone());
         }
     }
 }

@@ -250,15 +250,15 @@ impl Demuxer {
                     //vec![]
                 }
             });
-            println!(
-                "Found {} flank matches\n{:?}",
-                flank_matches.len(),
-                flank_matches
-            );
 
-            // If we found a flank, we slice out the masked region and search for the barcodes in the
+            // If we  // println!(
+            //     "Found {} flank matches\n{:?}",
+            //     flank_matches.len(),
+            //     flank_matches
+            // ); found a flank, we slice out the masked region and search for the barcodes in the
             // masked region, we should be AWARE OF THE STRAND as sassy now returns both directions (Fwd, Rc)
             for flank_match in flank_matches {
+                // println!("Flank match: {:?}", flank_match);
                 let (mask_region, (mask_start, mask_end)) =
                     self.slice_masked_region(read, barcode_group, &flank_match);
                 // If no mask match found we can just skip to the next one
@@ -269,11 +269,11 @@ impl Demuxer {
                 for barcode in barcode_group.barcodes.iter() {
                     let bms = OVERHANG_SEARCHER.with(|cell| {
                         let k = barcode.k_cutoff.unwrap_or(0);
-                        println!(
-                            "Searching for barcode: {:?} with k: {}",
-                            String::from_utf8_lossy(&barcode.seq),
-                            k
-                        );
+                        // println!(
+                        //     "Searching for barcode: {:?} with k: {}",
+                        //     String::from_utf8_lossy(&barcode.seq),
+                        //     k
+                        // );
                         if let Some(ref mut searcher) = *cell.borrow_mut() {
                             searcher.search(&barcode.seq, &mask_region, k)
                         } else {

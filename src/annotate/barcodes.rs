@@ -1,5 +1,5 @@
 use colored::Colorize;
-use needletail::{Sequence, parse_fastx_file, parse_fastx_stdin};
+use needletail::{Sequence, parse_fastx_file};
 use sassy::profiles::{Iupac, Profile};
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +9,10 @@ pub enum BarcodeType {
     Rtag,
     Fflank, // Not public, in case Fbar is not detected
     Rflank, // Not public, in case Rbar is not detected
+    Fleft_flank,
+    Fright_flank,
+    Rleft_flank,
+    Rright_flank,
 }
 
 impl BarcodeType {
@@ -26,6 +30,10 @@ impl BarcodeType {
             BarcodeType::Rtag => "Rtag",
             BarcodeType::Fflank => "Fflank",
             BarcodeType::Rflank => "Rflank",
+            BarcodeType::Fleft_flank => "Fleft_flank",
+            BarcodeType::Fright_flank => "Fright_flank",
+            BarcodeType::Rleft_flank => "Rleft_flank",
+            BarcodeType::Rright_flank => "Rright_flank",
         }
     }
 }
@@ -55,6 +63,8 @@ impl Barcode {
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
 pub struct BarcodeGroup {
     pub flank: Vec<u8>,
+    pub left_flank: Vec<u8>,
+    pub right_flank: Vec<u8>,
     pub bar_region: (usize, usize),
     pub barcodes: Vec<Barcode>, // Think always assume IUPAC anyway
     pub k_cutoff: Option<usize>,
@@ -83,14 +93,14 @@ impl BarcodeGroup {
         let mask_size = query_seqs[0].len() - prefix_len - suffix_len;
 
         // Add prefix if present
-        if let Some(p) = prefix {
-            flank.extend_from_slice(&p);
+        if let Some(p) = &prefix {
+            flank.extend_from_slice(p);
         }
         if mask_size > 0 {
             flank.extend(vec![b'N'; mask_size]);
         }
-        if let Some(s) = suffix {
-            flank.extend_from_slice(&s);
+        if let Some(s) = &suffix {
+            flank.extend_from_slice(s);
         }
 
         // Slice out all the masked region sequences
@@ -107,6 +117,8 @@ impl BarcodeGroup {
 
         Self {
             flank,
+            left_flank: prefix.clone().unwrap_or_default(),
+            right_flank: suffix.clone().unwrap_or_default(),
             bar_region: (prefix_len, prefix_len + mask_size - 1),
             barcodes,
             k_cutoff: None,
@@ -173,6 +185,16 @@ impl BarcodeGroup {
         // Also set k for each barcode
         for barcode in self.barcodes.iter_mut() {
             barcode.k_cutoff = Some((barcode.seq.len() as f32 * perc) as usize);
+        }
+    }
+
+    pub fn set_flank_threshold(&mut self, flank_threshold: usize) {
+        self.k_cutoff = Some(flank_threshold);
+    }
+
+    pub fn set_barcode_threshold(&mut self, barcode_threshold: usize) {
+        for barcode in self.barcodes.iter_mut() {
+            barcode.k_cutoff = Some(barcode_threshold);
         }
     }
 

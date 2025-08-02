@@ -1,3 +1,4 @@
+use crate::annotate::barcodes::BarcodeType;
 use crate::annotate::searcher::BarbellMatch;
 
 pub fn collapse_overlapping_matches(
@@ -43,11 +44,37 @@ fn is_overlap(a: &BarbellMatch, b: &BarbellMatch, threshold: f32) -> bool {
 
 fn select_best_match(group: Vec<BarbellMatch>) -> BarbellMatch {
     let mut candidates: Vec<_> = group.into_iter().collect();
+
+    // Priority order: 1) Ftag/Rtag (barcode matches), 2) Fflank/Rflank (flank matches), 3) Individual flanks
     candidates.sort_by(|a, b| {
-        a.match_type
-            .cmp(&b.match_type)
-            .then_with(|| (a.barcode_cost).cmp(&(b.barcode_cost)))
+        // Define priority levels
+        let priority_a = match a.match_type {
+            BarcodeType::Ftag | BarcodeType::Rtag => 1, // Highest priority - actual barcode matches
+            BarcodeType::Fflank | BarcodeType::Rflank => 2, // Medium priority - full flank matches
+            BarcodeType::Fleft_flank
+            | BarcodeType::Fright_flank
+            | BarcodeType::Rleft_flank
+            | BarcodeType::Rright_flank => 3, // Lowest priority - individual flank parts
+        };
+
+        let priority_b = match b.match_type {
+            BarcodeType::Ftag | BarcodeType::Rtag => 1,
+            BarcodeType::Fflank | BarcodeType::Rflank => 2,
+            BarcodeType::Fleft_flank
+            | BarcodeType::Fright_flank
+            | BarcodeType::Rleft_flank
+            | BarcodeType::Rright_flank => 3,
+        };
+
+        // First sort by priority level
+        priority_a
+            .cmp(&priority_b)
+            // Then by barcode cost (lower is better)
+            .then_with(|| a.barcode_cost.cmp(&b.barcode_cost))
+            // Finally by flank cost as tiebreaker
+            .then_with(|| a.flank_cost.cmp(&b.flank_cost))
     });
+
     candidates[0].clone()
 }
 

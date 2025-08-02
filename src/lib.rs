@@ -3,6 +3,7 @@ pub mod filter;
 pub mod inspect;
 pub mod preset;
 pub mod trim;
+pub mod tune;
 
 /// Extra padding around barcode to ensure correct "alignment"
 /// we on purpose give more room then needed so we can discard matches

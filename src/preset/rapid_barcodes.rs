@@ -13,7 +13,8 @@ pub fn demux_rapid_barcodes(
     fastq_file: &str,
     threads: usize,
     output_folder: &str,
-    max_edit_perc: f32,
+    flank_max_errors: usize,
+    barcode_max_errors: usize,
 ) {
     // Create temp file for string content
     let mut tmp_query_file = NamedTempFile::new().expect("Failed to create temporary file");
@@ -29,13 +30,17 @@ pub fn demux_rapid_barcodes(
         std::fs::create_dir_all(output_folder).expect("Failed to create output folder");
     }
 
+    // If the default values are
+
     println!("\n{}", "Running annotation".purple().bold());
     annotate(
         fastq_file,
         vec![tmp_query_file.path().to_str().unwrap()],
         vec![BarcodeType::Ftag],
         format!("{output_folder}/annotation.tsv").as_str(),
-        max_edit_perc,
+        None,
+        Some(flank_max_errors),
+        Some(barcode_max_errors),
         0.5, // Overhang alpha
         threads as u32,
     )
