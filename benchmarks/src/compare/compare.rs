@@ -261,7 +261,7 @@ impl Tool for Flexiplex {
         let output_handle = File::create(&output_file)?;
 
         let cmd = format!(
-            "{0} -x GCTTGGGTGTTTAACC -b ???????????????????????? -x GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA -e 6 -f 26 -p {threads} -k {barcode_file} -s true -n {output_folder} {fastq_file}",
+            "{0} -x GCTTGGGTGTTTAACC -b ???????????????????????? -x GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA -e 7 -f 20 -p {threads} -k {barcode_file} -s true -n {output_folder} {fastq_file}",
             self.exec_path
         );
 
