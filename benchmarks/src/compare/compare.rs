@@ -1,11 +1,16 @@
 use glob::glob;
 use needletail::{Sequence, parse_fastx_file};
+use sassy::profiles::Iupac;
+use sassy::*;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::Path;
 use std::process::Command;
 use std::time::Instant;
+
+const MAX_FLANK_EDITS: usize = 5;
+const FLANK_SEQ: &[u8] = b"GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
 
 pub struct Dorado {
     pub exec_path: String,
@@ -88,6 +93,7 @@ impl Tool for Dorado {
         // We have to go over each fastq file in the output folder,
         // and read it using needletail, extracting barcode id from file name
         // and then storing read_id > barcode_id
+        let mut searcher = Searcher::<Iupac>::new_rc();
 
         let output_file_handle = File::create(anno_out_file).expect("Failed to create output file");
         let mut writer = BufWriter::new(output_file_handle);
@@ -124,7 +130,9 @@ impl Tool for Dorado {
                 let seq = String::from_utf8_lossy(&norm_seq);
                 let read_id = String::from_utf8_lossy(record.id());
                 let seq_len = record.seq().len();
-                let anno_line = format!("{read_id}\t{barcode_id}\t{seq_len}\n");
+                let flank_matches = searcher.search(FLANK_SEQ, &norm_seq, MAX_FLANK_EDITS);
+                let n_flank_matches = flank_matches.len();
+                let anno_line = format!("{read_id}\t{barcode_id}\t{seq_len}\t{n_flank_matches}\n");
                 let seq_line = format!(">{read_id}\n{seq}\n");
 
                 writer
@@ -188,6 +196,7 @@ impl Tool for Barbell {
         // We have to go over each fastq file in the output folder,
         // and read it using needletail, extracting barcode id from file name
         // and then storing read_id > barcode_id
+        let mut searcher = Searcher::<Iupac>::new_rc();
 
         let output_file_handle = File::create(anno_out_file).expect("Failed to create output file");
         let mut writer = BufWriter::new(output_file_handle);
@@ -216,9 +225,10 @@ impl Tool for Barbell {
                 let norm_seq = record.seq().normalize(false).to_vec();
                 let seq = String::from_utf8_lossy(&norm_seq);
                 let read_id = String::from_utf8_lossy(record.id());
-                //println!("Read id: {}", read_id);
+                let flank_matches = searcher.search(FLANK_SEQ, &norm_seq, MAX_FLANK_EDITS);
+                let n_flank_matches = flank_matches.len();
                 let seq_len = record.seq().len();
-                let anno_line = format!("{read_id}\t{barcode_id}\t{seq_len}\n");
+                let anno_line = format!("{read_id}\t{barcode_id}\t{seq_len}\t{n_flank_matches}\n");
                 let seq_line = format!(">{read_id}\n{seq}\n");
 
                 writer
@@ -285,6 +295,8 @@ impl Tool for Flexiplex {
         trimmed_out_file: &str,
         extra_file: Option<String>,
     ) {
+        let mut searcher = Searcher::<Iupac>::new_rc();
+
         // Flexiplex outputs to a single file: {output_folder}/classified_reads.fastq
         let flexiplex_output = format!("{output_folder}/classified_reads.fastq");
 
@@ -345,8 +357,10 @@ impl Tool for Flexiplex {
                 .unwrap();
             // TODO: we could use the 1 of 1 for double split cases to make the ids unique
             // but will make joining later more complex
+            let flank_matches = searcher.search(FLANK_SEQ, &norm_seq, MAX_FLANK_EDITS);
+            let n_flank_matches = flank_matches.len();
             let seq_len = record.seq().len();
-            let anno_line = format!("{read_id}\t{barcode_id}\t{seq_len}\n");
+            let anno_line = format!("{read_id}\t{barcode_id}\t{seq_len}\t{n_flank_matches}\n");
             let seq_line = format!(">{read_id}\n{seq}\n");
 
             writer
@@ -369,7 +383,7 @@ pub fn run_all_tools(
     barbell_exec_path: &str,
     flexiplex_exec_path: &str,
 ) {
-    // // We create additional output folders for each of the tools
+    // We create additional output folders for each of the tools
     let output_folder = format!("{output_folder}/all_tools");
     let dorado_output_folder = format!("{output_folder}/dorado");
     let barbell_output_folder = format!("{output_folder}/barbell");

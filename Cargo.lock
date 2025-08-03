@@ -112,6 +112,7 @@ dependencies = [
  "glob",
  "needletail",
  "rand 0.9.1",
+ "sassy",
 ]
 
 [[package]]
