@@ -39,7 +39,7 @@ pub fn demux_rapid_barcodes(
         format!("{output_folder}/annotation.tsv").as_str(),
         None,
         Some(20),
-        Some(11),
+        Some(7),
         0.5, // Overhang alpha
         threads as u32,
     )

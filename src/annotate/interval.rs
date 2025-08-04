@@ -61,6 +61,12 @@ fn select_best_match(group: Vec<BarbellMatch>) -> BarbellMatch {
         priority_a.cmp(&priority_b).then_with(|| {
             // If both are Ftag/Rtag, prioritize by barcode_cost, then flank_cost
             if priority_a == 1 && priority_b == 1 {
+                if a.barcode_cost == b.barcode_cost && a.flank_cost == b.flank_cost {
+                    panic!(
+                        "Two barcode matches tie on both barcode_cost and flank_cost: {:?} vs {:?}",
+                        a, b
+                    );
+                }
                 a.barcode_cost
                     .cmp(&b.barcode_cost)
                     .then_with(|| a.flank_cost.cmp(&b.flank_cost))

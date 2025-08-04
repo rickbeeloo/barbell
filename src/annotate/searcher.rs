@@ -14,6 +14,8 @@ thread_local! {
     static OVERHANG_SEARCHER: std::cell::RefCell<Option<Searcher<Iupac>>> = std::cell::RefCell::new(None);
 }
 
+// tod what if barcodes get the same lowest edits?
+
 #[derive(Clone)]
 pub struct Demuxer {
     alpha: f32,
@@ -265,6 +267,9 @@ impl Demuxer {
                     continue;
                 }
                 let mut barcode_found = false;
+                let mut lowest_edits_bar = barcode_group.barcodes.first().unwrap().seq.len() as i32;
+                let mut lowest_match = None;
+                let mut lowest_times_found = 0;
                 for barcode in barcode_group.barcodes.iter() {
                     let bms = OVERHANG_SEARCHER.with(|cell| {
                         let k = barcode.k_cutoff.unwrap_or(0);
@@ -293,41 +298,61 @@ impl Demuxer {
                         */
                         let barcode_start = bm.text_start + mask_start;
                         let barcode_end = bm.text_end + mask_start;
+                        // println!("Barcode_start: {}", barcode_start);
 
                         if (barcode_start <= mask_start && barcode_start > 0)
                             || (barcode_end >= mask_end && barcode_end < read.len())
                         {
-                            println!(
-                                "Considered cheating here: with cost: {}\nBar seq: {}",
-                                bm.cost,
-                                String::from_utf8_lossy(&barcode.seq)
-                            );
+                            // println!(
+                            //     "Considered cheating here: with cost: {}\nBar seq: {}\n{:?}",
+                            //     bm.cost,
+                            //     String::from_utf8_lossy(&barcode.seq),
+                            //     bm
+                            // );
                             continue;
                         }
 
                         barcode_found = true;
-                        let rel_dist = rel_dist_to_end(flank_match.text_start as isize, read.len());
-                        results.push(BarbellMatch::new(
-                            //t - storing flank matches to more accurately filter out overlaps later on
-                            bm.text_start + mask_start,
-                            bm.text_end + mask_start,
-                            flank_match.text_start,
-                            flank_match.text_end,
-                            //q
-                            bm.pattern_start,
-                            bm.pattern_end,
-                            barcode.match_type.clone(),
-                            flank_match.cost,
-                            bm.cost,
-                            barcode.label.clone(),
-                            bm.strand,
-                            read.len(),
-                            read_id.to_string(),
-                            rel_dist,
-                            None, // Only added after filtering is used
-                        ));
+                        if bm.cost == lowest_edits_bar {
+                            lowest_times_found += 1;
+                        }
+                        if bm.cost < lowest_edits_bar {
+                            lowest_edits_bar = bm.cost;
+                            lowest_times_found = 1;
+
+                            let rel_dist =
+                                rel_dist_to_end(flank_match.text_start as isize, read.len());
+                            // println!("bar cost: {}", bm.cost);
+                            lowest_match = Some(BarbellMatch::new(
+                                //t - storing flank matches to more accurately filter out overlaps later on
+                                bm.text_start + mask_start,
+                                bm.text_end + mask_start,
+                                flank_match.text_start,
+                                flank_match.text_end,
+                                //q
+                                bm.pattern_start,
+                                bm.pattern_end,
+                                barcode.match_type.clone(),
+                                flank_match.cost,
+                                bm.cost,
+                                barcode.label.clone(),
+                                bm.strand,
+                                read.len(),
+                                read_id.to_string(),
+                                rel_dist,
+                                None, // Only added after filtering is used
+                            ));
+                        }
                     }
                 }
+
+                if barcode_found & (lowest_times_found == 1) {
+                    results.push(lowest_match.unwrap())
+                } else {
+                    //println!("Double lowest cost, switching to flank");
+                    barcode_found = false; // add flank
+                }
+
                 if !barcode_found {
                     results.push(BarbellMatch::new(
                         //t - storing flank matches to more accurately filter out overlaps later on
@@ -351,6 +376,7 @@ impl Demuxer {
                 }
             }
         }
+
         collapse_overlapping_matches(&results, 0.8)
     }
 }
