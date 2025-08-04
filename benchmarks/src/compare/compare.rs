@@ -9,7 +9,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Instant;
 
-const MAX_FLANK_EDITS: usize = 5;
+const MAX_FLANK_EDITS: usize = 15;
 const FLANK_SEQ: &[u8] = b"GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
 
 pub struct Dorado {

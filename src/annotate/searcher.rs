@@ -294,11 +294,16 @@ impl Demuxer {
                         let barcode_start = bm.text_start + mask_start;
                         let barcode_end = bm.text_end + mask_start;
 
-                        if (barcode_start <= mask_start && barcode_start > 0)
-                            || (barcode_end >= mask_end && barcode_end < read.len())
-                        {
-                            continue;
-                        }
+                        // if (barcode_start <= mask_start && barcode_start > 0)
+                        //     || (barcode_end >= mask_end && barcode_end < read.len())
+                        // {
+                        //     println!(
+                        //         "Considered cheating here: with cost: {}\nBar seq: {}",
+                        //         bm.cost,
+                        //         String::from_utf8_lossy(&barcode.seq)
+                        //     );
+                        //     continue;
+                        // }
 
                         barcode_found = true;
                         let rel_dist = rel_dist_to_end(flank_match.text_start as isize, read.len());
