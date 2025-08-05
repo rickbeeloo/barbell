@@ -3,8 +3,6 @@ use needletail::{Sequence, parse_fastx_file};
 use sassy::profiles::{Iupac, Profile};
 use serde::{Deserialize, Serialize};
 
-use crate::PADDING;
-
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
 pub enum BarcodeType {
     Ftag,
@@ -115,7 +113,7 @@ impl BarcodeGroup {
             flank,
             flank_prefix: prefix.clone().unwrap_or_default(),
             flank_suffix: suffix.clone().unwrap_or_default(),
-            bar_region: (prefix_len, prefix_len + mask_size - 1),
+            bar_region: (prefix_len, prefix_len + mask_size - 1), //inclsuve
             barcodes,
             k_cutoff: None,
             barcode_type,
@@ -127,7 +125,7 @@ impl BarcodeGroup {
     pub fn display(&self) {
         let (mask_start, mask_end) = self.bar_region;
         let left_flank = &self.flank[..mask_start];
-        let right_flank = &self.flank[mask_end + 1..]; // As exclusive end
+        let right_flank = &self.flank[mask_end + 1..]; // As inclusive mask end
         // Create colored string to show flank composition
         // left flank & right_flank = blue, mask = cyan
         let left_flank_str = String::from_utf8_lossy(left_flank).blue();

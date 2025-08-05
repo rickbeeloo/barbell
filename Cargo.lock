@@ -88,9 +88,10 @@ dependencies = [
  "colored",
  "csv",
  "indicatif",
+ "itertools 0.10.5",
  "needletail",
  "once_cell",
- "pa-types 0.1.0",
+ "pa-types",
  "plotpy",
  "rand 0.8.5",
  "rayon",
@@ -301,17 +302,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d02f3b0da4c6504f86e9cd789d8dbafab48c2321be74e9987593de5a894d93d"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "derive_more"
-version = "0.99.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6edb4b64a43d977b8e99788fe3a04d483834fba1215a7e02caa415b626497f7f"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.103",
 ]
 
 [[package]]
@@ -648,32 +638,14 @@ checksum = "a4895175b425cb1f87721b59f0f286c2092bd4af812243672510e1ac53e2e0ad"
 
 [[package]]
 name = "pa-types"
-version = "0.1.0"
-source = "git+https://github.com/pairwise-alignment/pa-types.git?branch=main#e02484de627cf20400a9435f493a832ea34a259c"
-dependencies = [
- "clap",
- "derive_more 0.99.20",
- "itertools 0.10.5",
- "parse-size",
- "serde",
-]
-
-[[package]]
-name = "pa-types"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2238da32f8c1be89b6ff016c65f4d2dd183afd317ec3f0e3402f8d75b7bcb4ab"
 dependencies = [
- "derive_more 2.0.1",
+ "derive_more",
  "itertools 0.14.0",
  "serde",
 ]
-
-[[package]]
-name = "parse-size"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "487f2ccd1e17ce8c1bfab3a65c89525af41cfad4c8659021a1e9a2aacd73b89b"
 
 [[package]]
 name = "pkg-config"
@@ -881,7 +853,7 @@ dependencies = [
  "log",
  "needletail",
  "num_cpus",
- "pa-types 1.0.0",
+ "pa-types",
  "rand 0.9.1",
 ]
 

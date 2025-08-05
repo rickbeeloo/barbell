@@ -9,7 +9,7 @@ pub mod tune;
 /// we on purpose give more room then needed so we can discard matches
 /// that "cheat" their score by using the overhang cost
 pub(crate) const WIGGLE_ROOM: usize = 0;
-pub(crate) const PADDING: usize = 15; // Should be smaller than wiggle room ideally
+// pub(crate) const PADDING: usize = 15; // Should be smaller than wiggle room ideally
 
 // For presets we compile the strings, this costs quite some space thouhg in the binary
 // better ideas?
