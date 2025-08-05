@@ -267,11 +267,11 @@ impl Demuxer {
         for (i, barcode_group) in self.queries.iter().enumerate() {
             let flank = &barcode_group.flank;
             //println!("Looking for flank: {}", String::from_utf8_lossy(&flank));
-            let k = barcode_group.k_cutoff.unwrap_or(0);
+            let flank_k = barcode_group.k_cutoff.unwrap_or(0);
             //println!("Max flank edits: {}", k);
             let flank_matches = OVERHANG_SEARCHER.with(|cell| {
                 if let Some(ref mut searcher) = *cell.borrow_mut() {
-                    searcher.search(flank, &read, k)
+                    searcher.search(flank, &read, flank_k)
                 } else {
                     unreachable!();
                     //vec![]
@@ -293,12 +293,20 @@ impl Demuxer {
                 let mut best_matches: Vec<(Match, &Barcode)> = Vec::new();
 
                 for barcode_and_flank in barcode_group.barcodes.iter() {
-                    let k = barcode_and_flank.k_cutoff.unwrap_or(0);
+                    let bar_k = barcode_and_flank.k_cutoff.unwrap_or(0);
+                    // println!(
+                    //     "Sequence: {}",
+                    //     String::from_utf8_lossy(&barcode_and_flank.seq)
+                    // );
 
                     let candidate_matches: Vec<Match> = OVERHANG_SEARCHER
                         .with(|cell| {
                             if let Some(ref mut searcher) = *cell.borrow_mut() {
-                                searcher.search(&barcode_and_flank.seq, &flank_region, k)
+                                searcher.search(
+                                    &barcode_and_flank.seq,
+                                    &flank_region,
+                                    flank_k + bar_k,
+                                )
                             } else {
                                 vec![]
                             }
@@ -308,6 +316,7 @@ impl Demuxer {
                             bm.cost = Self::extract_bar_cost(barcode_group, &bm);
                             bm
                         })
+                        .filter(|bm| bm.cost <= bar_k as i32)
                         .collect();
 
                     for bm in candidate_matches.into_iter() {
@@ -332,7 +341,11 @@ impl Demuxer {
                 }
 
                 // Decide how to classify this flank based on the number of equally best matches
-                if best_matches.len() == 1 {
+                // Accept the result if it is unique *or* all ties share the same label
+                let unique_labels: std::collections::HashSet<&str> =
+                    best_matches.iter().map(|(_, b)| b.label.as_str()).collect();
+
+                if unique_labels.len() == 1 {
                     // Unique best alignment – treat as barcode match
                     let (bm, barcode_and_flank) = best_matches.remove(0);
                     let rel_dist = rel_dist_to_end(flank_match.text_start as isize, read.len());
@@ -355,6 +368,12 @@ impl Demuxer {
                         None, // cuts filled in later
                     ));
                 } else {
+                    // if best_matches.len() > 1 {
+                    //     for bm in best_matches {
+                    //         println!("{:?}", bm);
+                    //     }
+                    //     panic!("wow");
+                    // }
                     // Either no barcode hit, or ambiguous lowest cost – treat as plain flank
                     results.push(BarbellMatch::new(
                         flank_match.text_start,
