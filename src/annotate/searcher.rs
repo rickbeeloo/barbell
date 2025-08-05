@@ -1,4 +1,4 @@
-use crate::annotate::barcodes::{BarcodeGroup, BarcodeType};
+use crate::annotate::barcodes::{Barcode, BarcodeGroup, BarcodeType};
 use crate::annotate::interval::collapse_overlapping_matches;
 use crate::filter::pattern::Cut;
 use colored::*;
@@ -12,6 +12,8 @@ use std::thread_local;
 
 thread_local! {
     static OVERHANG_SEARCHER: std::cell::RefCell<Option<Searcher<Iupac>>> = std::cell::RefCell::new(None);
+    static REGULAR_SEARCHER: std::cell::RefCell<Option<Searcher<Iupac>>> = std::cell::RefCell::new(None);
+
 }
 
 // tod what if barcodes get the same lowest edits?
@@ -241,9 +243,13 @@ impl Demuxer {
         });
 
         // We first search for the top level of the barcodeGroups
+        let mut results = vec![];
+
         for (i, barcode_group) in self.queries.iter().enumerate() {
             let flank = &barcode_group.flank;
+            println!("Looking for flank: {}", String::from_utf8_lossy(&flank));
             let k = barcode_group.k_cutoff.unwrap_or(0);
+            println!("Max flank edits: {}", k);
             let flank_matches = OVERHANG_SEARCHER.with(|cell| {
                 if let Some(ref mut searcher) = *cell.borrow_mut() {
                     searcher.search(flank, &read, k)
@@ -252,115 +258,82 @@ impl Demuxer {
                     //vec![]
                 }
             });
+            println!("Flanks found: {}", flank_matches.len());
 
-            // If we  // println!(
-            //     "Found {} flank matches\n{:?}",
-            //     flank_matches.len(),
-            //     flank_matches
-            // ); found a flank, we slice out the masked region and search for the barcodes in the
-            // masked region, we should be AWARE OF THE STRAND as sassy now returns both directions (Fwd, Rc)
+            // For each flank hit we now look across *all* barcodes to determine the global
+            // lowest-cost alignment. If that lowest cost is found exactly once, we treat it
+            // as a barcode match. If it is found more than once (ambiguous) **or** no barcode
+            // produces an alignment, we fall back to reporting the flank only.
+
             for flank_match in flank_matches {
-                let (mask_region, (mask_start, mask_end)) =
-                    self.slice_masked_region(read, barcode_group, &flank_match);
-                // If no mask match found we can just skip to the next one
-                if mask_region.is_empty() {
-                    continue;
-                }
-                let mut barcode_found = false;
-                let mut lowest_edits_bar = barcode_group.barcodes.first().unwrap().seq.len() as i32;
-                let mut lowest_match = None;
-                let mut lowest_times_found = 0;
-                for barcode in barcode_group.barcodes.iter() {
-                    let bms = OVERHANG_SEARCHER.with(|cell| {
-                        let k = barcode.k_cutoff.unwrap_or(0);
-                        // println!(
-                        //     "Searching for barcode: {:?} with k: {}",
-                        //     String::from_utf8_lossy(&barcode.seq),
-                        //     k
-                        // );
+                let flank_region = &read[flank_match.text_start..flank_match.text_end];
+
+                // Track best (lowest) cost and the set of matches that attain that cost
+                let mut best_cost: Option<Cost> = None;
+                // Store tuples with information required to build a BarbellMatch later
+                let mut best_matches: Vec<(Match, &Barcode)> = Vec::new();
+
+                for barcode_and_flank in barcode_group.barcodes.iter() {
+                    let k = barcode_and_flank.k_cutoff.unwrap_or(0);
+                    let candidate_matches = OVERHANG_SEARCHER.with(|cell| {
                         if let Some(ref mut searcher) = *cell.borrow_mut() {
-                            searcher.search(&barcode.seq, &mask_region, k)
+                            searcher.search(&barcode_and_flank.seq, &flank_region, k)
                         } else {
                             vec![]
                         }
                     });
 
-                    // We make sure they flank and barcode match on the same strand
-                    for bm in bms.iter().filter(|bm| bm.strand == flank_match.strand) {
-                        // we gave "too much" room to align, so we consider a match cheating if it's tries to use
-                        // overhang cost where normally a sequence exists. E.g.:
-                        /*
-                                   ACATACATCGATCACTACCACTACTACGACTACTACGAC
-                                    [         ] mask
-                                         [             ] <- alignement is "cheating" using overhang cost in seq region
-                            [         ]                  <- this is fine as we can "cheat" at read boundaries
-
-                        */
-                        let barcode_start = bm.text_start + mask_start;
-                        let barcode_end = bm.text_end + mask_start;
-                        // println!("Barcode_start: {}", barcode_start);
-
-                        if (barcode_start <= mask_start && barcode_start > 0)
-                            || (barcode_end >= mask_end && barcode_end < read.len())
-                        {
-                            // println!(
-                            //     "Considered cheating here: with cost: {}\nBar seq: {}\n{:?}",
-                            //     bm.cost,
-                            //     String::from_utf8_lossy(&barcode.seq),
-                            //     bm
-                            // );
-                            continue;
-                        }
-
-                        barcode_found = true;
-                        if bm.cost == lowest_edits_bar {
-                            lowest_times_found += 1;
-                        }
-                        if bm.cost < lowest_edits_bar {
-                            lowest_edits_bar = bm.cost;
-                            lowest_times_found = 1;
-
-                            let rel_dist =
-                                rel_dist_to_end(flank_match.text_start as isize, read.len());
-                            // println!("bar cost: {}", bm.cost);
-                            lowest_match = Some(BarbellMatch::new(
-                                //t - storing flank matches to more accurately filter out overlaps later on
-                                bm.text_start + mask_start,
-                                bm.text_end + mask_start,
-                                flank_match.text_start,
-                                flank_match.text_end,
-                                //q
-                                bm.pattern_start,
-                                bm.pattern_end,
-                                barcode.match_type.clone(),
-                                flank_match.cost,
-                                bm.cost,
-                                barcode.label.clone(),
-                                bm.strand,
-                                read.len(),
-                                read_id.to_string(),
-                                rel_dist,
-                                None, // Only added after filtering is used
-                            ));
+                    for bm in candidate_matches.into_iter() {
+                        let cost = bm.cost;
+                        match best_cost {
+                            None => {
+                                best_cost = Some(cost);
+                                best_matches.clear();
+                                best_matches.push((bm, barcode_and_flank));
+                            }
+                            Some(c) if cost < c => {
+                                best_cost = Some(cost);
+                                best_matches.clear();
+                                best_matches.push((bm, barcode_and_flank));
+                            }
+                            Some(c) if cost == c => {
+                                best_matches.push((bm, barcode_and_flank));
+                            }
+                            _ => {}
                         }
                     }
                 }
 
-                if barcode_found & (lowest_times_found == 1) {
-                    results.push(lowest_match.unwrap())
-                } else {
-                    //println!("Double lowest cost, switching to flank");
-                    barcode_found = false; // add flank
-                }
+                // Decide how to classify this flank based on the number of equally best matches
+                if best_matches.len() == 1 {
+                    // Unique best alignment – treat as barcode match
+                    let (bm, barcode_and_flank) = best_matches.remove(0);
+                    let rel_dist = rel_dist_to_end(flank_match.text_start as isize, read.len());
 
-                if !barcode_found {
                     results.push(BarbellMatch::new(
-                        //t - storing flank matches to more accurately filter out overlaps later on
+                        bm.text_start + flank_match.text_start,
+                        bm.text_end + flank_match.text_start,
+                        flank_match.text_start,
+                        flank_match.text_end,
+                        bm.pattern_start,
+                        bm.pattern_end,
+                        barcode_and_flank.match_type.clone(),
+                        flank_match.cost, // flank alignment cost
+                        bm.cost,          // barcode alignment cost
+                        barcode_and_flank.label.clone(),
+                        bm.strand,
+                        read.len(),
+                        read_id.to_string(),
+                        rel_dist,
+                        None, // cuts filled in later
+                    ));
+                } else {
+                    // Either no barcode hit, or ambiguous lowest cost – treat as plain flank
+                    results.push(BarbellMatch::new(
                         flank_match.text_start,
                         flank_match.text_end,
                         flank_match.text_start,
                         flank_match.text_end,
-                        //q
                         0,
                         0,
                         barcode_group.barcodes[0].match_type.as_flank().clone(),
@@ -371,12 +344,12 @@ impl Demuxer {
                         read.len(),
                         read_id.to_string(),
                         rel_dist_to_end(flank_match.text_start as isize, read.len()),
-                        None, // Only added after filtering is used
+                        None,
                     ));
                 }
             }
         }
-
+        //todo: fix same cost discard
         collapse_overlapping_matches(&results, 0.8)
     }
 }

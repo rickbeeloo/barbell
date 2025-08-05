@@ -3,7 +3,7 @@ use needletail::{Sequence, parse_fastx_file};
 use sassy::profiles::{Iupac, Profile};
 use serde::{Deserialize, Serialize};
 
-use crate::WIGGLE_ROOM;
+use crate::PADDING;
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
 pub enum BarcodeType {
@@ -102,10 +102,10 @@ impl BarcodeGroup {
         // Slice out all the masked region sequences
         let mut barcodes = Vec::new();
         for (i, seq) in query_seqs.iter().enumerate() {
-            let start = prefix_len.saturating_sub(0);
-            let end = (start + mask_size + 0).min(seq.len());
+            //let start = prefix_len.saturating_sub(PADDING);
+            //let end = (start + mask_size + PADDING).min(seq.len());
             barcodes.push(Barcode::new(
-                &seq[start..end],
+                seq, // trying the whole sequence
                 &query_labels[i],
                 barcode_type.clone(),
             ));
