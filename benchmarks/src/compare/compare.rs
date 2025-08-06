@@ -414,21 +414,21 @@ pub fn run_all_tools(
             .expect("Failed to write untrimmed lengths");
     }
 
-    // // -- Dorado --
-    // let dorado = Dorado::new(dorado_exec_path);
-    // let start_time = Instant::now();
-    // println!("Running Dorado");
-    // dorado
-    //     .run(fastq_file, &dorado_output_folder, threads, None)
-    //     .unwrap();
-    // let dorado_time: std::time::Duration = start_time.elapsed();
-    // println!("Dorado time: {:?}", dorado_time);
-    // dorado.parse_output(
-    //     &dorado_output_folder,
-    //     &format!("{annotation_output_folder}/dorado_parsed.tsv"),
-    //     &format!("{trimmed_output_folder}/dorado_trimmed.fasta"),
-    //     None,
-    // );
+    // -- Dorado --
+    let dorado = Dorado::new(dorado_exec_path);
+    let start_time = Instant::now();
+    println!("Running Dorado");
+    dorado
+        .run(fastq_file, &dorado_output_folder, threads, None)
+        .unwrap();
+    let dorado_time: std::time::Duration = start_time.elapsed();
+    println!("Dorado time: {:?}", dorado_time);
+    dorado.parse_output(
+        &dorado_output_folder,
+        &format!("{annotation_output_folder}/dorado_parsed.tsv"),
+        &format!("{trimmed_output_folder}/dorado_trimmed.fasta"),
+        None,
+    );
 
     // -- Barbell --
     println!("Running Barbell");
@@ -446,31 +446,31 @@ pub fn run_all_tools(
         None,
     );
 
-    // // // -- Flexiplex --
-    // let flexiplex = Flexiplex::new(flexiplex_exec_path);
-    // let start_time = Instant::now();
-    // println!("Running Flexiplex");
-    // flexiplex
-    //     .run(
-    //         fastq_file,
-    //         &flexiplex_output_folder,
-    //         threads,
-    //         extra_file.clone(),
-    //     )
-    //     .unwrap();
-    // let flexiplex_time = start_time.elapsed();
-    // println!("Flexiplex time: {:?}", flexiplex_time);
-    // flexiplex.parse_output(
-    //     &flexiplex_output_folder,
-    //     &format!("{annotation_output_folder}/flexiplex_parsed.tsv"),
-    //     &format!("{trimmed_output_folder}/flexiplex_trimmed.fasta"),
-    //     extra_file.clone(),
-    // );
-    // println!("All done!");
-    // println!("Timings");
-    // println!("Dorado: {:?}", dorado_time);
-    // println!("Barbell: {:?}", barbell_time);
-    // println!("Flexiplex: {:?}", flexiplex_time);
+    // // -- Flexiplex --
+    let flexiplex = Flexiplex::new(flexiplex_exec_path);
+    let start_time = Instant::now();
+    println!("Running Flexiplex");
+    flexiplex
+        .run(
+            fastq_file,
+            &flexiplex_output_folder,
+            threads,
+            extra_file.clone(),
+        )
+        .unwrap();
+    let flexiplex_time = start_time.elapsed();
+    println!("Flexiplex time: {:?}", flexiplex_time);
+    flexiplex.parse_output(
+        &flexiplex_output_folder,
+        &format!("{annotation_output_folder}/flexiplex_parsed.tsv"),
+        &format!("{trimmed_output_folder}/flexiplex_trimmed.fasta"),
+        extra_file.clone(),
+    );
+    println!("All done!");
+    println!("Timings");
+    println!("Dorado: {:?}", dorado_time);
+    println!("Barbell: {:?}", barbell_time);
+    println!("Flexiplex: {:?}", flexiplex_time);
 }
 
 /*
