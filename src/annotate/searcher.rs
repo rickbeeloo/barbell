@@ -308,7 +308,16 @@ impl Demuxer {
                             );
                             // println!("Cigar cost: {:?}", cigar_cost);
                             match cigar_cost {
-                                Some(c) => bm.cost = c,
+                                Some(c) => {
+                                    let original_cost = bm.cost;
+                                    // for i in 0..10 {
+                                    //     println!(
+                                    //         "bar cost: {}, flank cost: {}, original cost: {}",
+                                    //         c, flank_match.cost, original_cost
+                                    //     );
+                                    // }
+                                    bm.cost = c
+                                }
                                 None => {
                                     bm.cost = 24;
                                     // println!("found match without barcode region for {}", read_id);
@@ -326,7 +335,10 @@ impl Demuxer {
 
                     for bm in candidate_matches.into_iter() {
                         let cost = bm.cost;
-                        // println!("Label: {} with cost: {}", barcode_and_flank.label, bm.cost);
+                        // println!(
+                        //     "Label: {} with cost: {} and flank cost: {}",
+                        //     barcode_and_flank.label, bm.cost, flank_match.cost
+                        // );
                         match best_cost {
                             None => {
                                 best_cost = Some(cost);

@@ -21,48 +21,59 @@ pub fn extract_cost_at_range_verbose(
         .map(|x| x.1)
         .collect::<Vec<_>>();
 
-    //println!("Cost: {:?}", cost);
+    // println!("Cost: {:?}", cost);
     let path = sassy_match.to_path();
     //let cigar = sassy_match.cigar.clone();
 
-    let mut cost_in_region = 0;
+    let mut cost_in_region = vec![];
     let mut last_cost: Option<i32> = None;
     for (Pos(q_pos, r_pos), cost) in path.iter().zip(cost.iter()) {
-        //let mut marker = "";
+        let mut marker = "";
         let q_pos = *q_pos as usize;
         if q_pos >= start && q_pos <= end {
-            // Only increment cost if this is a new cost value (not consecutive same cost)
-            if *cost > 0 && last_cost != Some(*cost) {
-                cost_in_region += 1;
+            // Count when we transition to a different cost (indicating a new operation)
+            if last_cost.is_some() && *cost != last_cost.unwrap() {
+                cost_in_region.push(1);
+            } else {
+                cost_in_region.push(0)
             }
-            //    marker = "*";
+            marker = "*";
         }
 
         // println!(
-        //     "q_pos: {}:{}, r_pos: {}:{} - cost: {} {}",
-        //     q_pos, p[q_pos] as char, r_pos, t[*r_pos as usize] as char, cost, marker
+        //     "q_pos: {}:{}, r_pos: {}:{} - cost: {} {} (last_cost: {:?})",
+        //     q_pos, p[q_pos] as char, r_pos, t[*r_pos as usize] as char, cost, marker, last_cost
         // );
+
         last_cost = Some(*cost);
     }
     let left_overhang = sassy_match.pattern_start;
+    // println!("Cost vector: {:?}", cost_in_region);
     // If any in range we have to add it using overhang cost
+    let mut summed_cost = cost_in_region.iter().sum::<i32>();
+    let mut transitions = cost_in_region
+        .windows(2)
+        .filter(|w| w[0] == 0 && w[1] == 1)
+        .count();
+
     if start < left_overhang {
         let overhang = left_overhang - start;
         let l_overhang_cost = (overhang as f32 * alpha.unwrap_or(0.0)).ceil() as i32;
         //  println!("Adding left overhang: {}", l_overhang_cost);
-        cost_in_region += l_overhang_cost;
+        transitions += l_overhang_cost as usize;
     }
 
     if end > sassy_match.pattern_end {
         let right_overhang = (end + 1) - sassy_match.pattern_end;
         assert!(end < p.len());
         let r_overhang_cost = (right_overhang as f32 * alpha.unwrap_or(0.0)).ceil() as i32;
-        // println!("Adding right overhang: {}", r_overhang_cost);
-        cost_in_region += r_overhang_cost;
+        //println!("Adding right overhang: {}", r_overhang_cost);
+        transitions += r_overhang_cost as usize;
     }
 
-    //println!("Cost in region: {}", cost_in_region);
-    Some(cost_in_region)
+    // println!("Transitions: {} and cost: {}", transitions, summed_cost);
+    // println!("Summed cost: {}", );
+    Some(transitions as i32)
 }
 
 pub fn extract_cost_at_range(
@@ -86,10 +97,10 @@ pub fn extract_cost_at_range(
             .map(|x| x.1),
     ) {
         let q_pos = *q_pos as usize;
-        // Track last_cost from the beginning, not just in the window
+        // Track cost changes from the beginning, not just in the window
         if q_pos >= start && q_pos <= end {
-            // Only increment cost if this is a new cost value (not consecutive same cost)
-            if cost > 0 && last_cost != Some(cost) {
+            // Count when we transition to a different cost (indicating a new operation)
+            if last_cost.is_some() && cost != last_cost.unwrap() {
                 region_cost += 1;
             }
         }

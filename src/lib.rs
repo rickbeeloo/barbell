@@ -14,4 +14,4 @@ pub(crate) const WIGGLE_ROOM: usize = 0;
 // For presets we compile the strings, this costs quite some space thouhg in the binary
 // better ideas?
 const RAPID_BARS_CONTENT: &str = include_str!("../examples/rapid_bars.fasta");
-//const RAPID_BARS_CONTENT: &str = include_str!("../examples/debug.fasta");
+// const RAPID_BARS_CONTENT: &str = include_str!("../examples/debug.fasta");
