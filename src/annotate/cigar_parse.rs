@@ -79,7 +79,7 @@ pub fn extract_cost_at_range_verbose(
         let overhang = left_overhang - start;
         let l_overhang_cost = (overhang as f32 * alpha.unwrap_or(0.0)).ceil() as i32;
         //  println!("Adding left overhang: {}", l_overhang_cost);
-        trans_cost += l_overhang_cost as usize;
+        summed_cost += l_overhang_cost;
     }
 
     if end > sassy_match.pattern_end {
@@ -87,15 +87,15 @@ pub fn extract_cost_at_range_verbose(
         assert!(end < p.len());
         let r_overhang_cost = (right_overhang as f32 * alpha.unwrap_or(0.0)).ceil() as i32;
         //println!("Adding right overhang: {}", r_overhang_cost);
-        trans_cost += r_overhang_cost as usize;
+        summed_cost += r_overhang_cost;
     }
 
     // println!(
     //     "Transitions: {} and cost: {} with cost vector: {:?}",
-    //     trans_cost, summed_cost, cost_in_region
+    //     summed_cost, summed_cost, cost_in_region
     // );
     // println!("Summed cost: {}", );
-    Some(trans_cost as i32)
+    Some(summed_cost as i32)
 }
 
 pub fn extract_cost_at_range(

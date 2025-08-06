@@ -278,6 +278,9 @@ impl Demuxer {
                 let mut best_cost: Option<Cost> = None;
                 // Store tuples with information required to build a BarbellMatch later
                 let mut best_matches: Vec<(Match, &Barcode)> = Vec::new();
+                // Track the second-best (next lowest) cost so we can later
+                // ensure the top hit is sufficiently better than the runner-up.
+                let mut second_best_cost: Option<Cost> = None;
 
                 for barcode_and_flank in barcode_group.barcodes.iter() {
                     let (bar_start, bar_end) = barcode_group.bar_region;
@@ -330,7 +333,6 @@ impl Demuxer {
                             }
                             bm
                         })
-                        .filter(|bm| bm.cost <= bar_k as i32)
                         .collect();
 
                     for bm in candidate_matches.into_iter() {
@@ -346,6 +348,7 @@ impl Demuxer {
                                 best_matches.push((bm, barcode_and_flank));
                             }
                             Some(c) if cost < c => {
+                                second_best_cost = Some(c);
                                 best_cost = Some(cost);
                                 best_matches.clear();
                                 best_matches.push((bm, barcode_and_flank));
@@ -353,17 +356,43 @@ impl Demuxer {
                             Some(c) if cost == c => {
                                 best_matches.push((bm, barcode_and_flank));
                             }
-                            _ => {}
+                            Some(c) => {
+                                if second_best_cost.map_or(true, |s| cost < s) {
+                                    second_best_cost = Some(cost);
+                                }
+                            }
                         }
                     }
                 }
 
-                // Decide how to classify this flank based on the number of equally best matches
-                // Accept the result if it is unique *or* all ties share the same label
-                let unique_labels: std::collections::HashSet<&str> =
-                    best_matches.iter().map(|(_, b)| b.label.as_str()).collect();
+                // If we found ties for the best score and no runner-up, the second-best cost is
+                // effectively the same as the best cost, making the cost-gap zero.
+                if second_best_cost.is_none() && best_matches.len() > 1 {
+                    second_best_cost = best_cost;
+                }
 
-                if unique_labels.len() == 1 {
+                let mut is_valid_barcode_match = false;
+                if let Some(cost) = best_cost {
+                    let unique_labels: std::collections::HashSet<&str> =
+                        best_matches.iter().map(|(_, b)| b.label.as_str()).collect();
+
+                    if unique_labels.len() == 1 {
+                        let best_barcode_k = best_matches[0].1.k_cutoff.unwrap_or(0);
+
+                        let is_cost_valid = cost <= best_barcode_k as i32;
+
+                        let is_cost_gap_sufficient = match second_best_cost {
+                            Some(second) => second - cost >= 2,
+                            None => true, // No runner-up, so gap is sufficient.
+                        };
+
+                        if is_cost_valid && is_cost_gap_sufficient {
+                            is_valid_barcode_match = true;
+                        }
+                    }
+                }
+
+                if is_valid_barcode_match {
                     // Unique best alignment – treat as barcode match
                     let (bm, barcode_and_flank) = best_matches.remove(0);
                     let rel_dist = rel_dist_to_end(flank_match.text_start as isize, read.len());

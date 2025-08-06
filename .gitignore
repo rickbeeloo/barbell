@@ -5,3 +5,4 @@ filter.txt
 /oxec*
 *.fastq
 /benchmarks/*.ipynb
+*.ipynb
