@@ -80,6 +80,7 @@ pub fn extract_cost_at_range_verbose(
         let l_overhang_cost = (overhang as f32 * alpha.unwrap_or(0.0)).ceil() as i32;
         //  println!("Adding left overhang: {}", l_overhang_cost);
         summed_cost += l_overhang_cost;
+        trans_cost += l_overhang_cost as usize;
     }
 
     if end > sassy_match.pattern_end {
@@ -88,6 +89,7 @@ pub fn extract_cost_at_range_verbose(
         let r_overhang_cost = (right_overhang as f32 * alpha.unwrap_or(0.0)).ceil() as i32;
         //println!("Adding right overhang: {}", r_overhang_cost);
         summed_cost += r_overhang_cost;
+        trans_cost += r_overhang_cost as usize;
     }
 
     // println!(
@@ -95,7 +97,7 @@ pub fn extract_cost_at_range_verbose(
     //     summed_cost, summed_cost, cost_in_region
     // );
     // println!("Summed cost: {}", );
-    Some(summed_cost as i32)
+    Some(trans_cost as i32)
 }
 
 pub fn extract_cost_at_range(
