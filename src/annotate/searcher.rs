@@ -382,7 +382,7 @@ impl Demuxer {
                         let is_cost_valid = cost <= best_barcode_k as i32;
 
                         let is_cost_gap_sufficient = match second_best_cost {
-                            Some(second) => second - cost >= 2,
+                            Some(second) => second - cost >= 3,
                             None => true, // No runner-up, so gap is sufficient.
                         };
 

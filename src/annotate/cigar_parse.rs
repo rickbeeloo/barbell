@@ -97,7 +97,7 @@ pub fn extract_cost_at_range_verbose(
     //     summed_cost, summed_cost, cost_in_region
     // );
     // println!("Summed cost: {}", );
-    Some(trans_cost as i32)
+    Some(summed_cost as i32)
 }
 
 pub fn extract_cost_at_range(
