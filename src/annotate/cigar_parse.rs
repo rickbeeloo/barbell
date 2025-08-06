@@ -51,16 +51,35 @@ pub fn extract_cost_at_range_verbose(
     // println!("Cost vector: {:?}", cost_in_region);
     // If any in range we have to add it using overhang cost
     let mut summed_cost = cost_in_region.iter().sum::<i32>();
+
+    /*
+    New cost
+     */
+
+    let n = cost_in_region.len();
+
+    // Count transitions 0→1
     let mut transitions = cost_in_region
         .windows(2)
         .filter(|w| w[0] == 0 && w[1] == 1)
         .count();
 
+    // Count total matches X
+    let matches = cost_in_region.iter().filter(|&&b| b == 0).count();
+
+    // Compute integer cost: ceil(transitions * n / matches)
+    let mut trans_cost = if matches == 0 {
+        // no matches → worst cost = n
+        n
+    } else {
+        (transitions * n + matches - 1) / matches
+    };
+
     if start < left_overhang {
         let overhang = left_overhang - start;
         let l_overhang_cost = (overhang as f32 * alpha.unwrap_or(0.0)).ceil() as i32;
         //  println!("Adding left overhang: {}", l_overhang_cost);
-        transitions += l_overhang_cost as usize;
+        trans_cost += l_overhang_cost as usize;
     }
 
     if end > sassy_match.pattern_end {
@@ -68,12 +87,15 @@ pub fn extract_cost_at_range_verbose(
         assert!(end < p.len());
         let r_overhang_cost = (right_overhang as f32 * alpha.unwrap_or(0.0)).ceil() as i32;
         //println!("Adding right overhang: {}", r_overhang_cost);
-        transitions += r_overhang_cost as usize;
+        trans_cost += r_overhang_cost as usize;
     }
 
-    // println!("Transitions: {} and cost: {}", transitions, summed_cost);
+    // println!(
+    //     "Transitions: {} and cost: {} with cost vector: {:?}",
+    //     trans_cost, summed_cost, cost_in_region
+    // );
     // println!("Summed cost: {}", );
-    Some(transitions as i32)
+    Some(trans_cost as i32)
 }
 
 pub fn extract_cost_at_range(
