@@ -30,7 +30,6 @@ pub fn demux_rapid_barcodes(
     }
 
     // If the default values are
-
     println!("\n{}", "Running annotation".purple().bold());
     annotate(
         fastq_file,

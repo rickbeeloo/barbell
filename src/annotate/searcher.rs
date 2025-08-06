@@ -1,10 +1,11 @@
 use crate::annotate::barcodes::{Barcode, BarcodeGroup, BarcodeType};
+use crate::annotate::cigar_parse::{extract_cost_at_range, extract_cost_at_range_verbose};
 use crate::annotate::interval::collapse_overlapping_matches;
 use crate::filter::pattern::Cut;
 use colored::*;
 use itertools::Itertools;
 use needletail::{FastxReader, Sequence, parse_fastx_file};
-use pa_types::{Cost, CostModel, Pos};
+use pa_types::{CigarOp, Cost, CostModel, Pos};
 use sassy::profiles::Iupac;
 use sassy::profiles::Profile;
 use sassy::{Match, Searcher, Strand};
@@ -212,44 +213,30 @@ impl Demuxer {
         self
     }
 
-    fn slice_masked_region<'a>(
-        &self,
-        read: &'a [u8],
-        flank: &BarcodeGroup,
-        flank_match: &Match,
-    ) -> (&'a [u8], (usize, usize)) {
-        let (mask_start, mask_end) = flank.bar_region;
-        let path = flank_match.to_path();
-        // Collect unique positions and find min/max r_pos for positions in mask region
-        let positions: std::collections::HashSet<_> = path.iter().collect();
-        let (min_r_pos, max_r_pos) = positions
-            .iter()
-            .filter(|pos| pos.0 as usize >= mask_start && pos.0 as usize <= mask_end)
-            .fold((usize::MAX, 0), |(min, max), pos| {
-                let r_pos = pos.1 as usize;
-                (min.min(r_pos), max.max(r_pos))
-            });
-        if min_r_pos == usize::MAX {
-            return (&[], (0, 0));
-        }
-        let start = min_r_pos.saturating_sub(crate::WIGGLE_ROOM);
-        let end = (max_r_pos + crate::WIGGLE_ROOM).min(read.len() - 1);
-        (&read[start..=end], (start, end))
-    }
-
-    fn extract_bar_cost(flank: &BarcodeGroup, barcode_flank_match: &Match) -> i32 {
-        let (mask_start, mask_end) = flank.bar_region;
-        let path_w_cost = barcode_flank_match
-            .cigar
-            .to_path_with_costs(CostModel::unit())
-            .into_iter()
-            .filter(|(Pos(bar_pos, _), _)| {
-                let b = *bar_pos as usize;
-                b >= mask_start && b <= mask_end
-            })
-            .collect::<Vec<_>>();
-        path_w_cost.last().unwrap().1 - path_w_cost.first().unwrap().1
-    }
+    // fn slice_masked_region<'a>(
+    //     &self,
+    //     read: &'a [u8],
+    //     flank: &BarcodeGroup,
+    //     flank_match: &Match,
+    // ) -> (&'a [u8], (usize, usize)) {
+    //     let (mask_start, mask_end) = flank.bar_region;
+    //     let path = flank_match.to_path();
+    //     // Collect unique positions and find min/max r_pos for positions in mask region
+    //     let positions: std::collections::HashSet<_> = path.iter().collect();
+    //     let (min_r_pos, max_r_pos) = positions
+    //         .iter()
+    //         .filter(|pos| pos.0 as usize >= mask_start && pos.0 as usize <= mask_end)
+    //         .fold((usize::MAX, 0), |(min, max), pos| {
+    //             let r_pos = pos.1 as usize;
+    //             (min.min(r_pos), max.max(r_pos))
+    //         });
+    //     if min_r_pos == usize::MAX {
+    //         return (&[], (0, 0));
+    //     }
+    //     let start = min_r_pos.saturating_sub(crate::WIGGLE_ROOM);
+    //     let end = (max_r_pos + crate::WIGGLE_ROOM).min(read.len() - 1);
+    //     (&read[start..=end], (start, end))
+    // }
 
     pub fn demux(&mut self, read_id: &str, read: &[u8]) -> Vec<BarbellMatch> {
         let mut results: Vec<BarbellMatch> = Vec::new();
@@ -293,11 +280,8 @@ impl Demuxer {
                 let mut best_matches: Vec<(Match, &Barcode)> = Vec::new();
 
                 for barcode_and_flank in barcode_group.barcodes.iter() {
+                    let (bar_start, bar_end) = barcode_group.bar_region;
                     let bar_k = barcode_and_flank.k_cutoff.unwrap_or(0);
-                    // println!(
-                    //     "Sequence: {}",
-                    //     String::from_utf8_lossy(&barcode_and_flank.seq)
-                    // );
 
                     let candidate_matches: Vec<Match> = OVERHANG_SEARCHER
                         .with(|cell| {
@@ -313,7 +297,28 @@ impl Demuxer {
                         })
                         .into_iter()
                         .map(|mut bm| {
-                            bm.cost = Self::extract_bar_cost(barcode_group, &bm);
+                            //  println!("extract cost");
+                            let cigar_cost = extract_cost_at_range_verbose(
+                                &bm,
+                                bar_start,
+                                bar_end,
+                                &barcode_and_flank.seq,
+                                &flank_region,
+                                Some(0.5),
+                            );
+                            // println!("Cigar cost: {:?}", cigar_cost);
+                            match cigar_cost {
+                                Some(c) => bm.cost = c,
+                                None => {
+                                    bm.cost = 24;
+                                    // println!("found match without barcode region for {}", read_id);
+                                    // panic!(
+                                    //     "Flank slice: {}\nmatch_starting: {}",
+                                    //     String::from_utf8_lossy(&flank_region),
+                                    //     bm.pattern_start
+                                    // );
+                                }
+                            }
                             bm
                         })
                         .filter(|bm| bm.cost <= bar_k as i32)
@@ -321,6 +326,7 @@ impl Demuxer {
 
                     for bm in candidate_matches.into_iter() {
                         let cost = bm.cost;
+                        // println!("Label: {} with cost: {}", barcode_and_flank.label, bm.cost);
                         match best_cost {
                             None => {
                                 best_cost = Some(cost);
@@ -402,6 +408,8 @@ impl Demuxer {
 
 #[cfg(test)]
 mod tests {
+    use pa_types::Cigar;
+
     use super::*;
     use crate::annotate::interval::collapse_overlapping_matches;
 
@@ -776,5 +784,36 @@ mod tests {
         let pos = 3537;
         let rel_dist = rel_dist_to_end(pos, read_len);
         println!("rel dist: {}", rel_dist);
+    }
+
+    #[test]
+    fn test_barcode_cost() {}
+
+    #[test]
+    fn test_pa_types_bug() {
+        use pa_types::cigar::*;
+        use pa_types::*;
+        let mut cigar = Cigar::default();
+        cigar.push(CigarOp::Match);
+        cigar.push(CigarOp::Match);
+        cigar.push(CigarOp::Match);
+        cigar.push(CigarOp::Ins);
+        cigar.push(CigarOp::Match);
+        assert_eq!(cigar.to_string(), "3=I=");
+        let path = cigar.to_path_with_costs(CostModel::unit());
+        for (Pos(i, j), cost) in path.iter() {
+            println!("{} - {}: c: {}", i, j, cost);
+        }
+        /*
+        cigar: 3=I=
+        0 - 0: c: 0
+        1 - 1: c: 0
+        2 - 2: c: 0
+        3 - 3: c: 0f
+        3 - 4: c: 1
+        4 - 5: c: 1
+
+
+         */
     }
 }
