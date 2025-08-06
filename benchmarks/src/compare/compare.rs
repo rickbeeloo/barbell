@@ -414,21 +414,21 @@ pub fn run_all_tools(
             .expect("Failed to write untrimmed lengths");
     }
 
-    // // -- Dorado --
-    // let dorado = Dorado::new(dorado_exec_path);
-    // let start_time = Instant::now();
-    // println!("Running Dorado");
-    // dorado
-    //     .run(fastq_file, &dorado_output_folder, threads, None)
-    //     .unwrap();
-    // let dorado_time: std::time::Duration = start_time.elapsed();
-    // println!("Dorado time: {:?}", dorado_time);
-    // dorado.parse_output(
-    //     &dorado_output_folder,
-    //     &format!("{annotation_output_folder}/dorado_parsed.tsv"),
-    //     &format!("{trimmed_output_folder}/dorado_trimmed.fasta"),
-    //     None,
-    // );
+    // -- Dorado --
+    let dorado = Dorado::new(dorado_exec_path);
+    let start_time = Instant::now();
+    println!("Running Dorado");
+    dorado
+        .run(fastq_file, &dorado_output_folder, threads, None)
+        .unwrap();
+    let dorado_time: std::time::Duration = start_time.elapsed();
+    println!("Dorado time: {:?}", dorado_time);
+    dorado.parse_output(
+        &dorado_output_folder,
+        &format!("{annotation_output_folder}/dorado_parsed.tsv"),
+        &format!("{trimmed_output_folder}/dorado_trimmed.fasta"),
+        None,
+    );
 
     // -- Barbell --
     println!("Running Barbell");
