@@ -1,5 +1,5 @@
 use crate::annotate::barcodes::{Barcode, BarcodeGroup, BarcodeType};
-use crate::annotate::cigar_parse::{ProbModel, extract_cost_at_range_verbose};
+use crate::annotate::cigar_parse::{ProbModel, extract_cost_at_range_verbose, map_pat_to_text};
 use crate::annotate::interval::collapse_overlapping_matches;
 use crate::filter::pattern::Cut;
 use colored::*;
@@ -370,15 +370,22 @@ impl Demuxer {
 
                 let is_valid_barcode_match = odds > 400.0;
 
+                // Extract barcode match region from cigar
+                let (mask_start, mask_end) = barcode_group.bar_region;
+                let bar_read_region =
+                    map_pat_to_text(best_match, mask_start as i32, mask_end as i32)
+                        .expect("No barcode match region found; unusual");
+                let ((bar_start, bar_end), (read_bar_start, read_bar_end)) = bar_read_region;
+
                 // Now push appropriate BarbellMatch
                 if is_valid_barcode_match {
                     results.push(BarbellMatch::new(
-                        best_match.text_start,
-                        best_match.text_end,
+                        slice_start + read_bar_start,
+                        slice_start + read_bar_end,
                         flank_match.text_start,
                         flank_match.text_end,
-                        best_match.pattern_start,
-                        best_match.pattern_end,
+                        bar_start - barcode_group.flank_prefix.len(),
+                        bar_end - barcode_group.flank_prefix.len(),
                         best_barcode.match_type.clone(),
                         flank_match.cost,
                         (*best_score).round() as i32,

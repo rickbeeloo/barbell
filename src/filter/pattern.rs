@@ -175,7 +175,7 @@ fn check_relative_position(
     seq_len: isize,
 ) -> bool {
     if let Some(relative_to) = &pattern_element.relative_to {
-        let m_start = m.read_start_bar as isize; // CHANGED TO BARCODOE START instead of flank
+        let m_start = m.read_start_bar as isize;
         let m_end = m.read_end_bar as isize;
         match relative_to {
             RelativePosition::Left => {
@@ -200,10 +200,13 @@ fn check_relative_position(
                     let left_bound = prev_end_pos.saturating_add(pattern_element.range.0);
                     let right_bound = prev_end_pos.saturating_add(pattern_element.range.1);
                     if m_start < left_bound || m_start > right_bound {
-                        // println!(
-                        //     "PrevLeft gap mismatch: m.start {} not in [{}, {}]",
-                        //     m_start, left_bound, right_bound
-                        // );
+                        for _ in 0..10 {
+                            println!(
+                                "PrevLeft gap mismatch: m.start {} not in [{}, {}]",
+                                m_start, left_bound, right_bound
+                            );
+                        }
+
                         return false;
                     }
                 }
