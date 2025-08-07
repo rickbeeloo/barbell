@@ -1,7 +1,74 @@
 use pa_types::CostModel;
 use pa_types::Pos;
+use pa_types::*;
 use sassy::Searcher;
 use sassy::*;
+
+pub struct ProbModel {
+    /// Cost for one correctly matched base  (−ln (1−ε))
+    pub match_cost: f64,
+    /// Cost for the *first* base of an error run  (−ln ε  −ln (1−γ))
+    pub err_open: f64,
+    /// Cost for each additional base in the same error run  (−ln γ)
+    pub err_ext: f64,
+}
+
+impl ProbModel {
+    /// Create a new probability model given
+    ///   * `epsilon` = probability that any given base is wrong
+    ///   * `gamma`   = probability that an error run continues
+    pub fn new(epsilon: f64, gamma: f64) -> Self {
+        // Guard against invalid input that would panic on ln(0)
+        let eps = epsilon.clamp(1e-6, 1.0 - 1e-6);
+        let gam = gamma.clamp(1e-6, 1.0 - 1e-6);
+
+        let match_cost = -((1.0 - eps).ln());
+        let err_open = -eps.ln() - (1.0 - gam).ln();
+        let err_ext = -gam.ln();
+
+        Self {
+            match_cost,
+            err_open,
+            err_ext,
+        }
+    }
+
+    pub fn log_odds_ratio(&self, a: f64, b: f64) -> f64 {
+        //assert!(a < b);
+        (b - a).exp()
+    }
+
+    pub fn score_cigar(&self, cigar: &[CigarElem]) -> f64 {
+        let mut pending_run: usize = 0; // current error-run length
+        let mut total = 0.0_f64;
+
+        let flush = |run_len: &mut usize, tot: &mut f64| {
+            if *run_len > 0 {
+                *tot += self.err_open + (*run_len as f64 - 1.0) * self.err_ext;
+                *run_len = 0;
+            }
+        };
+
+        for elem in cigar {
+            match elem.op {
+                CigarOp::Match => {
+                    // For matches we may have a run of them; flush errors first
+                    flush(&mut pending_run, &mut total);
+                    total += elem.cnt as f64 * self.match_cost;
+                }
+                _ => {
+                    // Any non-match contributes to the current error run
+                    pending_run += elem.cnt as usize;
+                }
+            }
+        }
+
+        // trailing error run
+        flush(&mut pending_run, &mut total);
+
+        total
+    }
+}
 
 pub fn extract_cost_at_range_verbose(
     sassy_match: &Match,
@@ -24,6 +91,10 @@ pub fn extract_cost_at_range_verbose(
     // println!("Cost: {:?}", cost);
     let path = sassy_match.to_path();
     //let cigar = sassy_match.cigar.clone();
+
+    // REMOVE
+    let start = 0;
+    let end = p.len();
 
     let mut cost_in_region = vec![];
     let mut last_cost: Option<i32> = None;
@@ -97,7 +168,7 @@ pub fn extract_cost_at_range_verbose(
     //     summed_cost, summed_cost, cost_in_region
     // );
     // println!("Summed cost: {}", );
-    Some(summed_cost as i32)
+    Some(trans_cost as i32)
 }
 
 pub fn extract_cost_at_range(
@@ -185,5 +256,62 @@ mod test {
 
         let cost_7_8 = extract_cost_at_range(m, 7, 8, Some(0.5));
         assert_eq!(cost_7_8, Some(1));
+    }
+
+    #[test]
+    fn test_prob_model() {
+        let p = ProbModel::new(0.01, 0.15);
+        let read = b"TGTATGTATACCTGAAATTCGGCTATGCCGACCGATCTGGCGCGCTTCGTAAGTCCTTGTTTTCGCATTTATCGTGAAACGCTTTCGCATTTTCGTGCGCCGCTTCAATGGAAATCCCCGGCATCGGCACGATCACGGCGCTGTCCTTCTATAGCGCGATGAGTGGACCCGACGCGGTTTACAGGCATGTCGACGATGTCGCGGCCTATCTGGGCCTGACCCCGCGCGTCTATCAGTCGGGCGAGAGCCTGACACATGGCGGGATCAGCAAGATGGGCAACCAGTTGACCCGCACGCATC";
+        let bar = b"GCTTGGGTGTTTAACCTCTGCCACACACTCGTAAGTCCTTGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
+
+        let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.5);
+        let matches = searcher.search(bar, &read, 27);
+        // Get match with lowest cost
+        let best_match = matches.iter().min_by_key(|m| m.cost).unwrap();
+
+        let score = p.score_cigar(&best_match.cigar.ops);
+        println!("Score: {}", score);
+    }
+
+    #[test]
+    fn test_log_odds() {
+        let model = ProbModel::new(0.01, 0.15);
+        let a = 60.0;
+        let b = 80.0;
+        let odds = model.log_odds_ratio(a, b);
+        println!("Odds: {}", odds);
+        assert!(odds > 10000.0);
+    }
+
+    #[test]
+    fn test_bug() {
+        use pa_types::CigarOp::*;
+        let ops = [
+            CigarElem { op: Sub, cnt: 2 },
+            CigarElem { op: Match, cnt: 1 },
+            CigarElem { op: Sub, cnt: 2 },
+            CigarElem { op: Match, cnt: 1 },
+            CigarElem { op: Del, cnt: 1 },
+            CigarElem { op: Sub, cnt: 1 },
+            CigarElem { op: Match, cnt: 1 },
+            CigarElem { op: Sub, cnt: 1 },
+            CigarElem { op: Match, cnt: 1 },
+            CigarElem { op: Sub, cnt: 1 },
+            CigarElem { op: Match, cnt: 1 },
+            CigarElem { op: Del, cnt: 2 },
+            CigarElem { op: Match, cnt: 1 },
+            CigarElem { op: Del, cnt: 1 },
+            CigarElem { op: Match, cnt: 2 },
+            CigarElem { op: Sub, cnt: 1 },
+            CigarElem { op: Match, cnt: 1 },
+            CigarElem { op: Sub, cnt: 1 },
+            CigarElem { op: Match, cnt: 56 },
+            CigarElem { op: Del, cnt: 4 },
+            CigarElem { op: Match, cnt: 7 },
+        ];
+        let cigar = Cigar { ops: ops.to_vec() };
+        println!("Cigar: {:?}", cigar.to_string());
+        let score = ProbModel::new(0.01, 0.15).score_cigar(&cigar.ops);
+        println!("Score: {}", score);
     }
 }

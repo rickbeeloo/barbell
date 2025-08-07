@@ -1,5 +1,5 @@
 use crate::annotate::barcodes::{Barcode, BarcodeGroup, BarcodeType};
-use crate::annotate::cigar_parse::{extract_cost_at_range, extract_cost_at_range_verbose};
+use crate::annotate::cigar_parse::{ProbModel, extract_cost_at_range_verbose};
 use crate::annotate::interval::collapse_overlapping_matches;
 use crate::filter::pattern::Cut;
 use colored::*;
@@ -241,6 +241,12 @@ impl Demuxer {
     pub fn demux(&mut self, read_id: &str, read: &[u8]) -> Vec<BarbellMatch> {
         let mut results: Vec<BarbellMatch> = Vec::new();
 
+        // FIXME: should be configured once globally, but for now construct here
+        let prob_model = ProbModel::new(0.01, 0.15);
+        // println!("Match cost: {}", prob_model.match_cost);
+        // println!("Err open: {}", prob_model.err_open);
+        // println!("Err ext: {}", prob_model.err_ext);
+
         // Initialize thread-local searcher if not already done
         OVERHANG_SEARCHER.with(|cell| {
             if cell.borrow().is_none() {
@@ -248,8 +254,11 @@ impl Demuxer {
             }
         });
 
-        // We first search for the top level of the barcodeGroups
-        let mut results = vec![];
+        REGULAR_SEARCHER.with(|cell| {
+            if cell.borrow().is_none() {
+                *cell.borrow_mut() = Some(Searcher::<Iupac>::new_rc());
+            }
+        });
 
         for (i, barcode_group) in self.queries.iter().enumerate() {
             let flank = &barcode_group.flank;
@@ -270,158 +279,118 @@ impl Demuxer {
             // lowest-cost alignment. If that lowest cost is found exactly once, we treat it
             // as a barcode match. If it is found more than once (ambiguous) **or** no barcode
             // produces an alignment, we fall back to reporting the flank only.
+            let mut verbose = false;
 
-            for flank_match in flank_matches {
-                let flank_region = &read[flank_match.text_start..flank_match.text_end];
+            for (i, flank_match) in flank_matches.iter().enumerate() {
+                if verbose {
+                    println!(
+                        "Flank {i}: {}-{}",
+                        flank_match.text_start, flank_match.text_end
+                    );
+                }
+                let slice_start = flank_match.text_start.saturating_sub(crate::WIGGLE_ROOM);
+                let slice_end = flank_match
+                    .text_end
+                    .saturating_add(crate::WIGGLE_ROOM)
+                    .min(read.len());
+                let flank_region = &read[slice_start..slice_end];
 
-                // Track best (lowest) cost and the set of matches that attain that cost
-                let mut best_cost: Option<Cost> = None;
-                // Store tuples with information required to build a BarbellMatch later
-                let mut best_matches: Vec<(Match, &Barcode)> = Vec::new();
-                // Track the second-best (next lowest) cost so we can later
-                // ensure the top hit is sufficiently better than the runner-up.
-                let mut second_best_cost: Option<Cost> = None;
+                // Collect best alignment per barcode and score it with ProbModel
+                let mut candidates: Vec<(f64, Match, &Barcode)> = Vec::new();
 
                 for barcode_and_flank in barcode_group.barcodes.iter() {
-                    let (bar_start, bar_end) = barcode_group.bar_region;
+                    let flank_k = barcode_group.k_cutoff.unwrap_or(0);
                     let bar_k = barcode_and_flank.k_cutoff.unwrap_or(0);
 
-                    let candidate_matches: Vec<Match> = OVERHANG_SEARCHER
-                        .with(|cell| {
-                            if let Some(ref mut searcher) = *cell.borrow_mut() {
-                                searcher.search(
-                                    &barcode_and_flank.seq,
-                                    &flank_region,
-                                    flank_k + bar_k,
-                                )
-                            } else {
-                                vec![]
-                            }
-                        })
-                        .into_iter()
-                        .map(|mut bm| {
-                            //  println!("extract cost");
-                            let cigar_cost = extract_cost_at_range_verbose(
-                                &bm,
-                                bar_start,
-                                bar_end,
-                                &barcode_and_flank.seq,
-                                &flank_region,
-                                Some(0.5),
-                            );
-                            // println!("Cigar cost: {:?}", cigar_cost);
-                            match cigar_cost {
-                                Some(c) => {
-                                    let original_cost = bm.cost;
-                                    // for i in 0..10 {
-                                    //     println!(
-                                    //         "bar cost: {}, flank cost: {}, original cost: {}",
-                                    //         c, flank_match.cost, original_cost
-                                    //     );
-                                    // }
-                                    bm.cost = c
-                                }
-                                None => {
-                                    bm.cost = 24;
-                                    // println!("found match without barcode region for {}", read_id);
-                                    // panic!(
-                                    //     "Flank slice: {}\nmatch_starting: {}",
-                                    //     String::from_utf8_lossy(&flank_region),
-                                    //     bm.pattern_start
-                                    // );
-                                }
-                            }
-                            bm
-                        })
-                        .collect();
-
-                    for bm in candidate_matches.into_iter() {
-                        let cost = bm.cost;
-                        // println!(
-                        //     "Label: {} with cost: {} and flank cost: {}",
-                        //     barcode_and_flank.label, bm.cost, flank_match.cost
-                        // );
-                        match best_cost {
-                            None => {
-                                best_cost = Some(cost);
-                                best_matches.clear();
-                                best_matches.push((bm, barcode_and_flank));
-                            }
-                            Some(c) if cost < c => {
-                                second_best_cost = Some(c);
-                                best_cost = Some(cost);
-                                best_matches.clear();
-                                best_matches.push((bm, barcode_and_flank));
-                            }
-                            Some(c) if cost == c => {
-                                best_matches.push((bm, barcode_and_flank));
-                            }
-                            Some(c) => {
-                                if second_best_cost.map_or(true, |s| cost < s) {
-                                    second_best_cost = Some(cost);
-                                }
-                            }
+                    // Pick alignment with lowest raw edit cost first (fast)
+                    let best_hit = REGULAR_SEARCHER.with(|cell| {
+                        if let Some(ref mut searcher) = *cell.borrow_mut() {
+                            searcher
+                                .search(&barcode_and_flank.seq, &flank_region, flank_k + bar_k)
+                                .into_iter()
+                                .min_by_key(|m| m.cost)
+                        } else {
+                            None
                         }
+                    });
+
+                    if let Some(hit) = best_hit {
+                        // Now compute MDL score for comparison across barcodes
+                        let score = prob_model.score_cigar(&hit.cigar.ops);
+                        candidates.push((score, hit, barcode_and_flank));
                     }
                 }
 
-                // If we found ties for the best score and no runner-up, the second-best cost is
-                // effectively the same as the best cost, making the cost-gap zero.
-                if second_best_cost.is_none() && best_matches.len() > 1 {
-                    second_best_cost = best_cost;
-                }
-
-                let mut is_valid_barcode_match = false;
-                if let Some(cost) = best_cost {
-                    let unique_labels: std::collections::HashSet<&str> =
-                        best_matches.iter().map(|(_, b)| b.label.as_str()).collect();
-
-                    if unique_labels.len() == 1 {
-                        let best_barcode_k = best_matches[0].1.k_cutoff.unwrap_or(0);
-
-                        let is_cost_valid = cost <= best_barcode_k as i32;
-
-                        let is_cost_gap_sufficient = match second_best_cost {
-                            Some(second) => second - cost >= 3,
-                            None => true, // No runner-up, so gap is sufficient.
-                        };
-
-                        if is_cost_valid && is_cost_gap_sufficient {
-                            is_valid_barcode_match = true;
-                        }
-                    }
-                }
-
-                if is_valid_barcode_match {
-                    // Unique best alignment – treat as barcode match
-                    let (bm, barcode_and_flank) = best_matches.remove(0);
-                    let rel_dist = rel_dist_to_end(flank_match.text_start as isize, read.len());
-
+                // Need at least one candidate to proceed; otherwise treat as flank-only
+                if candidates.is_empty() {
                     results.push(BarbellMatch::new(
-                        bm.text_start + flank_match.text_start,
-                        bm.text_end + flank_match.text_start,
                         flank_match.text_start,
                         flank_match.text_end,
-                        bm.pattern_start,
-                        bm.pattern_end,
-                        barcode_and_flank.match_type.clone(),
-                        flank_match.cost, // flank alignment cost
-                        bm.cost,          // barcode alignment cost
-                        barcode_and_flank.label.clone(),
-                        bm.strand,
+                        flank_match.text_start,
+                        flank_match.text_end,
+                        0,
+                        0,
+                        barcode_group.barcodes[0].match_type.as_flank().clone(),
+                        flank_match.cost,
+                        barcode_group.barcodes[0].seq.len() as Cost,
+                        "flank".to_string(),
+                        flank_match.strand,
                         read.len(),
                         read_id.to_string(),
-                        rel_dist,
-                        None, // cuts filled in later
+                        rel_dist_to_end(flank_match.text_start as isize, read.len()),
+                        None,
+                    ));
+
+                    continue; // process next flank_match
+                }
+
+                // sort by score ascending (lower = better)
+                candidates.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+                if verbose {
+                    for i in 0..10 {
+                        for c in candidates.iter().take(2) {
+                            println!("\t{}: {}", c.2.label, c.0);
+                        }
+                    }
+                }
+
+                let (best_score, best_match, best_barcode) = &candidates[0];
+                let second_score = if candidates.len() > 1 {
+                    candidates[1].0
+                } else {
+                    f64::INFINITY
+                };
+
+                let odds = if second_score.is_infinite() {
+                    f64::INFINITY
+                } else {
+                    prob_model.log_odds_ratio(*best_score, second_score)
+                };
+
+                let is_valid_barcode_match = odds > 400.0;
+
+                // Now push appropriate BarbellMatch
+                if is_valid_barcode_match {
+                    results.push(BarbellMatch::new(
+                        best_match.text_start,
+                        best_match.text_end,
+                        flank_match.text_start,
+                        flank_match.text_end,
+                        best_match.pattern_start,
+                        best_match.pattern_end,
+                        best_barcode.match_type.clone(),
+                        flank_match.cost,
+                        (*best_score).round() as i32,
+                        best_barcode.label.clone(),
+                        best_match.strand,
+                        read.len(),
+                        read_id.to_string(),
+                        rel_dist_to_end(flank_match.text_start as isize, read.len()),
+                        None,
                     ));
                 } else {
-                    // if best_matches.len() > 1 {
-                    //     for bm in best_matches {
-                    //         println!("{:?}", bm);
-                    //     }
-                    //     panic!("wow");
-                    // }
-                    // Either no barcode hit, or ambiguous lowest cost – treat as plain flank
+                    // treat as plain flank
                     results.push(BarbellMatch::new(
                         flank_match.text_start,
                         flank_match.text_end,
@@ -442,7 +411,6 @@ impl Demuxer {
                 }
             }
         }
-        //todo: fix same cost discard
         collapse_overlapping_matches(&results, 0.8)
     }
 }
@@ -827,8 +795,10 @@ mod tests {
         println!("rel dist: {}", rel_dist);
     }
 
-    #[test]
-    fn test_barcode_cost() {}
+    // #[test]
+    // fn test_barcode_cost() {
+    //     let cigar = Cigar::from_string("3=I=");
+    // }
 
     #[test]
     fn test_pa_types_bug() {

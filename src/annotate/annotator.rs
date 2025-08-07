@@ -134,7 +134,7 @@ pub fn annotate(
     read_parallel(
         reader,
         n_threads,
-        10,
+        1000,
         |record_set| {
             // Create thread local demuxer if not init for current thread yet
             thread_local_demuxer!(DEMUXER, alpha, query_groups);
