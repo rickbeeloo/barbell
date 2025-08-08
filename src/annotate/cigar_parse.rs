@@ -167,6 +167,124 @@ impl AffineProbModel {
     }
 }
 
+/// BLAST-style affine gap scoring model with bit-score computation.
+pub struct BlastModel {
+    pub match_reward: i32,
+    pub mismatch_penalty: i32,
+    pub gap_open_penalty: i32,
+    pub gap_extend_penalty: i32,
+    pub lambda: f64,
+    pub k: f64,
+}
+
+impl Default for BlastModel {
+    fn default() -> Self {
+        // Typical blastn-like defaults: reward=+1, penalty=-3, gap open=5, gap extend=2.
+        // Lambda and K control scaling for bit scores. Keeping neutral defaults here.
+        Self {
+            match_reward: 2,
+            mismatch_penalty: 3,
+            gap_open_penalty: 5,
+            gap_extend_penalty: 2,
+            lambda: 0.625,
+            k: 0.41,
+        }
+    }
+}
+
+impl BlastModel {
+    pub fn new(
+        match_reward: i32,
+        mismatch_penalty: i32,
+        gap_open_penalty: i32,
+        gap_extend_penalty: i32,
+        lambda: f64,
+        k: f64,
+    ) -> Self {
+        Self {
+            match_reward,
+            mismatch_penalty,
+            gap_open_penalty,
+            gap_extend_penalty,
+            lambda,
+            k,
+        }
+    }
+
+    /// Compute the raw affine-gap score for a CIGAR using BLAST-style scoring.
+    /// Score S = matches*match_reward - subs*mismatch_penalty - sum_gaps(gap_open + (len-1)*gap_extend)
+    pub fn raw_score_cigar(&self, cigar: &[CigarElem]) -> i32 {
+        let mut score: i32 = 0;
+        for elem in cigar.iter() {
+            match elem.op {
+                CigarOp::Match => {
+                    score += (elem.cnt as i32) * self.match_reward;
+                }
+                CigarOp::Sub => {
+                    score -= (elem.cnt as i32) * self.mismatch_penalty;
+                }
+                CigarOp::Ins | CigarOp::Del => {
+                    let len = elem.cnt.max(1) as i32;
+                    score -= self.gap_open_penalty + (len - 1) * self.gap_extend_penalty;
+                }
+            }
+        }
+        score
+    }
+
+    /// Convert a raw score S into a BLAST bit score: B = (lambda*S - ln K) / ln 2
+    pub fn bit_score(&self, raw_score: i32) -> f64 {
+        let s = raw_score as f64;
+        (self.lambda * s - self.k.ln()) / std::f64::consts::LN_2
+    }
+}
+
+/// A minimal two-parameter run-length model.
+///
+/// - Each error element (Sub, Ins, Del) pays: open_cost + (len-1) * ext_cost
+/// - Match elements contribute zero (kept simple by design)
+pub struct RunCostModel {
+    pub open_cost: f64,
+    pub ext_cost: f64,
+}
+
+impl RunCostModel {
+    pub fn new(open_cost: f64, ext_cost: f64) -> Self {
+        Self {
+            open_cost,
+            ext_cost,
+        }
+    }
+
+    pub fn log_odds_ratio(&self, a: f64, b: f64) -> f64 {
+        (b - a).exp()
+    }
+
+    pub fn score_cigar(&self, cigar: &[CigarElem]) -> f64 {
+        let mut total = 0.0_f64;
+        let mut longest_match_run: usize = 0;
+
+        for elem in cigar.iter() {
+            match elem.op {
+                CigarOp::Match => {
+                    if (elem.cnt as usize) > longest_match_run {
+                        longest_match_run = elem.cnt as usize;
+                    }
+                }
+                CigarOp::Sub | CigarOp::Ins | CigarOp::Del => {
+                    let len = elem.cnt.max(1) as f64;
+                    total += self.open_cost + (len - 1.0) * self.ext_cost;
+                }
+            }
+        }
+
+        // Fixed, simple reward for contiguous matches: a small fraction of open_cost
+        // This strongly prefers long clean runs without introducing extra knobs.
+        let reward_per_base = 0.125 * self.open_cost; // 1/8 of open cost per base
+        total - reward_per_base * (longest_match_run as f64)
+    }
+}
+
 /// Compute percent identity (as a fraction 0.0..1.0) from a CIGAR.
 ///
 /// Definition used: identity = Matches / (Matches + Substitutions + Insertions + Deletions)
@@ -192,6 +310,94 @@ pub fn percent_identity_from_cigar(cigar: &[CigarElem]) -> f64 {
     } else {
         matches as f64 / denom as f64
     }
+}
+
+/// Quality keys extracted from a CIGAR for parameter-free, lexicographic ranking.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CigarQualityKeys {
+    pub longest_match: usize,
+    pub error_runs: usize,
+    pub indel_runs: usize,
+    pub total_errors: usize,
+    pub tie_score: f64,
+    pub total_len: usize,
+}
+
+impl CigarQualityKeys {
+    /// Lexicographic comparison:
+    /// - maximize longest_match (desc)
+    /// - minimize error_runs (asc)
+    /// - minimize indel_runs (asc)
+    /// - minimize total_errors (asc)
+    /// - minimize tie_score (asc)
+    pub fn cmp_lex(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        match other.longest_match.cmp(&self.longest_match) {
+            Ordering::Equal => {}
+            ord => return ord,
+        }
+        match self.error_runs.cmp(&other.error_runs) {
+            Ordering::Equal => {}
+            ord => return ord,
+        }
+        match self.indel_runs.cmp(&other.indel_runs) {
+            Ordering::Equal => {}
+            ord => return ord,
+        }
+        match self.total_errors.cmp(&other.total_errors) {
+            Ordering::Equal => {}
+            ord => return ord,
+        }
+        self.tie_score
+            .partial_cmp(&other.tie_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    }
+}
+
+/// Compute quality keys for a CIGAR using the provided run model for tie_score.
+pub fn cigar_quality_keys(cigar: &[CigarElem], run_model: &RunCostModel) -> CigarQualityKeys {
+    let mut longest_match: usize = 0;
+    let mut error_runs: usize = 0;
+    let mut indel_runs: usize = 0;
+    let mut total_errors: usize = 0;
+    let mut total_len: usize = 0;
+    for e in cigar.iter() {
+        total_len += e.cnt as usize;
+        match e.op {
+            CigarOp::Match => {
+                if (e.cnt as usize) > longest_match {
+                    longest_match = e.cnt as usize;
+                }
+            }
+            CigarOp::Sub => {
+                error_runs += 1;
+                total_errors += e.cnt as usize;
+            }
+            CigarOp::Ins | CigarOp::Del => {
+                error_runs += 1;
+                indel_runs += 1;
+                total_errors += e.cnt as usize;
+            }
+        }
+    }
+    let tie_score = run_model.score_cigar(cigar);
+    CigarQualityKeys {
+        longest_match,
+        error_runs,
+        indel_runs,
+        total_errors,
+        tie_score,
+        total_len,
+    }
+}
+
+/// Single-parameter, simple quality score: (Lmax - ErrBases) / L
+/// Accept if >= tau (e.g., tau=0.10). Higher favors long clean runs.
+pub fn simple_quality_score(keys: &CigarQualityKeys) -> f64 {
+    if keys.total_len == 0 {
+        return 0.0;
+    }
+    (keys.longest_match as f64 - keys.total_errors as f64) / keys.total_len as f64
 }
 
 /// Map a pattern slice to the corresponding text slice.
@@ -661,7 +867,7 @@ mod test {
     #[test]
     fn test_get_fit() {
         let l = 24;
-        let fit = 0.7;
+        let fit = 0.6;
         let cutoff = ProbModel::new(0.01, 0.15).score_cutoff_for_fit(l, fit, false);
         println!("Cutoff: {}", cutoff);
 
