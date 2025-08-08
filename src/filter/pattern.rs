@@ -200,13 +200,6 @@ fn check_relative_position(
                     let left_bound = prev_end_pos.saturating_add(pattern_element.range.0);
                     let right_bound = prev_end_pos.saturating_add(pattern_element.range.1);
                     if m_start < left_bound || m_start > right_bound {
-                        for _ in 0..10 {
-                            println!(
-                                "PrevLeft gap mismatch: m.start {} not in [{}, {}]",
-                                m_start, left_bound, right_bound
-                            );
-                        }
-
                         return false;
                     }
                 }

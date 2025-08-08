@@ -13,7 +13,7 @@ use thread_id;
 
 // Macro as otherwise init logic is unclear below
 macro_rules! thread_local_demuxer {
-    ($name:ident, $alpha:expr, $query_groups:expr) => {
+    ($name:ident, $alpha:expr, $query_groups:expr, $verbose:expr) => {
         thread_local! {
             static $name: std::cell::RefCell<Option<Demuxer>> = std::cell::RefCell::new(None);
         }
@@ -22,7 +22,7 @@ macro_rules! thread_local_demuxer {
             if cell.borrow().is_none() {
                 #[cfg(feature = "verbose")]
                 println!("Thread {:?} initializing demuxer", thread_id::get());
-                *cell.borrow_mut() = Some(Demuxer::new($alpha));
+                *cell.borrow_mut() = Some(Demuxer::new_with_verbose($alpha, $verbose));
                 for query_group in $query_groups.iter() {
                     cell.borrow_mut()
                         .as_mut()
@@ -85,6 +85,9 @@ pub fn annotate(
     max_bar_errors: Option<usize>,
     alpha: f32,
     n_threads: u32,
+    verbose: bool,
+    min_fit: Option<f64>,
+    conservative_runs: bool,
 ) -> anyhow::Result<()> {
     let reader = Reader::from_path(read_file).unwrap();
     let writer = Arc::new(Mutex::new(
@@ -137,7 +140,22 @@ pub fn annotate(
         1000,
         |record_set| {
             // Create thread local demuxer if not init for current thread yet
-            thread_local_demuxer!(DEMUXER, alpha, query_groups);
+            thread_local! {
+                static DEMUXER: std::cell::RefCell<Option<Demuxer>> = std::cell::RefCell::new(None);
+            }
+            DEMUXER.with(|cell| {
+                if cell.borrow().is_none() {
+                    #[cfg(feature = "verbose")]
+                    println!("Thread {:?} initializing demuxer", thread_id::get());
+                    let mut demux = Demuxer::new_with_verbose(alpha, verbose)
+                        .with_min_fit(min_fit)
+                        .with_run_model_conservative(conservative_runs);
+                    for query_group in query_groups.iter() {
+                        demux.add_query_group(query_group.clone());
+                    }
+                    *cell.borrow_mut() = Some(demux);
+                }
+            });
 
             // Go over the
             let mut record_set_annotations = Vec::new();

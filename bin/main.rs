@@ -60,6 +60,18 @@ enum Commands {
             conflicts_with = "max_error_perc"
         )]
         barcode_max_errors: Option<usize>,
+
+        /// Enable verbose output for debugging
+        #[arg(long, default_value_t = false)]
+        verbose: bool,
+
+        /// Minimum "fit" (0..1) translated via the probabilistic model to a score cutoff for the barcode region
+        #[arg(long = "min-fit", value_name = "FLOAT")]
+        min_fit: Option<f64>,
+
+        /// Use conservative error-run model (each error opens a run). If false, assumes one contiguous run.
+        #[arg(long = "conservative-runs", default_value_t = true)]
+        conservative_runs: bool,
     },
     /// Filter annotation files based on pattern
     Filter {
@@ -147,6 +159,10 @@ enum Commands {
         /// Maximum errors as percentage of flank / barcode length
         #[arg(short = 'e', long, default_value = "0.3")]
         max_error_perc: Option<f32>,
+
+        /// Enable verbose output for debugging
+        #[arg(long, default_value_t = false)]
+        verbose: bool,
     },
 
     /// Tune the parameters for a given query file using Monte Carlo simulation
@@ -180,6 +196,9 @@ fn main() {
             max_error_perc,
             flank_max_errors,
             barcode_max_errors,
+            verbose,
+            min_fit,
+            conservative_runs,
         } => {
             println!("{}", "Starting annotation...".green());
 
@@ -211,6 +230,9 @@ fn main() {
                 barcode_max_errors.clone(),
                 0.5,
                 *threads as u32,
+                *verbose,
+                min_fit.clone(),
+                *conservative_runs,
             ) {
                 Ok(_) => println!("{}", "Annotation complete!".green()),
                 Err(e) => println!("{} {}", "Error during processing:".red(), e),
@@ -271,8 +293,16 @@ fn main() {
             threads,
             output,
             max_error_perc,
+            verbose,
         } => {
-            use_preset(preset.clone(), input, *threads, output, *max_error_perc);
+            use_preset(
+                preset.clone(),
+                input,
+                *threads,
+                output,
+                *max_error_perc,
+                *verbose,
+            );
         }
 
         Commands::Tune {

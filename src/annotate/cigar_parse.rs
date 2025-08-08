@@ -68,6 +68,130 @@ impl ProbModel {
 
         total
     }
+
+    /// Convert an error budget m (number of error bases allowed in the barcode region)
+    /// into a score cutoff for a region of length L.
+    ///
+    /// If `conservative=true`, assumes errors are isolated (each opens a run):
+    ///   cutoff = L*match_cost + m*err_open
+    /// If `conservative=false`, assumes one contiguous run if m>0:
+    ///   cutoff = L*match_cost + err_open + (m-1)*err_ext
+    pub fn score_cutoff_for_error_budget(&self, l: usize, m: usize, conservative: bool) -> f64 {
+        let l_term = l as f64 * self.match_cost;
+        if m == 0 {
+            return l_term;
+        }
+        if conservative {
+            l_term + (m as f64) * self.err_open
+        } else {
+            l_term + self.err_open + (m as f64 - 1.0) * self.err_ext
+        }
+    }
+
+    /// Convert a target "fit" (e.g., 0.8 means allow up to 20% errors) for a region of length L
+    /// into a score cutoff under the given run assumption.
+    pub fn score_cutoff_for_fit(&self, l: usize, fit: f64, conservative: bool) -> f64 {
+        let fit = fit.clamp(0.0, 1.0);
+        let allowed_errors = ((1.0 - fit) * l as f64).ceil() as usize;
+        self.score_cutoff_for_error_budget(l, allowed_errors, conservative)
+    }
+}
+
+/// A probability model with separate affine costs for substitutions and indels.
+///
+/// - `match_cost` applies per matched base.
+/// - Substitutions are scored with `sub_open + (len-1) * sub_ext`.
+/// - Insertions and deletions are scored with `indel_open + (len-1) * indel_ext`.
+pub struct AffineProbModel {
+    pub match_cost: f64,
+    pub sub_open: f64,
+    pub sub_ext: f64,
+    pub indel_open: f64,
+    pub indel_ext: f64,
+}
+
+impl AffineProbModel {
+    /// Create a model from separate substitution and indel parameters:
+    ///   * `eps_sub`: probability that a substitution run opens
+    ///   * `gam_sub`: probability that a substitution run continues
+    ///   * `eps_indel`: probability that an indel run opens
+    ///   * `gam_indel`: probability that an indel run continues
+    ///
+    /// The match probability is taken as 1 - eps_sub - eps_indel.
+    pub fn new(eps_sub: f64, gam_sub: f64, eps_indel: f64, gam_indel: f64) -> Self {
+        // Clamp to avoid ln(0) and invalid probabilities
+        let es = eps_sub.clamp(1e-9, 1.0 - 1e-6);
+        let ei = eps_indel.clamp(1e-9, 1.0 - 1e-6);
+        let gs = gam_sub.clamp(1e-9, 1.0 - 1e-9);
+        let gi = gam_indel.clamp(1e-9, 1.0 - 1e-9);
+        let p_match = (1.0 - es - ei).max(1e-9);
+
+        let match_cost = -p_match.ln();
+        let sub_open = -es.ln() - (1.0 - gs).ln();
+        let sub_ext = -gs.ln();
+        let indel_open = -ei.ln() - (1.0 - gi).ln();
+        let indel_ext = -gi.ln();
+
+        Self {
+            match_cost,
+            sub_open,
+            sub_ext,
+            indel_open,
+            indel_ext,
+        }
+    }
+
+    pub fn log_odds_ratio(&self, a: f64, b: f64) -> f64 {
+        (b - a).exp()
+    }
+
+    /// Score a CIGAR using affine costs per operation class.
+    pub fn score_cigar(&self, cigar: &[CigarElem]) -> f64 {
+        let mut total = 0.0_f64;
+        for elem in cigar {
+            match elem.op {
+                CigarOp::Match => {
+                    total += elem.cnt as f64 * self.match_cost;
+                }
+                CigarOp::Sub => {
+                    let len = elem.cnt.max(1) as f64;
+                    total += self.sub_open + (len - 1.0) * self.sub_ext;
+                }
+                CigarOp::Ins | CigarOp::Del => {
+                    let len = elem.cnt.max(1) as f64;
+                    total += self.indel_open + (len - 1.0) * self.indel_ext;
+                }
+            }
+        }
+        total
+    }
+}
+
+/// Compute percent identity (as a fraction 0.0..1.0) from a CIGAR.
+///
+/// Definition used: identity = Matches / (Matches + Substitutions + Insertions + Deletions)
+/// where counts are the total base lengths contributed by each op class.
+pub fn percent_identity_from_cigar(cigar: &[CigarElem]) -> f64 {
+    let mut matches: usize = 0;
+    let mut subs: usize = 0;
+    let mut ins: usize = 0;
+    let mut dels: usize = 0;
+
+    for elem in cigar.iter() {
+        match elem.op {
+            CigarOp::Match => matches += elem.cnt as usize,
+            CigarOp::Sub => subs += elem.cnt as usize,
+            CigarOp::Ins => ins += elem.cnt as usize,
+            CigarOp::Del => dels += elem.cnt as usize,
+        }
+    }
+
+    let denom = matches + subs + ins + dels;
+    if denom == 0 {
+        0.0
+    } else {
+        matches as f64 / denom as f64
+    }
 }
 
 /// Map a pattern slice to the corresponding text slice.
@@ -81,9 +205,13 @@ pub fn map_pat_to_text(
     let mut start_pair: Option<Pos> = None;
     let mut end_pair: Option<Pos> = None;
 
+    // println!("P start: {}, end: {}", p_start, p_end);
+
     for Pos(i, j) in m.to_path().iter() {
+        //  println!("i: {}, j: {}", *i, *j);
         if *i >= p_start && *i < p_end {
             if start_pair.is_none() {
+                // println!("Setting start_pair");
                 start_pair = Some(Pos(*i, *j));
             }
             end_pair = Some(Pos(*i, *j));
@@ -243,6 +371,151 @@ pub fn extract_cost_at_range(
     Some(region_cost + overhang_cost)
 }
 
+/// Produce an owned CIGAR subregion covering the query half-open window [q_start, q_end).
+/// This will split CIGAR elements if the boundaries fall inside an element.
+pub fn subcigar_owned(cigar: &Cigar, q_start: usize, q_end: usize) -> Vec<CigarElem> {
+    let q_start = q_start as i32;
+    let q_end = q_end as i32;
+    let mut i = 0;
+    let mut j = 0;
+    let mut expanded_cigar = vec![];
+    for op in cigar.ops.iter() {
+        for _ in 0..op.cnt {
+            if i >= q_start && i < q_end {
+                expanded_cigar.push(op.op);
+            }
+            match op.op {
+                CigarOp::Match => {
+                    i += 1;
+                    j += 1;
+                }
+                CigarOp::Sub => {
+                    i += 1;
+                    j += 1;
+                }
+                CigarOp::Ins => {
+                    j += 1;
+                }
+                CigarOp::Del => {
+                    i += 1;
+                }
+            }
+        }
+    }
+    collapse_ops_to_elems(&expanded_cigar)
+}
+
+/// Collapse a sequence of single-base CigarOps into run-length encoded CIGAR elements.
+pub fn collapse_ops_to_elems(ops: &[CigarOp]) -> Vec<CigarElem> {
+    let mut out: Vec<CigarElem> = Vec::new();
+    for op in ops.iter() {
+        if let Some(last) = out.last_mut() {
+            if last.op == *op {
+                last.cnt += 1;
+                continue;
+            }
+        }
+        out.push(CigarElem { op: *op, cnt: 1 });
+    }
+    out
+}
+
+/// Merge adjacent identical CIGAR elements by summing their counts.
+pub fn collapse_cigar_elems(elems: &[CigarElem]) -> Vec<CigarElem> {
+    let mut out: Vec<CigarElem> = Vec::new();
+    for e in elems.iter() {
+        if let Some(last) = out.last_mut() {
+            if last.op == e.op {
+                last.cnt += e.cnt;
+                continue;
+            }
+        }
+        out.push(*e);
+    }
+    out
+}
+
+#[cfg(test)]
+mod subcigar_tests {
+    use super::*;
+
+    // #[test]
+    // fn test_subcigar_trim_match_and_sub() {
+    //     use pa_types::CigarOp::*;
+    //     let ops = [
+    //         CigarElem { op: Match, cnt: 3 }, // q:0..3
+    //         CigarElem { op: Sub, cnt: 2 },   // q:3..5
+    //         CigarElem { op: Ins, cnt: 1 },   // q:5..6
+    //         CigarElem { op: Match, cnt: 4 }, // q:6..10
+    //     ];
+    //     let sub = subcigar(&ops, 2, 4); // overlaps last base of M3 and first of Sub2
+    //     assert_eq!(
+    //         sub,
+    //         vec![
+    //             CigarElem { op: Match, cnt: 1 },
+    //             CigarElem { op: Sub, cnt: 1 },
+    //         ]
+    //     );
+    // }
+
+    // #[test]
+    // fn test_subcigar_includes_deletion_if_anchored_in_window() {
+    //     use pa_types::CigarOp::*;
+    //     let ops = [
+    //         CigarElem { op: Match, cnt: 3 }, // q:0..3
+    //         CigarElem { op: Del, cnt: 2 },   // anchored at q:3
+    //         CigarElem { op: Match, cnt: 2 }, // q:3..5
+    //     ];
+    //     let sub = subcigar(&ops, 3, 5); // window starts at q_pos 3 (deletion anchor)
+    //     assert_eq!(
+    //         sub,
+    //         vec![
+    //             CigarElem { op: Del, cnt: 2 },
+    //             CigarElem { op: Match, cnt: 2 },
+    //         ]
+    //     );
+    // }
+}
+
+#[cfg(test)]
+mod collapse_tests {
+    use super::*;
+    use pa_types::CigarOp::*;
+
+    #[test]
+    fn test_collapse_ops_to_elems() {
+        let ops = vec![Match, Match, Sub, Sub, Sub, Ins, Del, Del, Match];
+        let got = collapse_ops_to_elems(&ops);
+        let expect = vec![
+            CigarElem { op: Match, cnt: 2 },
+            CigarElem { op: Sub, cnt: 3 },
+            CigarElem { op: Ins, cnt: 1 },
+            CigarElem { op: Del, cnt: 2 },
+            CigarElem { op: Match, cnt: 1 },
+        ];
+        assert_eq!(got, expect);
+    }
+
+    #[test]
+    fn test_collapse_cigar_elems() {
+        let elems = vec![
+            CigarElem { op: Match, cnt: 2 },
+            CigarElem { op: Match, cnt: 3 },
+            CigarElem { op: Sub, cnt: 1 },
+            CigarElem { op: Sub, cnt: 2 },
+            CigarElem { op: Del, cnt: 1 },
+            CigarElem { op: Del, cnt: 1 },
+        ];
+        let got = collapse_cigar_elems(&elems);
+        let expect = vec![
+            CigarElem { op: Match, cnt: 5 },
+            CigarElem { op: Sub, cnt: 3 },
+            CigarElem { op: Del, cnt: 2 },
+        ];
+        assert_eq!(got, expect);
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -383,5 +656,16 @@ mod test {
         assert_eq!(ps, 5);
         assert_eq!(pe, 6);
         assert!(match_slice == b"C");
+    }
+
+    #[test]
+    fn test_get_fit() {
+        let l = 24;
+        let fit = 0.7;
+        let cutoff = ProbModel::new(0.01, 0.15).score_cutoff_for_fit(l, fit, false);
+        println!("Cutoff: {}", cutoff);
+
+        let cutoff = ProbModel::new(0.01, 0.15).score_cutoff_for_fit(l, fit, true);
+        println!("Cutoff: {}", cutoff);
     }
 }

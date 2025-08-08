@@ -1,5 +1,5 @@
 use crate::annotate::barcodes::{Barcode, BarcodeGroup, BarcodeType};
-use crate::annotate::cigar_parse::{ProbModel, extract_cost_at_range_verbose, map_pat_to_text};
+use crate::annotate::cigar_parse::*;
 use crate::annotate::interval::collapse_overlapping_matches;
 use crate::filter::pattern::Cut;
 use colored::*;
@@ -13,8 +13,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::thread_local;
 // (CigarElem, CigarOp) were only required by the previous, now removed implementation
 // of `extract_bar_cost`.  They are no longer used, so the import has been removed.
-
 use crate::WIGGLE_ROOM;
+use pa_types::*;
 
 thread_local! {
     static OVERHANG_SEARCHER: std::cell::RefCell<Option<Searcher<Iupac>>> = std::cell::RefCell::new(None);
@@ -28,6 +28,9 @@ thread_local! {
 pub struct Demuxer {
     alpha: f32,
     queries: Vec<BarcodeGroup>,
+    verbose: bool,
+    min_fit: Option<f64>,
+    conservative_runs: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -205,7 +208,30 @@ impl Demuxer {
         Self {
             alpha,
             queries: Vec::new(),
+            verbose: false,
+            min_fit: None,
+            conservative_runs: true,
         }
+    }
+
+    pub fn new_with_verbose(alpha: f32, verbose: bool) -> Self {
+        Self {
+            alpha,
+            queries: Vec::new(),
+            verbose,
+            min_fit: None,
+            conservative_runs: true,
+        }
+    }
+
+    pub fn with_min_fit(mut self, min_fit: Option<f64>) -> Self {
+        self.min_fit = min_fit;
+        self
+    }
+
+    pub fn with_run_model_conservative(mut self, conservative: bool) -> Self {
+        self.conservative_runs = conservative;
+        self
     }
 
     pub fn add_query_group(&mut self, query_group: BarcodeGroup) -> &mut Self {
@@ -242,7 +268,8 @@ impl Demuxer {
         let mut results: Vec<BarbellMatch> = Vec::new();
 
         // FIXME: should be configured once globally, but for now construct here
-        let prob_model = ProbModel::new(0.01, 0.15);
+        //let prob_model = AffineProbModel::new(0.01, 0.005, 0.01, 0.15);
+        let prob_model = ProbModel::new(0.001, 0.01);
         // println!("Match cost: {}", prob_model.match_cost);
         // println!("Err open: {}", prob_model.err_open);
         // println!("Err ext: {}", prob_model.err_ext);
@@ -279,7 +306,7 @@ impl Demuxer {
             // lowest-cost alignment. If that lowest cost is found exactly once, we treat it
             // as a barcode match. If it is found more than once (ambiguous) **or** no barcode
             // produces an alignment, we fall back to reporting the flank only.
-            let mut verbose = false;
+            let verbose = self.verbose;
 
             for (i, flank_match) in flank_matches.iter().enumerate() {
                 if verbose {
@@ -295,6 +322,10 @@ impl Demuxer {
                     .min(read.len());
                 let flank_region = &read[slice_start..slice_end];
 
+                // We use half as random edit distance will always be around 0.5 x length anyway
+                // setting this to full mask length will just give more matches to work through
+                let mask_region_len = (barcode_group.bar_region.1 - barcode_group.bar_region.0) / 2;
+
                 // Collect best alignment per barcode and score it with ProbModel
                 let mut candidates: Vec<(f64, Match, &Barcode)> = Vec::new();
 
@@ -306,7 +337,11 @@ impl Demuxer {
                     let best_hit = REGULAR_SEARCHER.with(|cell| {
                         if let Some(ref mut searcher) = *cell.borrow_mut() {
                             searcher
-                                .search(&barcode_and_flank.seq, &flank_region, flank_k + bar_k)
+                                .search(
+                                    &barcode_and_flank.seq,
+                                    &flank_region,
+                                    flank_k + mask_region_len,
+                                )
                                 .into_iter()
                                 .min_by_key(|m| m.cost)
                         } else {
@@ -316,7 +351,16 @@ impl Demuxer {
 
                     if let Some(hit) = best_hit {
                         // Now compute MDL score for comparison across barcodes
-                        let score = prob_model.score_cigar(&hit.cigar.ops);
+                        // First we extract cigar for just barcode region
+                        let bar_cigar = subcigar_owned(
+                            &hit.cigar,
+                            barcode_group.bar_region.0,
+                            barcode_group.bar_region.1 + 1, //Fixme: make exclusive in reader?
+                        );
+                        if verbose {
+                            println!("{} Bar cigar: {:?}", barcode_and_flank.label, bar_cigar);
+                        }
+                        let score = prob_model.score_cigar(&bar_cigar);
                         candidates.push((score, hit, barcode_and_flank));
                     }
                 }
@@ -348,6 +392,7 @@ impl Demuxer {
                 candidates.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
                 if verbose {
+                    println!("Candidates: {}", candidates.len());
                     for i in 0..10 {
                         for c in candidates.iter().take(2) {
                             println!("\t{}: {}", c.2.label, c.0);
@@ -368,17 +413,34 @@ impl Demuxer {
                     prob_model.log_odds_ratio(*best_score, second_score)
                 };
 
-                let is_valid_barcode_match = odds > 400.0;
+                if verbose {
+                    for _ in 0..10 {
+                        println!("Odds: {}", odds);
+                    }
+                }
 
-                // Extract barcode match region from cigar
                 let (mask_start, mask_end) = barcode_group.bar_region;
                 let bar_read_region =
-                    map_pat_to_text(best_match, mask_start as i32, mask_end as i32)
-                        .expect("No barcode match region found; unusual");
-                let ((bar_start, bar_end), (read_bar_start, read_bar_end)) = bar_read_region;
+                    map_pat_to_text(best_match, mask_start as i32, mask_end as i32);
+                let ((bar_start, bar_end), (read_bar_start, read_bar_end)) =
+                    bar_read_region.expect("No barcode match region found; unusual");
+
+                // Compute dynamic score cutoff from min_fit if provided, otherwise fallback to default static cutoff
+                let dynamic_cutoff = self.min_fit.map(|fit| {
+                    let l = (mask_end - mask_start + 1) as usize;
+                    prob_model.score_cutoff_for_fit(l, fit, self.conservative_runs)
+                });
+
+                let is_valid_barcode_match = if let Some(cutoff) = dynamic_cutoff {
+                    odds > 500.0 && *best_score <= cutoff
+                } else {
+                    odds > 500.0 && *best_score < 38.0
+                };
 
                 // Now push appropriate BarbellMatch
                 if is_valid_barcode_match {
+                    // Extract barcode match region from cigar
+
                     results.push(BarbellMatch::new(
                         slice_start + read_bar_start,
                         slice_start + read_bar_end,
