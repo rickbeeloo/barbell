@@ -62,7 +62,7 @@ pub fn demux_rapid_barcodes(
     println!("\n{}", "Running annotation filter".purple().bold());
     let pattern1 = pattern_from_str!("Ftag[fw, *, @left(0..250), >>]");
     let pattern2 =
-        pattern_from_str!("Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @prev_left(0..250), >>]");
+        pattern_from_str!("Ftag[fw, $1, @left(0..250)]__Ftag[fw, $1, @prev_left(0..250), >>]");
     filter(
         format!("{output_folder}/annotation.tsv").as_str(),
         format!("{output_folder}/filtered.tsv").as_str(),
