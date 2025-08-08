@@ -235,8 +235,8 @@ impl BlastModel {
     /// Convert a raw score S into a BLAST bit score: B = (lambda*S - ln K) / ln 2
     pub fn bit_score(&self, raw_score: i32) -> f64 {
         let s = raw_score as f64;
-        s
-        //(self.lambda * s - self.k.ln()) / std::f64::consts::LN_2
+        //s
+        (self.lambda * s - self.k.ln()) / std::f64::consts::LN_2
     }
 }
 
