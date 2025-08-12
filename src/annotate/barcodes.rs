@@ -85,6 +85,7 @@ impl BarcodeGroup {
         let prefix_len = prefix.as_ref().unwrap_or(&Vec::new()).len();
         let suffix_len = suffix.as_ref().unwrap_or(&Vec::new()).len();
         let mask_size = query_seqs[0].len() - prefix_len - suffix_len;
+        assert_eq!(mask_size, 24);
 
         // Add prefix if present
         if let Some(p) = &prefix {
@@ -100,10 +101,15 @@ impl BarcodeGroup {
         // Slice out all the masked region sequences
         let mut barcodes = Vec::new();
         for (i, seq) in query_seqs.iter().enumerate() {
-            //let start = prefix_len.saturating_sub(PADDING);
-            //let end = (start + mask_size + PADDING).min(seq.len());
+            let start = prefix_len.saturating_sub(5);
+            // println!("start: {}", start);
+            let end = (prefix_len + mask_size + 10).min(seq.len());
+            // let start = prefix_len;
+            // let end = (prefix_len + mask_size).min(seq.len());
+
+            // assert_eq!(*&seq[start..end].len(), 24 + 10 + 5);
             barcodes.push(Barcode::new(
-                seq, // trying the whole sequence
+                &seq[start..end], // trying the whole sequence
                 &query_labels[i],
                 barcode_type.clone(),
             ));

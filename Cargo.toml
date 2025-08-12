@@ -14,7 +14,8 @@ name = "barbell"
 path = "bin/main.rs"
 
 [dependencies]
-sassy = { git = "https://github.com/RagnarGrootKoerkamp/sassy.git", branch = "master" }
+# sassy = { path = "/home/solprof/PhD/beam_search_paths/sassy"}
+sassy = "0.1.2"
 pa-types = "1.0.0"
 seq_io = "0.3.4"
 rand = "0.8"

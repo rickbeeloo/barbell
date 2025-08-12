@@ -4,6 +4,152 @@ use pa_types::*;
 use sassy::Searcher;
 use sassy::*;
 
+#[derive(Copy, Clone, Debug)]
+pub struct EmaParams {
+    pub match_step: f64,       // raw +1 for a match (default 1.0)
+    pub error_step: f64,       // raw -1 for an error (default -1.0)
+    pub err_open: f64,         // extra penalty on first error of a run (>=0)
+    pub err_ext_coef: f64,     // extra penalty added per additional error in run
+    pub ema_alpha: f64,        // alpha in EMA (0..1). larger => more memory
+    pub init_with_first: bool, // if true initialize ema with first raw step instead of 0.0
+}
+
+pub fn ema_score(cigar: &[CigarElem], params: &EmaParams) -> f64 {
+    // build raw steps per base while tracking error runs
+    let mut raw_steps: Vec<f64> = Vec::new();
+    let mut match_run = 0usize;
+    let mut err_run = 0usize;
+
+    for elem in cigar {
+        match elem.op {
+            CigarOp::Match => {
+                for _ in 0..elem.cnt {
+                    match_run += 1;
+                    err_run = 0;
+                    raw_steps.push(params.match_step);
+                }
+            }
+            CigarOp::Sub | CigarOp::Del | CigarOp::Ins => {
+                for _ in 0..elem.cnt {
+                    match_run = 0;
+                    err_run += 1;
+                    let step = if err_run == 1 {
+                        params.error_step - params.err_open
+                    } else {
+                        // progressively harsher with run length: error_step - err_open - ext_coef*(run_len-1)
+                        params.error_step
+                            - params.err_open
+                            - params.err_ext_coef * ((err_run - 1) as f64)
+                    };
+                    raw_steps.push(step);
+                }
+            }
+        }
+    }
+
+    if raw_steps.is_empty() {
+        return 0.0;
+    }
+
+    // apply EMA over raw_steps and accumulate the EMA as increments into score
+    let mut score = 0.0_f64;
+    let mut ema = if params.init_with_first {
+        raw_steps[0]
+    } else {
+        0.0
+    };
+
+    for &s in raw_steps.iter() {
+        ema = params.ema_alpha * ema + (1.0 - params.ema_alpha) * s;
+        score += ema;
+    }
+    score
+}
+
+pub fn ema_score_simple(cigar: &[CigarElem], match_step: f64, error_step: f64, alpha: f64) -> f64 {
+    if cigar.is_empty() {
+        return 0.0;
+    }
+
+    let mut ema = 0.0_f64;
+    let mut score = 0.0_f64;
+
+    for elem in cigar {
+        let step_val = match elem.op {
+            CigarOp::Match => match_step,
+            CigarOp::Sub | CigarOp::Del | CigarOp::Ins => error_step,
+        };
+        for _ in 0..elem.cnt {
+            ema = alpha * ema + (1.0 - alpha) * step_val;
+            score += ema;
+        }
+    }
+
+    score
+}
+
+pub fn ema_area_between(a: &[CigarElem], b: &[CigarElem], params: &EmaParams) -> f64 {
+    let curve_a = ema_curve(a, params);
+    let curve_b = ema_curve(b, params);
+    curve_a
+        .iter()
+        .zip(curve_b.iter())
+        .map(|(x, y)| (x - y).abs())
+        .sum()
+}
+
+/// Same streaming EMA but returns the whole curve for each base.
+fn ema_curve(cigar: &[CigarElem], params: &EmaParams) -> Vec<f64> {
+    let mut ema_vals = Vec::new();
+    let mut ema = 0.0_f64;
+    let mut first = true;
+    let mut match_run = 0;
+    let mut err_run = 0;
+
+    for elem in cigar {
+        match elem.op {
+            CigarOp::Match => {
+                for _ in 0..elem.cnt {
+                    match_run += 1;
+                    err_run = 0;
+                    let raw = params.match_step;
+                    if first {
+                        ema = if params.init_with_first { raw } else { 0.0 };
+                        first = false;
+                    }
+                    ema = params.ema_alpha * ema + (1.0 - params.ema_alpha) * raw;
+                    ema_vals.push(ema);
+                }
+            }
+            CigarOp::Sub | CigarOp::Del | CigarOp::Ins => {
+                for _ in 0..elem.cnt {
+                    match_run = 0;
+                    err_run += 1;
+                    let raw = if err_run == 1 {
+                        params.error_step - params.err_open
+                    } else {
+                        params.error_step
+                            - params.err_open
+                            - params.err_ext_coef * ((err_run - 1) as f64)
+                    };
+                    if first {
+                        ema = if params.init_with_first { raw } else { 0.0 };
+                        first = false;
+                    }
+                    ema = params.ema_alpha * ema + (1.0 - params.ema_alpha) * raw;
+                    ema_vals.push(ema);
+                }
+            }
+        }
+    }
+    ema_vals
+}
+
+/// Compute difference score(a) - score(b)
+pub fn ema_score_diff(a: &[CigarElem], b: &[CigarElem], params: &EmaParams) -> f64 {
+    ema_score(a, params) - ema_score(b, params)
+}
+
 pub struct ProbModel {
     /// Cost for one correctly matched base  (−ln (1−ε))
     pub match_cost: f64,
@@ -38,11 +184,37 @@ impl ProbModel {
         (b - a).exp()
     }
 
-    pub fn score_cigar(&self, cigar: &[CigarElem]) -> f64 {
+    pub fn score_cigar_errors_only(&self, cigar: &[CigarElem]) -> f64 {
+        let mut pending_run: usize = 0;
+        let mut total = 0.0;
+
+        let flush = |run_len: &mut usize, tot: &mut f64| {
+            if *run_len > 0 {
+                *tot += self.err_open + (*run_len as f64 - 1.0) * self.err_ext;
+                *run_len = 0;
+            }
+        };
+
+        for elem in cigar {
+            match elem.op {
+                CigarOp::Match => flush(&mut pending_run, &mut total),
+                _ => pending_run += elem.cnt as usize,
+            }
+        }
+
+        flush(&mut pending_run, &mut total);
+        total
+    }
+
+    pub fn score_cigar(&self, cigar: &[CigarElem], verbose: bool) -> f64 {
         let mut pending_run: usize = 0; // current error-run length
         let mut total = 0.0_f64;
 
         let flush = |run_len: &mut usize, tot: &mut f64| {
+            if verbose {
+                println!("Flushing error run of length {}", *run_len);
+            }
+
             if *run_len > 0 {
                 *tot += self.err_open + (*run_len as f64 - 1.0) * self.err_ext;
                 *run_len = 0;
@@ -69,31 +241,68 @@ impl ProbModel {
         total
     }
 
-    /// Convert an error budget m (number of error bases allowed in the barcode region)
-    /// into a score cutoff for a region of length L.
-    ///
-    /// If `conservative=true`, assumes errors are isolated (each opens a run):
-    ///   cutoff = L*match_cost + m*err_open
-    /// If `conservative=false`, assumes one contiguous run if m>0:
-    ///   cutoff = L*match_cost + err_open + (m-1)*err_ext
-    pub fn score_cutoff_for_error_budget(&self, l: usize, m: usize, conservative: bool) -> f64 {
-        let l_term = l as f64 * self.match_cost;
-        if m == 0 {
-            return l_term;
+    /// Score a CIGAR like `score_cigar` but subtract a small reward for contiguous match runs.
+    /// The reward is affine per run: `match_open_bonus + (run_len-1) * match_ext_bonus`.
+    /// Set both bonuses to zero to recover the original score.
+    pub fn score_cigar_with_match_bonus(
+        &self,
+        cigar: &[CigarElem],
+        verbose: bool,
+        match_ext_bonus: f64,
+    ) -> f64 {
+        let base = self.score_cigar(cigar, verbose) - match_ext_bonus;
+        if match_ext_bonus == 0.0 {
+            return base;
         }
-        if conservative {
-            l_term + (m as f64) * self.err_open
-        } else {
-            l_term + self.err_open + (m as f64 - 1.0) * self.err_ext
+        // Sum rewards over contiguous Match runs (elements are already RLE-encoded)
+        let mut bonus_total = 0.0_f64;
+        for elem in cigar.iter() {
+            if let CigarOp::Match = elem.op {
+                let len = elem.cnt.max(1) as f64;
+                bonus_total += (len - 1.0) * match_ext_bonus;
+            }
         }
+        base - bonus_total
     }
 
-    /// Convert a target "fit" (e.g., 0.8 means allow up to 20% errors) for a region of length L
-    /// into a score cutoff under the given run assumption.
-    pub fn score_cutoff_for_fit(&self, l: usize, fit: f64, conservative: bool) -> f64 {
-        let fit = fit.clamp(0.0, 1.0);
-        let allowed_errors = ((1.0 - fit) * l as f64).ceil() as usize;
-        self.score_cutoff_for_error_budget(l, allowed_errors, conservative)
+    /// Count how many pattern positions are spanned by this CIGAR: Match + Sub + Del.
+    /// Insertions do not advance the pattern.
+    fn pattern_bases_in_cigar(cigar: &[CigarElem]) -> usize {
+        let mut len: usize = 0;
+        for e in cigar.iter() {
+            match e.op {
+                CigarOp::Match | CigarOp::Sub | CigarOp::Del => len += e.cnt as usize,
+                CigarOp::Ins => {}
+            }
+        }
+        len
+    }
+
+    /// Average negative log-likelihood per pattern base (nats/base).
+    /// Useful for using a single cutoff independent of query length.
+    pub fn avg_cost_per_pattern_base(&self, cigar: &[CigarElem], verbose: bool) -> f64 {
+        let total_len = Self::pattern_bases_in_cigar(cigar);
+        if total_len == 0 {
+            return 0.0;
+        }
+        if verbose {
+            println!("Cigar: {:?}", cigar);
+        }
+        self.score_cigar(cigar, verbose) / total_len as f64
+    }
+
+    /// Per-base average using match-run bonuses.
+    pub fn avg_cost_per_pattern_base_with_match_bonus(
+        &self,
+        cigar: &[CigarElem],
+        verbose: bool,
+        match_ext_bonus: f64,
+    ) -> f64 {
+        let total_len = Self::pattern_bases_in_cigar(cigar);
+        if total_len == 0 {
+            return 0.0;
+        }
+        self.score_cigar_with_match_bonus(cigar, verbose, match_ext_bonus) / total_len as f64
     }
 }
 
@@ -165,41 +374,66 @@ impl AffineProbModel {
         }
         total
     }
+
+    /// Count how many pattern positions are spanned by this CIGAR: Match + Sub + Del.
+    /// Insertions do not advance the pattern.
+    fn pattern_bases_in_cigar(cigar: &[CigarElem]) -> usize {
+        let mut len: usize = 0;
+        for e in cigar.iter() {
+            match e.op {
+                CigarOp::Match | CigarOp::Sub | CigarOp::Del => len += e.cnt as usize,
+                CigarOp::Ins => {}
+            }
+        }
+        len
+    }
+
+    /// Average negative log-likelihood per pattern base (nats/base).
+    /// Useful for using a single cutoff independent of query length.
+    pub fn avg_cost_per_pattern_base(&self, cigar: &[CigarElem]) -> f64 {
+        let total_len = Self::pattern_bases_in_cigar(cigar);
+        if total_len == 0 {
+            return 0.0;
+        }
+
+        self.score_cigar(cigar) / total_len as f64
+    }
 }
 
 /// BLAST-style affine gap scoring model with bit-score computation.
 pub struct BlastModel {
-    pub match_reward: i32,
-    pub mismatch_penalty: i32,
-    pub gap_open_penalty: i32,
-    pub gap_extend_penalty: i32,
+    pub match_reward: f64,
+    pub mismatch_penalty: f64,
+    pub gap_open_penalty: f64,
+    pub gap_extend_penalty: f64,
     pub lambda: f64,
     pub k: f64,
+    pub h: f64, // entropy parameter H
 }
 
 impl Default for BlastModel {
     fn default() -> Self {
-        // Typical blastn-like defaults: reward=+1, penalty=-3, gap open=5, gap extend=2.
-        // Lambda and K control scaling for bit scores. Keeping neutral defaults here.
         Self {
-            match_reward: 2,
-            mismatch_penalty: 3,
-            gap_open_penalty: 5,
-            gap_extend_penalty: 2,
-            lambda: 0.625,
-            k: 0.41,
+            match_reward: 2.0,
+            mismatch_penalty: 3.0,
+            gap_open_penalty: 5.0,
+            gap_extend_penalty: 2.0,
+            lambda: 1.37406,
+            k: 0.710603,
+            h: 1.30725,
         }
     }
 }
 
 impl BlastModel {
     pub fn new(
-        match_reward: i32,
-        mismatch_penalty: i32,
-        gap_open_penalty: i32,
-        gap_extend_penalty: i32,
+        match_reward: f64,
+        mismatch_penalty: f64,
+        gap_open_penalty: f64,
+        gap_extend_penalty: f64,
         lambda: f64,
         k: f64,
+        h: f64,
     ) -> Self {
         Self {
             match_reward,
@@ -208,35 +442,226 @@ impl BlastModel {
             gap_extend_penalty,
             lambda,
             k,
+            h,
         }
     }
 
-    /// Compute the raw affine-gap score for a CIGAR using BLAST-style scoring.
-    /// Score S = matches*match_reward - subs*mismatch_penalty - sum_gaps(gap_open + (len-1)*gap_extend)
-    pub fn raw_score_cigar(&self, cigar: &[CigarElem]) -> i32 {
-        let mut score: i32 = 0;
+    pub fn raw_score_cigar(&self, cigar: &[CigarElem]) -> f64 {
+        let mut score: f64 = 0.0;
         for elem in cigar.iter() {
             match elem.op {
                 CigarOp::Match => {
-                    score += (elem.cnt as i32) * self.match_reward;
+                    score += (elem.cnt as f64) * self.match_reward;
                 }
                 CigarOp::Sub => {
-                    score -= (elem.cnt as i32) * self.mismatch_penalty;
+                    score -= (elem.cnt as f64) * self.mismatch_penalty;
                 }
                 CigarOp::Ins | CigarOp::Del => {
-                    let len = elem.cnt.max(1) as i32;
-                    score -= self.gap_open_penalty + (len - 1) * self.gap_extend_penalty;
+                    let len = elem.cnt.max(1) as f64;
+                    score -= self.gap_open_penalty + (len - 1.0) * self.gap_extend_penalty;
                 }
             }
         }
         score
     }
 
-    /// Convert a raw score S into a BLAST bit score: B = (lambda*S - ln K) / ln 2
     pub fn bit_score(&self, raw_score: i32) -> f64 {
         let s = raw_score as f64;
-        //s
         (self.lambda * s - self.k.ln()) / std::f64::consts::LN_2
+    }
+
+    /// Convenience: compute bit score directly from a CIGAR.
+    pub fn bit_score_from_cigar(&self, cigar: &[CigarElem]) -> f64 {
+        let raw = self.raw_score_cigar(cigar);
+        self.bit_score(raw as i32)
+    }
+
+    /// Convenience: compute E-value directly from a CIGAR with given query (m) and subject (n) lengths.
+    pub fn e_value_from_cigar(&self, cigar: &[CigarElem], m: usize, n: usize) -> f64 {
+        let bits = self.bit_score_from_cigar(cigar);
+        self.e_value(bits, m, n)
+    }
+
+    /// Solve length adjustment l by fixed-point iteration:
+    /// l = (1/H) * ln(K * (m - l) * (n - l))
+    pub fn calc_length_adjustment(&self, m: usize, n: usize) -> f64 {
+        let m = m as f64;
+        let n = n as f64;
+
+        // BLAST initial guess
+        let mut l = (self.k * m * n).ln() / self.h;
+
+        let max_iter = 100usize;
+        let eps = 1e-5_f64; // BLAST uses 1e-5
+
+        for _ in 0..max_iter {
+            let prev_l = l;
+
+            // BLAST uses max(m - l, 1.0) and max(n - l, 1.0) INSIDE the iteration
+            let m_eff = (m - prev_l).max(1.0);
+            let n_eff = (n - prev_l).max(1.0);
+
+            // compute new l
+            l = (self.k * m_eff * n_eff).ln() / self.h;
+
+            // ensure non-negative (BLAST behavior keeps it non-negative)
+            if l < 0.0 {
+                l = 0.0;
+            }
+
+            if (l - prev_l).abs() < eps {
+                break;
+            }
+        }
+
+        // final clamp: cannot exceed the smallest length and cannot be negative
+        l.max(0.0).min(m.min(n))
+    }
+    /// Calculate effective length given raw length and adjustment
+    pub fn effective_length(&self, raw_len: usize, length_adjustment: f64) -> f64 {
+        (raw_len as f64 - length_adjustment).max(1.0) // minimum 1 to avoid zero or negative
+    }
+
+    /// Compute E-value using effective lengths
+    pub fn e_value(&self, bit_score: f64, m: usize, n: usize) -> f64 {
+        let l = self.calc_length_adjustment(m, n);
+        let m_eff = self.effective_length(m, l);
+        let n_eff = self.effective_length(n, l);
+        //  println!("m eff: {}, n eff: {}", m_eff, n_eff);
+        m_eff * n_eff * 2.0_f64.powf(-bit_score)
+    }
+
+    fn score_elem(&self, elem: &CigarElem) -> f64 {
+        match elem.op {
+            CigarOp::Match => (elem.cnt as f64) * self.match_reward,
+            CigarOp::Sub => -((elem.cnt as f64) * self.mismatch_penalty),
+            CigarOp::Ins | CigarOp::Del => {
+                let len = elem.cnt.max(1) as f64;
+                -(self.gap_open_penalty + (len - 1.0) * self.gap_extend_penalty)
+            }
+        }
+    }
+
+    pub fn top_vs_second_is_x_fold(&self, s1: i32, s2: i32, x: f64) -> (bool, bool, f64, f64) {
+        assert!(x > 0.0, "x must be positive");
+
+        // raw score difference
+        let delta_raw = (s1 - s2) as f64;
+
+        // required delta in raw scoring units: ln(x) / lambda
+        let needed_delta_raw = x.ln() / self.lambda;
+
+        // bits difference (for interpretability)
+        let delta_bits = (self.lambda * delta_raw) / std::f64::consts::LN_2;
+        let needed_bits = x.log2();
+
+        // two equivalent tests (use whichever you prefer)
+        let is_significant_raw = delta_raw >= needed_delta_raw;
+        let is_significant_bits = delta_bits >= needed_bits;
+
+        (
+            is_significant_raw,
+            is_significant_bits,
+            delta_bits,
+            delta_raw,
+        )
+    }
+
+    // /// Element-granularity local sub-cigar (Kadane / Smith-Waterman style).
+    // /// If `debug` is true, prints per-element scores and Kadane state transitions.
+    // pub fn get_local_element_level(&self, cigar: &[CigarElem], debug: bool) -> Vec<CigarElem> {
+    //     if cigar.is_empty() {
+    //         return Vec::new();
+    //     }
+
+    //     if debug {
+    //         println!("Index  Op   Cnt   Score");
+    //         println!("------------------------");
+    //         for (i, e) in cigar.iter().enumerate() {
+    //             println!(
+    //                 "{:5}  {:5?}  {:3}  {:4}",
+    //                 i,
+    //                 e.op,
+    //                 e.cnt,
+    //                 self.score_elem(e)
+    //             );
+    //         }
+    //         println!("------------------------");
+    //     }
+
+    //     let mut current_sum: i32 = 0;
+    //     let mut current_start: usize = 0;
+
+    //     let mut best_sum: i32 = 0; // Smith-Waterman style: only positive maxima
+    //     let mut best_start: usize = 0;
+    //     let mut best_end: usize = 0; // exclusive
+
+    //     for (i, elem) in cigar.iter().enumerate() {
+    //         let score = self.score_elem(elem);
+
+    //         if debug {
+    //             println!("i={} score={} current_sum_before={}", i, score, current_sum);
+    //         }
+
+    //         if current_sum + score <= 0 {
+    //             // reset after this element
+    //             if debug {
+    //                 println!("  RESET (current_sum + score <= 0). Next start = {}", i + 1);
+    //             }
+    //             current_sum = 0;
+    //             current_start = i + 1;
+    //         } else {
+    //             current_sum += score;
+    //             if debug {
+    //                 println!("  EXTEND: current_sum_after={}", current_sum);
+    //             }
+    //             if current_sum > best_sum {
+    //                 best_sum = current_sum;
+    //                 best_start = current_start;
+    //                 best_end = i + 1;
+    //                 if debug {
+    //                     println!(
+    //                         "  NEW BEST: sum={} start={} end={}",
+    //                         best_sum, best_start, best_end
+    //                     );
+    //                 }
+    //             }
+    //         }
+    //     }
+
+    //     if debug {
+    //         println!(
+    //             "final best_sum={} start={} end={}",
+    //             best_sum, best_start, best_end
+    //         );
+    //     }
+
+    //     if best_sum <= 0 {
+    //         return Vec::new();
+    //     }
+
+    //     // Return compacted sub-cigar (clone)
+    //     let sub = cigar[best_start..best_end].to_vec();
+    //     self.compact_adjacent_same_op(sub)
+    // }
+
+    /// Merge adjacent runs of the same operation for tidier output.
+    fn compact_adjacent_same_op(&self, mut v: Vec<CigarElem>) -> Vec<CigarElem> {
+        if v.is_empty() {
+            return v;
+        }
+        let mut out: Vec<CigarElem> = Vec::with_capacity(v.len());
+        let mut cur = v.remove(0);
+        for e in v.into_iter() {
+            if e.op == cur.op {
+                cur.cnt += e.cnt;
+            } else {
+                out.push(cur);
+                cur = e;
+            }
+        }
+        out.push(cur);
+        out
     }
 }
 
@@ -279,10 +704,7 @@ impl RunCostModel {
             }
         }
 
-        // Fixed, simple reward for contiguous matches: a small fraction of open_cost
-        // This strongly prefers long clean runs without introducing extra knobs.
-        let reward_per_base = 0.125 * self.open_cost; // 1/8 of open cost per base
-        total - reward_per_base * (longest_match_run as f64)
+        total
     }
 }
 
@@ -459,10 +881,6 @@ pub fn extract_cost_at_range_verbose(
     let path = sassy_match.to_path();
     //let cigar = sassy_match.cigar.clone();
 
-    // REMOVE
-    let start = 0;
-    let end = p.len();
-
     let mut cost_in_region = vec![];
     let mut last_cost: Option<i32> = None;
     for (Pos(q_pos, r_pos), cost) in path.iter().zip(cost.iter()) {
@@ -476,8 +894,11 @@ pub fn extract_cost_at_range_verbose(
                 cost_in_region.push(0)
             }
             marker = "*";
+        } else {
+            marker = "";
         }
 
+        // Fixme: bound check?
         // println!(
         //     "q_pos: {}:{}, r_pos: {}:{} - cost: {} {} (last_cost: {:?})",
         //     q_pos, p[q_pos] as char, r_pos, t[*r_pos as usize] as char, cost, marker, last_cost
@@ -535,7 +956,7 @@ pub fn extract_cost_at_range_verbose(
     //     summed_cost, summed_cost, cost_in_region
     // );
     // println!("Summed cost: {}", );
-    Some(trans_cost as i32)
+    Some(summed_cost as i32)
 }
 
 pub fn extract_cost_at_range(
@@ -572,10 +993,24 @@ pub fn extract_cost_at_range(
     // Add overhang penalties
     let left_overhang = sassy_match.pattern_start.saturating_sub(start);
     let right_overhang = (end + 1).saturating_sub(sassy_match.pattern_end);
+    println!("region cost: {}", region_cost);
 
     let overhang_cost = ((left_overhang + right_overhang) as f32 * alpha).ceil() as i32;
 
     Some(region_cost + overhang_cost)
+}
+
+pub fn get_matching_region(m: &Match, start: usize, end: usize) -> Option<(usize, usize)> {
+    let path = m.to_path();
+    let (start, end) = (start as i32, end as i32);
+
+    let mut sub_path = path
+        .iter()
+        .filter(|Pos(q_pos, _)| *q_pos >= start && *q_pos <= end);
+    let start = sub_path.next()?.0 as usize;
+    let end = sub_path.last()?.0 as usize;
+
+    Some((start, end))
 }
 
 /// Produce an owned CIGAR subregion covering the query half-open window [q_start, q_end).
@@ -726,6 +1161,7 @@ mod collapse_tests {
 #[cfg(test)]
 mod test {
     use super::*;
+    use pa_types::CigarOp::*;
     use sassy::Searcher;
     use sassy::profiles::Iupac;
 
@@ -781,7 +1217,7 @@ mod test {
         // Get match with lowest cost
         let best_match = matches.iter().min_by_key(|m| m.cost).unwrap();
 
-        let score = p.score_cigar(&best_match.cigar.ops);
+        let score = p.score_cigar(&best_match.cigar.ops, true);
         println!("Score: {}", score);
     }
 
@@ -823,7 +1259,7 @@ mod test {
         ];
         let cigar = Cigar { ops: ops.to_vec() };
         println!("Cigar: {:?}", cigar.to_string());
-        let score = ProbModel::new(0.01, 0.15).score_cigar(&cigar.ops);
+        let score = ProbModel::new(0.01, 0.15).score_cigar(&cigar.ops, true);
         println!("Score: {}", score);
     }
 
@@ -865,14 +1301,54 @@ mod test {
         assert!(match_slice == b"C");
     }
 
-    #[test]
-    fn test_get_fit() {
-        let l = 24;
-        let fit = 0.6;
-        let cutoff = ProbModel::new(0.01, 0.15).score_cutoff_for_fit(l, fit, false);
-        println!("Cutoff: {}", cutoff);
+    // #[test]
+    // fn test_prob_model_per_base_normalization_is_length_invariant() {
+    //     // Two cigars with the same composition but different lengths
+    //     let short = vec![
+    //         CigarElem { op: Match, cnt: 45 },
+    //         CigarElem { op: Sub, cnt: 5 },
+    //     ];
+    //     let long = vec![
+    //         CigarElem { op: Match, cnt: 90 },
+    //         CigarElem { op: Sub, cnt: 10 },
+    //     ];
 
-        let cutoff = ProbModel::new(0.01, 0.15).score_cutoff_for_fit(l, fit, true);
-        println!("Cutoff: {}", cutoff);
+    //     let model = ProbModel::new(0.01, 0.15);
+    //     let null = ProbModel::new(0.05, 0.50);
+
+    //     // Raw costs scale with length
+    //     assert!(model.score_cigar(&long) > model.score_cigar(&short));
+
+    //     // Per-base costs are approximately equal
+    //     let short_avg = model.avg_cost_per_pattern_base(&short);
+    //     let long_avg = model.avg_cost_per_pattern_base(&long);
+    //     let rel_diff = (short_avg - long_avg).abs() / short_avg.max(long_avg);
+    //     assert!(rel_diff < 1e-9);
+    // }
+
+    #[test]
+    fn test_blast_bit_score_and_evalue_helpers() {
+        // Construct two alignments with similar identity but different lengths
+        let short = vec![
+            CigarElem { op: Match, cnt: 45 },
+            CigarElem { op: Sub, cnt: 5 },
+        ]; // length ~50
+        let long = vec![
+            CigarElem { op: Match, cnt: 90 },
+            CigarElem { op: Sub, cnt: 10 },
+        ]; // length ~100
+
+        let blast = BlastModel::default();
+
+        let short_bits = blast.bit_score_from_cigar(&short);
+        let long_bits = blast.bit_score_from_cigar(&long);
+        // Longer alignment should have a larger bit score
+        assert!(long_bits > short_bits);
+
+        // E-values incorporate effective lengths. With the same identity rate,
+        // the longer alignment should be even more significant (smaller E-value)
+        let e_short = blast.e_value_from_cigar(&short, 50, 50);
+        let e_long = blast.e_value_from_cigar(&long, 100, 100);
+        assert!(e_long < e_short);
     }
 }

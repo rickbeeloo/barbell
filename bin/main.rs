@@ -72,6 +72,10 @@ enum Commands {
         /// Use conservative error-run model (each error opens a run). If false, assumes one contiguous run.
         #[arg(long = "conservative-runs", default_value_t = true)]
         conservative_runs: bool,
+
+        /// Optional path to write top-2 candidates per read (TSV: read_id label1 cigar1 label2 cigar2)
+        #[arg(long = "top2-out")]
+        top2_out: Option<String>,
     },
     /// Filter annotation files based on pattern
     Filter {
@@ -199,6 +203,7 @@ fn main() {
             verbose,
             min_fit,
             conservative_runs,
+            top2_out,
         } => {
             println!("{}", "Starting annotation...".green());
 
@@ -233,6 +238,7 @@ fn main() {
                 *verbose,
                 min_fit.clone(),
                 *conservative_runs,
+                top2_out.as_deref(),
             ) {
                 Ok(_) => println!("{}", "Annotation complete!".green()),
                 Err(e) => println!("{} {}", "Error during processing:".red(), e),

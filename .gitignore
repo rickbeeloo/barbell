@@ -6,3 +6,6 @@ filter.txt
 *.fastq
 /benchmarks/*.ipynb
 *.ipynb
+*.txt
+*.tsv
+*.py

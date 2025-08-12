@@ -1,6 +1,7 @@
 use crate::annotate::barcodes::{Barcode, BarcodeGroup, BarcodeType};
 use crate::annotate::cigar_parse::*;
 use crate::annotate::interval::collapse_overlapping_matches;
+use crate::annotate::model::Model;
 use crate::filter::pattern::Cut;
 use colored::*;
 use itertools::Itertools;
@@ -15,6 +16,9 @@ use std::thread_local;
 // of `extract_bar_cost`.  They are no longer used, so the import has been removed.
 use crate::WIGGLE_ROOM;
 use pa_types::*;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::sync::{Arc, Mutex};
 
 thread_local! {
     static OVERHANG_SEARCHER: std::cell::RefCell<Option<Searcher<Iupac>>> = std::cell::RefCell::new(None);
@@ -29,8 +33,7 @@ pub struct Demuxer {
     alpha: f32,
     queries: Vec<BarcodeGroup>,
     verbose: bool,
-    min_fit: Option<f64>,
-    conservative_runs: bool,
+    top2_writer: Option<Arc<Mutex<BufWriter<File>>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -209,8 +212,7 @@ impl Demuxer {
             alpha,
             queries: Vec::new(),
             verbose: false,
-            min_fit: None,
-            conservative_runs: true,
+            top2_writer: None,
         }
     }
 
@@ -219,19 +221,21 @@ impl Demuxer {
             alpha,
             queries: Vec::new(),
             verbose,
-            min_fit: None,
-            conservative_runs: true,
+            top2_writer: None,
         }
     }
 
-    pub fn with_min_fit(mut self, min_fit: Option<f64>) -> Self {
-        self.min_fit = min_fit;
-        self
-    }
-
-    pub fn with_run_model_conservative(mut self, conservative: bool) -> Self {
-        self.conservative_runs = conservative;
-        self
+    pub fn new_with_verbose_and_top2(
+        alpha: f32,
+        verbose: bool,
+        top2_writer: Option<Arc<Mutex<BufWriter<File>>>>,
+    ) -> Self {
+        Self {
+            alpha,
+            queries: Vec::new(),
+            verbose,
+            top2_writer,
+        }
     }
 
     pub fn add_query_group(&mut self, query_group: BarcodeGroup) -> &mut Self {
@@ -239,41 +243,8 @@ impl Demuxer {
         self
     }
 
-    // fn slice_masked_region<'a>(
-    //     &self,
-    //     read: &'a [u8],
-    //     flank: &BarcodeGroup,
-    //     flank_match: &Match,
-    // ) -> (&'a [u8], (usize, usize)) {
-    //     let (mask_start, mask_end) = flank.bar_region;
-    //     let path = flank_match.to_path();
-    //     // Collect unique positions and find min/max r_pos for positions in mask region
-    //     let positions: std::collections::HashSet<_> = path.iter().collect();
-    //     let (min_r_pos, max_r_pos) = positions
-    //         .iter()
-    //         .filter(|pos| pos.0 as usize >= mask_start && pos.0 as usize <= mask_end)
-    //         .fold((usize::MAX, 0), |(min, max), pos| {
-    //             let r_pos = pos.1 as usize;
-    //             (min.min(r_pos), max.max(r_pos))
-    //         });
-    //     if min_r_pos == usize::MAX {
-    //         return (&[], (0, 0));
-    //     }
-    //     let start = min_r_pos.saturating_sub(crate::WIGGLE_ROOM);
-    //     let end = (max_r_pos + crate::WIGGLE_ROOM).min(read.len() - 1);
-    //     (&read[start..=end], (start, end))
-    // }
-
     pub fn demux(&mut self, read_id: &str, read: &[u8], qual: &[u8]) -> Vec<BarbellMatch> {
         let mut results: Vec<BarbellMatch> = Vec::new();
-
-        // FIXME: should be configured once globally, but for now construct here
-        // let prob_model = AffineProbModel::new(0.01, 0.15, 0.0005, 0.1);
-        //let prob_model = ProbModel::new(0.001, 0.01);
-        // println!("Match cost: {}", prob_model.match_cost);
-        // println!("Err open: {}", prob_model.err_open);
-        // println!("Err ext: {}", prob_model.err_ext);
-        let run_model = RunCostModel::new(6.0, 2.0);
 
         // Initialize thread-local searcher if not already done
         OVERHANG_SEARCHER.with(|cell| {
@@ -290,23 +261,15 @@ impl Demuxer {
 
         for (i, barcode_group) in self.queries.iter().enumerate() {
             let flank = &barcode_group.flank;
-            //println!("Looking for flank: {}", String::from_utf8_lossy(&flank));
             let flank_k = barcode_group.k_cutoff.unwrap_or(0);
-            //println!("Max flank edits: {}", k);
             let flank_matches = OVERHANG_SEARCHER.with(|cell| {
                 if let Some(ref mut searcher) = *cell.borrow_mut() {
                     searcher.search(flank, &read, flank_k)
                 } else {
                     unreachable!();
-                    //vec![]
                 }
             });
-            // println!("Flanks found: {}", flank_matches.len());
 
-            // For each flank hit we now look across *all* barcodes to determine the global
-            // lowest-cost alignment. If that lowest cost is found exactly once, we treat it
-            // as a barcode match. If it is found more than once (ambiguous) **or** no barcode
-            // produces an alignment, we fall back to reporting the flank only.
             let verbose = self.verbose;
 
             for (i, flank_match) in flank_matches.iter().enumerate() {
@@ -316,60 +279,69 @@ impl Demuxer {
                         flank_match.text_start, flank_match.text_end
                     );
                 }
-                let slice_start = flank_match.text_start.saturating_sub(crate::WIGGLE_ROOM);
-                let slice_end = flank_match
-                    .text_end
-                    .saturating_add(crate::WIGGLE_ROOM)
+
+                // Get barcode region
+                let (mask_start, mask_end) = barcode_group.bar_region;
+
+                // Extract read positions for barcode matchign region
+                let Some((barcode_region_start, barcode_region_end)) =
+                    get_matching_region(&flank_match, mask_start, mask_end)
+                else {
+                    continue; // no room for barcode?
+                };
+                let barcode_region_start =
+                    (flank_match.text_start + barcode_region_start).saturating_sub(10);
+                let barcode_region_end = (flank_match.text_start + barcode_region_end)
+                    .saturating_add(10 + 6)
                     .min(read.len());
-                let flank_region = &read[slice_start..slice_end];
+                let region_size = barcode_region_end - barcode_region_start;
+                //assert_eq!(region_size, 24 + 5 + 10);
 
-                // We use half as random edit distance will always be around 0.5 x length anyway
-                // setting this to full mask length will just give more matches to work through
-                let mask_region_len = (barcode_group.bar_region.1 - barcode_group.bar_region.0) / 2;
+                let barcode_region = &read[barcode_region_start..barcode_region_end];
 
-                // Collect best alignment per barcode and compute quality keys (parameter-free)
-                let mut candidates: Vec<(CigarQualityKeys, Match, &Barcode)> = Vec::new();
+                if verbose {
+                    for _ in 0..10 {
+                        println!(
+                            "Barcode region: {}",
+                            String::from_utf8_lossy(barcode_region)
+                        );
+                    }
+                }
+
+                let mut candidates: Vec<(Match, &Barcode)> = Vec::new();
 
                 for barcode_and_flank in barcode_group.barcodes.iter() {
-                    let flank_k = barcode_group.k_cutoff.unwrap_or(0);
-                    let bar_k = barcode_and_flank.k_cutoff.unwrap_or(0);
-
-                    // Pick alignment with lowest raw edit cost first (fast)
-                    let best_hit = REGULAR_SEARCHER.with(|cell| {
+                    // println!(
+                    //     "Looking for: {}",
+                    //     String::from_utf8_lossy(&barcode_and_flank.seq)
+                    // );
+                    // Search the forward version
+                    let fwd_best_hit = REGULAR_SEARCHER.with(|cell| {
                         if let Some(ref mut searcher) = *cell.borrow_mut() {
                             searcher
-                                .search(
-                                    &barcode_and_flank.seq,
-                                    &flank_region,
-                                    flank_k + mask_region_len,
-                                )
+                                .search(&barcode_and_flank.seq, &barcode_region, 20)
                                 .into_iter()
+                                .filter(|m| m.strand == flank_match.strand)
+                                // iter mutate and we do region_len - (m.text_start + m.text_start)
+                                .map(|mut m| {
+                                    //let cost_left =
+                                    //    region_size as i32 - (m.text_end - m.text_start) as i32;
+                                    //println!("cost left: {:?}", cost_left);
+                                    m.cost = m.cost + 0; //cost_left;
+                                    m
+                                })
                                 .min_by_key(|m| m.cost)
                         } else {
                             None
                         }
                     });
 
-                    //println!("Full quality: {:?}", qual);
-
-                    if let Some(hit) = best_hit {
-                        // Extract CIGAR for barcode region
-                        let bar_cigar = subcigar_owned(
-                            &hit.cigar,
-                            barcode_group.bar_region.0,
-                            barcode_group.bar_region.1 + 1, // inclusive end in group
-                        );
-                        if verbose {
-                            println!("{} Bar cigar: {:?}", barcode_and_flank.label, bar_cigar);
-                        }
-
-                        // Compute keys with helper
-                        let keys = cigar_quality_keys(&bar_cigar, &run_model);
-                        candidates.push((keys, hit, barcode_and_flank));
+                    // if a fwd hit add it
+                    if let Some(fwd_hit) = fwd_best_hit {
+                        candidates.push((fwd_hit, barcode_and_flank));
                     }
                 }
 
-                // Need at least one candidate to proceed; otherwise treat as flank-only
                 if candidates.is_empty() {
                     results.push(BarbellMatch::new(
                         flank_match.text_start,
@@ -389,88 +361,173 @@ impl Demuxer {
                         None,
                     ));
 
-                    continue; // process next flank_match
+                    continue;
                 }
 
-                // Compute BLAST bit scores for the bar-region CIGAR and pick by bit score
-                let blast = BlastModel::default();
-                let mut scored: Vec<(f64, CigarQualityKeys, Match, &Barcode)> = candidates
+                // Look at top candidates
+                let top_candidates: Vec<(Match, &Barcode)> = candidates.into_iter().collect();
+
+                // Now only calculate likelihood scores for the top candidates
+                let mut scored: Vec<(f64, Match, &Barcode)> = top_candidates
                     .into_iter()
-                    .map(|(keys, m, b)| {
-                        let bar_cigar = subcigar_owned(
-                            &m.cigar,
-                            barcode_group.bar_region.0,
-                            barcode_group.bar_region.1 + 1,
-                        );
-                        let raw = blast.raw_score_cigar(&bar_cigar);
-                        let bits = blast.bit_score(raw);
-                        (bits, keys, m, b)
+                    .map(|(m, b)| {
+                        // // Convert to per base with a convex reward for contiguous match runs
+                        // // Tuneable: prefer longer runs without overwhelming the base model
+                        // let coeff = 0.05_f64; // small coefficient
+                        // let exponent = 1.6_f64; // convex (>1)
+                        // let avg_cost_per_pattern_base =
+                        //     simple_model.avg_cost_per_pattern_base(&m.cigar.ops, verbose);
+
+                        let s = ema_score_simple(&m.cigar.ops, 1.0, -1.0, 0.7);
+
+                        (s, m, b)
                     })
                     .collect();
+
+                // Sort high to low
                 scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-                if verbose {
-                    println!("Candidates: {}", scored.len());
-                    for _ in 0..10 {
-                        for (bits, k, _m, b) in scored.iter().take(3) {
-                            println!(
-                                "\t{}: bits={:.2}, Lmax={}, err_runs={}, indel_runs={}, err_bases={}, tie_score={}",
-                                b.label,
-                                bits,
-                                k.longest_match,
-                                k.error_runs,
-                                k.indel_runs,
-                                k.total_errors,
-                                k.tie_score
-                            );
-                        }
+                // // Actually now do a sort by m.cost
+                // scored.sort_by(|a, b| {
+                //     a.1.cost
+                //         .partial_cmp(&b.1.cost)
+                //         .unwrap_or(std::cmp::Ordering::Equal)
+                // });
+
+                // Outside verbose: write top-2 per-read candidate summary if writer configured
+                if let Some(writer) = &self.top2_writer {
+                    if !scored.is_empty() {
+                        let (label1, cigar1) =
+                            (scored[0].2.label.as_str(), scored[0].1.cigar.to_string());
+                        let (label2, cigar2) = if scored.len() > 1 {
+                            (scored[1].2.label.as_str(), scored[1].1.cigar.to_string())
+                        } else {
+                            ("-", "-".to_string())
+                        };
+                        let mut w = writer.lock().unwrap();
+                        let _ = writeln!(
+                            &mut *w,
+                            "{}\t{}\t{}\t{}\t{}",
+                            read_id, label1, cigar1, label2, cigar2
+                        );
                     }
                 }
 
-                let (best_bits, best_keys, best_match, best_barcode) = &scored[0];
-                let second_bits = if scored.len() > 1 {
-                    Some(scored[1].0)
-                } else {
-                    None
-                };
-                let bit_gap_ok = second_bits.map(|s| best_bits - s >= 10.0).unwrap_or(true)
-                    && *best_bits >= 10.0;
-                //let bit_gap_ok = *best_bits >= 20.0;
+                if verbose {
+                    // print top 5 candidates
+                    for (i, (score, m, b)) in scored.iter().take(5).enumerate() {
+                        println!("Candidate {i}: {}", b.label);
+                        println!("Cost: {:?}", m.cost);
+                        println!("Strand: {:?}", m.strand);
+                        println!("Cigar: {}", m.cigar.to_string());
+                        println!("Score: {}", score);
+                        println!("--------------------------------");
+                    }
+                }
 
                 let (mask_start, mask_end) = barcode_group.bar_region;
+                // println!("Mask start: {mask_start}, mask end: {mask_end}");
+                // println!(
+                //     "bar slice: {}",
+                //     String::from_utf8_lossy(&barcode_group.barcodes[0].seq[mask_start..=mask_end])
+                // );
                 let bar_read_region =
-                    map_pat_to_text(best_match, mask_start as i32, mask_end as i32);
+                    map_pat_to_text(&scored[0].1, mask_start as i32, mask_end as i32);
                 let ((bar_start, bar_end), (read_bar_start, read_bar_end)) =
                     bar_read_region.expect("No barcode match region found; unusual");
 
-                // Accept only if (1) bit-score gap > 10 and (2) passes simple quality threshold
-                let tau = 0.10; // one intuitive knob
-                // let quality_ok = simple_quality_score(best_keys) >= tau;
-                let is_valid_barcode_match = bit_gap_ok;
+                // 15 and 5 worked well
+                let mut is_valid_barcode_match = scored[0].0 >= 15.0;
+                if scored.len() > 1 {
+                    is_valid_barcode_match = scored[0].0 - scored[1].0 >= 4.0;
+                }
 
-                // Now push appropriate BarbellMatch
+                let first_barcode_cost = scored[0].1.cost;
+                let second_barcode_cost = if scored.len() > 1 {
+                    scored[1].1.cost
+                } else {
+                    1000
+                };
+
+                // // Single acceptance rule: uniqueness LR
+                // let (first_barcode_cost, second_barcode_cost, is_valid_barcode_match) = if scored
+                //     .len()
+                //     == 1
+                // {
+                //     let first_barcode_cost = scored[0].1.cost;
+                //     if first_barcode_cost <= 6 || scored[0].0 <= 0.6 {
+                //         (first_barcode_cost, 1000, true)
+                //     } else {
+                //         (first_barcode_cost, 1000, false)
+                //     }
+                // } else {
+                //     let odds = (scored[0].0 - scored[1].0);
+                //     //println!("odds: {}", odds);
+
+                //     // Then we also check the barcode region to see if we have at most 8 edits
+                //     let first_barcode_cost = scored[0].1.cost;
+                //     let second_barcode_cost = scored[1].1.cost;
+
+                //     let is_valid_barcode_match =
+                //             // Rule 1: penalty <= 9 and gap from 2nd >= 3
+                //             (first_barcode_cost <= 9 && (second_barcode_cost - first_barcode_cost) >= 3)
+                //             ||
+                //             // Rule 2: penalty <= 6 and gap from both 2nd & 3rd >= 6
+                //             (second_barcode_cost - first_barcode_cost) >= 6
+                //             ||
+                //             odds > 1.2;
+
+                //     // let is_valid_barcode_match = first_barcode_cost <= 6
+                //     //     || (second_barcode_cost - first_barcode_cost >= 6);
+
+                //     (
+                //         first_barcode_cost,
+                //         second_barcode_cost,
+                //         is_valid_barcode_match,
+                //     )
+                // };
+
+                if verbose {
+                    for _ in 0..10 {
+                        println!("Best label: {}", scored[0].2.label);
+                        println!("Best match: {}", scored[0].1.cigar.to_string());
+                        println!("Best score: {}", scored[0].0);
+                        println!("Best cost: {}", first_barcode_cost);
+
+                        if scored.len() > 1 {
+                            println!("Second score: {}", scored[1].0);
+                            println!("Second label: {}", scored[1].2.label);
+                            println!("Second cost: {}", second_barcode_cost);
+                            println!("Second cigar: {}", scored[1].1.cigar.to_string());
+                            let odds = (scored[1].0 - scored[0].0).exp();
+                            println!("Odds: {}", odds);
+                        } else {
+                            println!("No second match");
+                        }
+                        println!("Is valid: {}", is_valid_barcode_match);
+                        println!("--------------------------------");
+                    }
+                }
+
                 if is_valid_barcode_match {
-                    // Extract barcode match region from cigar
-
                     results.push(BarbellMatch::new(
-                        slice_start + read_bar_start,
-                        slice_start + read_bar_end,
+                        barcode_region_start + read_bar_start,
+                        barcode_region_start + read_bar_end,
                         flank_match.text_start,
                         flank_match.text_end,
                         bar_start - barcode_group.flank_prefix.len(),
                         bar_end - barcode_group.flank_prefix.len(),
-                        best_barcode.match_type.clone(),
+                        scored[0].2.match_type.clone(),
                         flank_match.cost,
-                        (*best_bits).round() as i32,
-                        best_barcode.label.clone(),
-                        best_match.strand,
+                        first_barcode_cost, //(*best_score).round() as i32,
+                        scored[0].2.label.clone(),
+                        scored[0].1.strand,
                         read.len(),
                         read_id.to_string(),
                         rel_dist_to_end(flank_match.text_start as isize, read.len()),
                         None,
                     ));
                 } else {
-                    // treat as plain flank
                     results.push(BarbellMatch::new(
                         flank_match.text_start,
                         flank_match.text_end,
@@ -498,10 +555,10 @@ impl Demuxer {
 // #[cfg(test)]
 // mod tests {
 //     use pa_types::Cigar;
-
+//
 //     use super::*;
 //     use crate::annotate::interval::collapse_overlapping_matches;
-
+//
 //     /// Helper function to check if a value is within wiggle room of expected
 //     fn assert_within_wiggle_room(actual: usize, expected: usize, wiggle_room: usize) {
 //         let min = expected.saturating_sub(wiggle_room);
@@ -511,398 +568,9 @@ impl Demuxer {
 //             "Expected {actual} to be within [{min}, {max}] of expected {expected}"
 //         );
 //     }
-
-//     #[test]
-//     fn test_slice_masked_region() {
-//         let mut demuxer = Demuxer::new(0.5);
-//         let read = b"GGGGGAAATTTGGGCCCCCCCCCCCCCCCCCCCCCC".to_vec();
-//         //                         AAATTTGGG <- match (0 edits/cost)
-//         let flank = BarcodeGroup::new(
-//             vec![b"AAATTTGGG".to_vec(), b"AAAXXXGGG".to_vec()],
-//             vec!["s1".to_string(), "s2".to_string()],
-//             BarcodeType::Ftag,
-//         );
-//         demuxer.add_query_group(flank);
-
-//         let matches = demuxer.demux("test", &read);
-//         assert_eq!(matches.len(), 1);
-//         assert_eq!(matches[0].label, "s1");
-//         assert_eq!(matches[0].read_start_bar, 8);
-//         assert_eq!(matches[0].read_end_bar, 11); // Exclusive index
-//         assert_eq!(matches[0].bar_start, 0);
-//         assert_eq!(matches[0].bar_end, 3); // This is inclusive, maybe we should stay consistent exclusive?
-//         assert_eq!(matches[0].match_type, BarcodeType::Ftag);
-//         assert_eq!(matches[0].barcode_cost, 0);
-//         assert_eq!(matches[0].strand, Strand::Fwd);
-//     }
-
-//     #[test]
-//     fn test_demux_rc() {
-//         let mut demuxer = Demuxer::new(0.5);
-//         let read = b"GGGGGAAATTTTTTTTTTTGGGCCCCCCCCCCCCCCCCCCCCCC".to_vec();
-//         //                         AAATTTGGG <- match (0 edits/cost)
-//         let mut bar_group = BarcodeGroup::new(
-//             vec![
-//                 Iupac::reverse_complement("AAATTTTTTTTTTTGGG".as_bytes()).to_vec(),
-//                 Iupac::reverse_complement("AAACCCCCCCCCCCGGG".as_bytes()).to_vec(),
-//             ],
-//             vec!["s1".to_string(), "s2".to_string()],
-//             BarcodeType::Ftag,
-//         );
-//         //bar_group.tune_group_random_sequences(1000, 0.001, 0.5, 1);
-//         bar_group.set_perc_threshold(0.1);
-
-//         demuxer.add_query_group(bar_group);
-
-//         let matches = demuxer.demux("test", &read);
-
-//         assert!(matches.len() < 3 && !matches.is_empty());
-
-//         // Same as before, but now rc
-//         assert_eq!(matches[0].label, "s1");
-//         assert_eq!(matches[0].read_start_bar, 8);
-//         assert_eq!(matches[0].read_end_bar, 19); // Exclusive index
-//         assert_eq!(matches[0].bar_start, 0);
-//         assert_eq!(matches[0].bar_end, 11); // This is inclusive, maybe we should stay consistent exclusive?
-//         assert_eq!(matches[0].match_type, BarcodeType::Ftag);
-//         assert_eq!(matches[0].barcode_cost, 0);
-//         assert_eq!(matches[0].strand, Strand::Rc); // Same as above EXCEPT strand
-//     }
-
-//     #[test]
-//     fn test_just_overhang() {
-//         let mut demuxer = Demuxer::new(0.5);
-//         let read = b"TTTTTTGGGXXXXXXXXXXXXXXXXXXXXXXXXXXXx".to_vec();
-//         //                    ||||||||| -> 7 * 0.5 = 4 cost, barcode = 0.5 * 4 = 2 cost
-//         //             AAATTTTTTTTTTGGG <- match (0 edits/cost)
-//         //            TTTTTT
-//         //         TTTTTTTTTT
-//         let mut flank = BarcodeGroup::new(
-//             vec![b"AAATTTTTTTTTTGGG".to_vec(), b"AAACCCCCCCCCCGGG".to_vec()],
-//             vec!["s1".to_string(), "s2".to_string()],
-//             BarcodeType::Ftag,
-//         );
-//         // Tune flank seq
-//         flank.k_cutoff = Some(4);
-//         // Tuen each of the barcodes within flank
-//         for barcode in flank.barcodes.iter_mut() {
-//             barcode.k_cutoff = Some(2);
-//         }
-
-//         demuxer.add_query_group(flank);
-//         let matches = demuxer.demux("test", &read);
-//         assert_eq!(matches.len(), 1);
-//         assert_eq!(matches[0].label, "s1");
-
-//         // This can vary a little bit though
-//         // assert_within_wiggle_room(matches[0].read_start_bar, 0, crate::WIGGLE_ROOM);
-//         // assert_within_wiggle_room(matches[0].read_end_bar, 7, crate::WIGGLE_ROOM);
-
-//         // assert_within_wiggle_room(matches[0].bar_start, 3, crate::WIGGLE_ROOM);
-//         // assert_within_wiggle_room(matches[0].bar_end, 10, crate::WIGGLE_ROOM); // This is inclusive, maybe we should stay consistent exclusive?
-//         assert_eq!(matches[0].match_type, BarcodeType::Ftag);
-//         assert_eq!(matches[0].barcode_cost, 2);
-//         assert_eq!(matches[0].strand, Strand::Fwd); // Same as above EXCEPT strand
-//     }
-
-//     #[test]
-//     fn match_in_middle() {
-//         let mut demuxer = Demuxer::new(0.5);
-//         let read = b"CCCCCCCCCCCCCAAATTTTTTTTTTTGGGCCCCCCCCCCCC".to_vec();
-//         //                                 AAATTTTTTTTTTTGGG <- match (0 edits/cost)
-//         let flank = BarcodeGroup::new(
-//             vec![b"AAATTTTTTTTTTTGGG".to_vec(), b"AAACCCCCCCCCCCGGG".to_vec()],
-//             vec!["s1".to_string(), "s2".to_string()],
-//             BarcodeType::Ftag,
-//         );
-//         demuxer.add_query_group(flank);
-
-//         let res = demuxer.demux("test", &read);
-//         assert_eq!(res.len(), 2);
-//         assert_eq!(res[1].label, "s1");
-//         assert_eq!(res[1].read_start_bar, 16);
-//         assert_eq!(res[1].read_end_bar, 27); // Exclusive index
-//         assert_eq!(res[1].bar_start, 0);
-//         assert_eq!(res[1].bar_end, 11); // This is inclusive, maybe we should stay consistent exclusive?
-//         assert_eq!(res[1].match_type, BarcodeType::Ftag);
-//         assert_eq!(res[1].barcode_cost, 0);
-//         assert_eq!(res[1].strand, Strand::Fwd);
-//     }
-
-//     #[test]
-//     fn test_multi_match() {
-//         let mut demuxer = Demuxer::new(0.5);
-//         let read = b"CCCCCCCCCCCCCAAATTTTTTTTTTTGGGCCCCCCCCCCCC".to_vec();
-//         //                                 AAATTTTTTTTTTTGGG <- match (0 edits/cost)
-//         let flank = BarcodeGroup::new(
-//             vec![b"AAATTTTTTTTTTTGGG".to_vec(), b"AAACCCCCCCCCCCGGG".to_vec()],
-//             vec!["s1".to_string(), "s2".to_string()],
-//             BarcodeType::Ftag,
-//         );
-//         demuxer.add_query_group(flank);
-//     }
-
-//     #[test]
-//     pub fn search_real_read() {
-//         println!("Test real read");
-//         let read: Vec<u8> = b"TGTTATATTTCCCTGTACTTCGTTCCAGTTATTTTTATGCAAAAAACCGGTGTTTAACCACCACTGCCATGTATCAAAGTACGGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCAACAGGAAAACTATTTTCTGCAGG".to_vec();
-
-//         // FWD group
-//         let mut fwd_barcode_group = BarcodeGroup::new(
-//             vec![
-//                 b"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCACCACTGCCATGTATCAAAGTACGGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA".to_vec(),
-//                 b"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCTTCGGATTCTATCGTGTTTCCCTAGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA".to_vec()
-//             ],
-//             vec!["bar22_fwd".to_string(), "bar4_fwd".to_string()],
-//             BarcodeType::Ftag,
-//         );
-//         fwd_barcode_group.set_perc_threshold(0.2);
-//         let mut demuxer = Demuxer::new(0.5);
-//         demuxer.add_query_group(fwd_barcode_group);
-//         println!("FWD demux");
-//         let fwd_matches = demuxer.demux("test", &read);
-//         println!("\n");
-
-//         // RC group
-//         let mut rc_barcode_group = BarcodeGroup::new(
-//             vec![
-//                 Iupac::reverse_complement("TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCACCACTGCCATGTATCAAAGTACGGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA".as_bytes()).to_vec(),
-//                 Iupac::reverse_complement("TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCTTCGGATTCTATCGTGTTTCCCTAGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA".as_bytes()).to_vec()
-//             ],
-//             vec!["bar22_rc".to_string(), "bar4_rc".to_string()],
-//             BarcodeType::Ftag,
-//         );
-//         rc_barcode_group.set_perc_threshold(0.2);
-//         let mut demuxer_rc = Demuxer::new(0.5);
-//         demuxer_rc.add_query_group(rc_barcode_group);
-//         println!("RC demux");
-//         let rc_matches = demuxer_rc.demux("test", &read);
-//         println!("\n");
-
-//         println!("FWD matches");
-//         for m in fwd_matches.iter() {
-//             println!("m: {m:?}");
-//         }
-//         println!("RC matches");
-//         for m in rc_matches.iter() {
-//             println!("m: {m:?}");
-//         }
-
-//         let collapsed_fwd_matches = collapse_overlapping_matches(&fwd_matches, 0.5);
-//         let collapsed_rc_matches = collapse_overlapping_matches(&rc_matches, 0.5);
-
-//         assert_eq!(collapsed_fwd_matches.len(), 1);
-//         assert_eq!(collapsed_rc_matches.len(), 1);
-//         let fwd_first = collapsed_fwd_matches[0].clone();
-//         let rc_first = collapsed_rc_matches[0].clone();
-
-//         assert_eq!(fwd_first.label, "bar22_fwd");
-//         assert_eq!(rc_first.label, "bar22_rc");
-//         // read starts
-//         assert_eq!(fwd_first.read_start_bar, 59);
-//         assert_eq!(rc_first.read_start_bar, 59);
-//         // Read ends
-//         assert_eq!(fwd_first.read_end_bar, 83);
-//         assert_eq!(rc_first.read_end_bar, 83);
-//         // Cost should be 0 for both
-//         assert_eq!(fwd_first.barcode_cost, 0);
-//         assert_eq!(rc_first.barcode_cost, 0);
-//     }
-
-//     #[test]
-//     fn test_overhanging_real_read() {
-//         let read = b"ATGTTTTTTTTTTTTGCCGATATAACCGTTTCATATCGGAGGGAATGGAGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCATCAGCTTCAACAGCATCAGCACAGTTTTGAACCTGATATGGATGAGTTTCGTGAACTGCGTAATTTTAACTTGGGTGATAGCTTACACGCCGTACGTGGAAGCAGGCCGCGCGTGGGCAAGGTTTATATATTAAAGTCTTTGAGCAGCATAATGATCAACCGAGTATGGAAATCCATTATGCAAACATGCAAGTACCGAGCATGAAGAGAAATTGAGCTTAATGATGGGGCTGATTGAGCAATGTGAGCAACTGCAATGTAGCTATGCGGTATTTTTGCCTCAAGCTCGATTAGCTGTAGGCACAGGTGCAAACCAGTTGCTTCAGGCTAAAAAACTTCTGGCGCAGGCTTAATTATGATGCATGCTGATGTAGAACCTCGATTTAATGACTTTGCTGTTATTACTGCTTGCACAAGTCTTGTTTAATCCCGTTCTGTTAACTGCAATTTTTATTCTCCTCTGTTTATTTGTCAGCTTTAAAGATGAAACAAAAACAGTATCCAA";
-//         let bar10 = b"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCACCACTGCCATGTATCAAAGTACGGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
-//         let bar11 = b"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCCGTCAACTGACAGTGGTTCGTACTGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
-
-//         let mut demuxer = Demuxer::new(0.5);
-//         let mut fwd_barcode_group = BarcodeGroup::new(
-//             vec![bar10.to_vec(), bar11.to_vec()],
-//             vec!["bar22".to_string(), "bar16".to_string()],
-//             BarcodeType::Ftag,
-//         );
-
-//         let tune_start_time = std::time::Instant::now();
-//         fwd_barcode_group.set_perc_threshold(0.2);
-//         let tune_end_time = std::time::Instant::now();
-//         println!(
-//             "Tune time: {:?}",
-//             tune_end_time.duration_since(tune_start_time)
-//         );
-
-//         demuxer.add_query_group(fwd_barcode_group);
-
-//         let matches = demuxer.demux("test", read.as_slice());
-//         for m in matches.iter() {
-//             println!("m: {m:?}");
-//         }
-//     }
-
-//     #[test]
-//     #[ignore = "Full test only for debugging"]
-//     fn test_full_rapid_flow() {
-//         let example_file = "examples/rapid_bars.fasta";
-//         let mut barcode_group = BarcodeGroup::new_from_fasta(example_file, BarcodeType::Ftag);
-//         barcode_group.set_perc_threshold(0.2);
-//         let mut demuxer = Demuxer::new(0.5);
-//         demuxer.add_query_group(barcode_group);
-
-//         // Read file test
-//         let mut reader = parse_fastx_file("~/Downloads/sub.fastq").expect("valid path/file");
-//         while let Some(record) = reader.next() {
-//             let seqrec = record.expect("invalid record");
-//             let norm_seq = seqrec.normalize(false);
-//             println!("Read id: {}", String::from_utf8_lossy(seqrec.id()));
-//             let result = demuxer.demux("test", &norm_seq.into_owned());
-//             for m in result.iter() {
-//                 println!("\tm: {m:?}");
-//             }
-//             println!("\n");
-//         }
-//     }
-
-//     #[test]
-//     fn test_serialization_deserialization() {
-//         use crate::filter::pattern::{Cut, CutDirection};
-//         use serde_json;
-
-//         // Test with no cuts
-//         let match1 = BarbellMatch::new(
-//             0,
-//             10,
-//             0,
-//             10,
-//             0,
-//             10,
-//             BarcodeType::Ftag,
-//             0,
-//             0,
-//             "test".to_string(),
-//             Strand::Fwd,
-//             100,
-//             "read1".to_string(),
-//             0,
-//             None,
-//         );
-
-//         let json1 = serde_json::to_string(&match1).unwrap();
-//         let deserialized1: BarbellMatch = serde_json::from_str(&json1).unwrap();
-//         assert_eq!(match1.cuts, deserialized1.cuts);
-
-//         // Test with cuts
-//         let cuts = Some(vec![
-//             (Cut::new(1, CutDirection::Before), 50),
-//             (Cut::new(2, CutDirection::After), 75),
-//         ]);
-//         let match2 = BarbellMatch::new(
-//             0,
-//             10,
-//             0,
-//             10,
-//             0,
-//             10,
-//             BarcodeType::Ftag,
-//             0,
-//             0,
-//             "test".to_string(),
-//             Strand::Fwd,
-//             100,
-//             "read2".to_string(),
-//             0,
-//             cuts.clone(),
-//         );
-
-//         let json2 = serde_json::to_string(&match2).unwrap();
-//         let deserialized2: BarbellMatch = serde_json::from_str(&json2).unwrap();
-//         assert_eq!(match2.cuts, deserialized2.cuts);
-
-//         // Verify the JSON format
-//         assert!(json1.contains("\"cuts\":\"\""));
-//         assert!(json2.contains("\"cuts\":\"Before(1):50,After(2):75\""));
-//     }
-
-//     #[test]
-//     fn overflow_rel_dist_bug() {
-//         let pos = 167_isize;
-//         let read_len = 173_usize;
-//         let rel_pos = rel_dist_to_end(pos, read_len);
-//         println!("rel_pos: {}", rel_pos);
-//     }
-
-//     #[test]
-//     fn example_rc_miss() {
-//         let read = b"ACCAGATTGCTGGTGCTGCTTGTCCAGGGTTTGTGTAACCTTTTAACCTTCGTCGGCAGCGTCAGATGTGTATAAGAGACAGTACCTGGTTGATCCTGCCAGTAGTCATATGCTTGTCTCAAGATTAAGCCATGCATGTCTAAGTATAAACAAATTCATACTGTGAAACTGCGAATGGCTCATTAAATCAGTTATAGTTTATTTGATGGTTTCTTGCTACATGGATAACTGTGGTAATTCTAGAGCTAATACATGCTGAAAAGCCCCGACTTCTGGAAGGGGTGTATTTATTAGATAAAAAACCAATGACTTCGGTCTTCTTGGTGATTCATAATAACTTCTCGAATCGCATGGCCTCGCGCCGGCGATGCTTCATTCAAATATCTGCCCTATCAACTTTCGATGGTAGGATAGAGGCCTACCATGGTATCAACGGGTAACGGGAATTAGGGTTCGATTCCGGAGAGGGAGCCTAGAAACGGCTACCACATCCAAGGAAGGCAGCAGGCGCGCAAATTACCCAATCCCGACACGGGGA";
-//         let read_rc = Iupac::reverse_complement(read);
-
-//         let mut demuxer = Demuxer::new(0.5);
-
-//         /*
-
-//                 >5R
-//         AATGTACTTCGTTCAGTTACGTATTGCTGGTGCTGCTTGTCCAGGGTTTGTGTAACCTTTTAACCTTCGTCGGCAGCGTCAGATGTGTATAAGAGACAGTACCTGGTTGATYCTG
-//         >6R
-//         AATGTACTTCGTTCAGTTACGTATTGCTGGTGCTGTTCTCGCAAAGGCAGAAAGTAGTCTTAACCTTCGTCGGCAGCGTCAGATGTGTATAAGAGACAGTACCTGGTTGATYCTG
-//          */
-//         let mut fwd_barcode_group = BarcodeGroup::new(
-//             vec![
-//                 b"AATGTACTTCGTTCAGTTACGTATTGCTGGTGCTGCTTGTCCAGGGTTTGTGTAACCTTTTAACCTTCGTCGGCAGCGTCAGATGTGTATAAGAGACAGTACCTGGTTGATYCTG".to_vec(),
-//                 b"AATGTACTTCGTTCAGTTACGTATTGCTGGTGCTGTTCTCGCAAAGGCAGAAAGTAGTCTTAACCTTCGTCGGCAGCGTCAGATGTGTATAAGAGACAGTACCTGGTTGATYCTG".to_vec()],
-//             vec!["5R".to_string(), "6R".to_string()],
-//             BarcodeType::Rtag,
-//         );
-//         fwd_barcode_group.set_perc_threshold(0.2);
-//         demuxer.add_query_group(fwd_barcode_group);
-//         println!("FWD demux");
-//         let fwd_matches = demuxer.demux("test", read.as_slice());
-//         for fw_m in fwd_matches.iter() {
-//             println!("fw_m: {:?}", fw_m);
-//         }
-//         println!("\n");
-//         println!("RC demux");
-//         let rc_matches = demuxer.demux("test", read_rc.as_slice());
-//         for rc_m in rc_matches.iter() {
-//             println!("rc_m: {:?}", rc_m);
-//         }
-//         println!("\n");
-//     }
-
-//     #[test]
-//     fn test_rel_end() {
-//         let read_len = 3537;
-//         let pos = 3537;
-//         let rel_dist = rel_dist_to_end(pos, read_len);
-//         println!("rel dist: {}", rel_dist);
-//     }
-
-//     // #[test]
-//     // fn test_barcode_cost() {
-//     //     let cigar = Cigar::from_string("3=I=");
-//     // }
-
-//     #[test]
-//     fn test_pa_types_bug() {
-//         use pa_types::cigar::*;
-//         use pa_types::*;
-//         let mut cigar = Cigar::default();
-//         cigar.push(CigarOp::Match);
-//         cigar.push(CigarOp::Match);
-//         cigar.push(CigarOp::Match);
-//         cigar.push(CigarOp::Ins);
-//         cigar.push(CigarOp::Match);
-//         assert_eq!(cigar.to_string(), "3=I=");
-//         let path = cigar.to_path_with_costs(CostModel::unit());
-//         for (Pos(i, j), cost) in path.iter() {
-//             println!("{} - {}: c: {}", i, j, cost);
-//         }
-//         /*
-//         cigar: 3=I=
-//         0 - 0: c: 0
-//         1 - 1: c: 0
-//         2 - 2: c: 0
-//         3 - 3: c: 0f
-//         3 - 4: c: 1
-//         4 - 5: c: 1
-
-//          */
-//     }
 // }
+
+/*
+5D6=4D4=2D
+X3=5D5=3D2=3D
+*/

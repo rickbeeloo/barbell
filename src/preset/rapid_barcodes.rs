@@ -45,6 +45,7 @@ pub fn demux_rapid_barcodes(
         verbose,
         None,
         true,
+        Some("rapid_top2_out.txt"),
     )
     .expect("Annotation failed");
 

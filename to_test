@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "$#" -ne 1 ]; then
+  echo "Usage: $0 <read_id>"
+  exit 1
+fi
+
+READ_ID="$1"
+grep -F -A 3 "$READ_ID" pass_sample.fastq | sed '/^--$/d' > test.fastq

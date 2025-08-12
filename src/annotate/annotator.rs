@@ -1,8 +1,11 @@
 use crate::annotate::barcodes::{BarcodeGroup, BarcodeType};
+use crate::annotate::model::Model;
 use crate::annotate::searcher::Demuxer;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use seq_io::fastq::{Reader, Record};
 use seq_io::parallel::read_parallel;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread_local;
@@ -88,6 +91,7 @@ pub fn annotate(
     verbose: bool,
     min_fit: Option<f64>,
     conservative_runs: bool,
+    top2_out: Option<&str>,
 ) -> anyhow::Result<()> {
     let reader = Reader::from_path(read_file).unwrap();
     let writer = Arc::new(Mutex::new(
@@ -96,6 +100,14 @@ pub fn annotate(
             .from_path(out_file)
             .unwrap(),
     ));
+
+    // Optional top-2 candidate writer (tab-separated):
+    // read_id  label1  cigar1  label2  cigar2
+    let top2_writer: Option<Arc<Mutex<BufWriter<File>>>> = if let Some(path) = top2_out {
+        Some(Arc::new(Mutex::new(BufWriter::new(File::create(path)?))))
+    } else {
+        None
+    };
 
     // Make sure not percentage and other errors are set
     if max_error_perc.is_some() && (max_flank_errors.is_some() || max_bar_errors.is_some()) {
@@ -147,12 +159,12 @@ pub fn annotate(
                 if cell.borrow().is_none() {
                     #[cfg(feature = "verbose")]
                     println!("Thread {:?} initializing demuxer", thread_id::get());
-                    let mut demux = Demuxer::new_with_verbose(alpha, verbose)
-                        .with_min_fit(min_fit)
-                        .with_run_model_conservative(conservative_runs);
+                    let mut demux =
+                        Demuxer::new_with_verbose_and_top2(alpha, verbose, top2_writer.clone());
                     for query_group in query_groups.iter() {
                         demux.add_query_group(query_group.clone());
                     }
+
                     *cell.borrow_mut() = Some(demux);
                 }
             });

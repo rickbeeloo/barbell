@@ -95,7 +95,7 @@ dependencies = [
  "plotpy",
  "rand 0.8.5",
  "rayon",
- "sassy",
+ "sassy 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "seq_io",
  "serde",
  "serde_json",
@@ -113,7 +113,7 @@ dependencies = [
  "glob",
  "needletail",
  "rand 0.9.1",
- "sassy",
+ "sassy 0.1.2 (git+https://github.com/RagnarGrootKoerkamp/sassy.git?branch=master)",
 ]
 
 [[package]]
@@ -842,6 +842,21 @@ name = "ryu"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
+
+[[package]]
+name = "sassy"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3bce5ce8b19e9c6043f4c1639f0b9017b8f4e2a60a8b7b31ccc6751808c9a6b"
+dependencies = [
+ "clap",
+ "env_logger",
+ "log",
+ "needletail",
+ "num_cpus",
+ "pa-types",
+ "rand 0.9.1",
+]
 
 [[package]]
 name = "sassy"
