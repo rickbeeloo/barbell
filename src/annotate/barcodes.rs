@@ -101,13 +101,10 @@ impl BarcodeGroup {
         // Slice out all the masked region sequences
         let mut barcodes = Vec::new();
         for (i, seq) in query_seqs.iter().enumerate() {
-            let start = prefix_len.saturating_sub(5);
-            // println!("start: {}", start);
+            let start = prefix_len.saturating_sub(10);
             let end = (prefix_len + mask_size + 10).min(seq.len());
-            // let start = prefix_len;
-            // let end = (prefix_len + mask_size).min(seq.len());
 
-            // assert_eq!(*&seq[start..end].len(), 24 + 10 + 5);
+            assert_eq!(*&seq[start..end].len(), 24 + 20);
             barcodes.push(Barcode::new(
                 &seq[start..end], // trying the whole sequence
                 &query_labels[i],

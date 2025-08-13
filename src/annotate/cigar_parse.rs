@@ -77,6 +77,63 @@ fn pattern_bases_in_cigar(cigar: &[CigarElem]) -> usize {
     len
 }
 
+pub fn triangle_score_both(cigar: &[CigarElem], match_step: f64, error_step: f64) -> f64 {
+    if cigar.is_empty() {
+        return 0.0;
+    }
+
+    let mut match_total: f64 = 0.0;
+    let mut error_total: f64 = 0.0;
+    let mut cur_match_run: usize = 0;
+    let mut cur_error_run: usize = 0;
+
+    for elem in cigar {
+        match elem.op {
+            CigarOp::Match => {
+                // If there was an error run, flush it
+                if cur_error_run > 0 {
+                    let l = cur_error_run as f64;
+                    error_total += error_step * (l * (l + 1.0) / 2.0);
+                    cur_error_run = 0;
+                }
+                // extend current match run by elem.cnt
+                cur_match_run += elem.cnt as usize;
+            }
+
+            // treat Sub, Ins, Del as errors; flush any pending match run first
+            CigarOp::Sub | CigarOp::Ins | CigarOp::Del => {
+                if cur_match_run > 0 {
+                    let l = cur_match_run as f64;
+                    match_total += match_step * (l * (l + 1.0) / 2.0);
+                    cur_match_run = 0;
+                }
+                // extend current error run by elem.cnt
+                cur_error_run += elem.cnt as usize;
+            }
+        }
+    }
+
+    // flush at end
+    if cur_match_run > 0 {
+        let l = cur_match_run as f64;
+        match_total += match_step * (l * (l + 1.0) / 2.0);
+    }
+    if cur_error_run > 0 {
+        let l = cur_error_run as f64;
+        error_total += error_step * (l * (l + 1.0) / 2.0);
+    }
+
+    let raw_score = match_total - error_total;
+
+    let qlen = pattern_bases_in_cigar(cigar);
+
+    if qlen == 0 {
+        unreachable!("CIGAR should at least have some match");
+    } else {
+        raw_score / (qlen as f64)
+    }
+}
+
 pub fn triangle_score(cigar: &[CigarElem], match_step: f64, error_step: f64) -> f64 {
     if cigar.is_empty() {
         return 0.0;
@@ -122,6 +179,82 @@ pub fn triangle_score(cigar: &[CigarElem], match_step: f64, error_step: f64) -> 
     } else {
         raw_score / (qlen as f64)
     }
+}
+
+pub fn simple_kmer_score(cigar: &[CigarElem], match_step: f64, error_step: f64) -> f64 {
+    if cigar.is_empty() {
+        return 0.0;
+    }
+
+    const K: usize = 6;
+
+    // total number of pattern positions spanned by the CIGAR (M+S+D)
+    let pattern_len = pattern_bases_in_cigar(cigar);
+    if pattern_len == 0 {
+        return 0.0;
+    }
+
+    // Use absolute scales to enforce: matches add, errors subtract
+    let m_scale = match_step.abs();
+    let e_scale = error_step.abs();
+
+    let kernel_sum_at = |anchor: usize| -> f64 {
+        let left_span = anchor.min(K - 1);
+        let right_span = (pattern_len - 1 - anchor).min(K - 1);
+        let mut sum = K as f64; // d=0
+        for d in 1..=left_span {
+            sum += (K - d) as f64;
+        }
+        for d in 1..=right_span {
+            sum += (K - d) as f64;
+        }
+        sum
+    };
+
+    let mut total_match: f64 = 0.0;
+    let mut total_error: f64 = 0.0;
+
+    let mut i_pat: usize = 0;
+
+    for elem in cigar {
+        match elem.op {
+            CigarOp::Match => {
+                for _ in 0..elem.cnt {
+                    let anchor = i_pat;
+                    let ksum = kernel_sum_at(anchor);
+                    total_match += m_scale * ksum;
+                    i_pat += 1;
+                }
+            }
+            CigarOp::Sub => {
+                for _ in 0..elem.cnt {
+                    let anchor = i_pat;
+                    let ksum = kernel_sum_at(anchor);
+                    total_error += e_scale * ksum;
+                    i_pat += 1;
+                }
+            }
+            CigarOp::Del => {
+                for _ in 0..elem.cnt {
+                    let anchor = i_pat;
+                    let ksum = kernel_sum_at(anchor);
+                    total_error += e_scale * ksum;
+                    i_pat += 1;
+                }
+            }
+            CigarOp::Ins => {
+                for _ in 0..elem.cnt {
+                    let anchor = i_pat.min(pattern_len - 1);
+                    let ksum = kernel_sum_at(anchor);
+                    total_error += e_scale * ksum;
+                }
+            }
+        }
+    }
+
+    let total_ops = cigar.iter().map(|e| e.cnt as usize).sum::<usize>();
+
+    (total_match - total_error) / (total_ops as f64)
 }
 
 // pub fn ema_score_simple(cigar: &[CigarElem], match_step: f64, error_step: f64, alpha: f64) -> f64 {
@@ -1359,54 +1492,49 @@ mod test {
         assert!(match_slice == b"C");
     }
 
-    // #[test]
-    // fn test_prob_model_per_base_normalization_is_length_invariant() {
-    //     // Two cigars with the same composition but different lengths
-    //     let short = vec![
-    //         CigarElem { op: Match, cnt: 45 },
-    //         CigarElem { op: Sub, cnt: 5 },
-    //     ];
-    //     let long = vec![
-    //         CigarElem { op: Match, cnt: 90 },
-    //         CigarElem { op: Sub, cnt: 10 },
-    //     ];
+    #[test]
+    fn test_simple_kmer_score_counts() {
+        let l5 = vec![CigarElem { op: Match, cnt: 5 }];
+        let l6 = vec![CigarElem { op: Match, cnt: 6 }];
+        let l7 = vec![CigarElem { op: Match, cnt: 7 }];
 
-    //     let model = ProbModel::new(0.01, 0.15);
-    //     let null = ProbModel::new(0.05, 0.50);
+        let s5 = simple_kmer_score(&l5, 1.0, 1.0);
+        let s6 = simple_kmer_score(&l6, 1.0, 1.0);
+        let s7 = simple_kmer_score(&l7, 1.0, 1.0);
 
-    //     // Raw costs scale with length
-    //     assert!(model.score_cigar(&long) > model.score_cigar(&short));
+        // Longer contiguous matches should score higher
+        assert!(s6 > s5);
+        assert!(s7 > s6);
 
-    //     // Per-base costs are approximately equal
-    //     let short_avg = model.avg_cost_per_pattern_base(&short);
-    //     let long_avg = model.avg_cost_per_pattern_base(&long);
-    //     let rel_diff = (short_avg - long_avg).abs() / short_avg.max(long_avg);
-    //     assert!(rel_diff < 1e-9);
-    // }
+        let with_sub = vec![
+            CigarElem { op: Match, cnt: 6 },
+            CigarElem { op: Sub, cnt: 1 },
+        ]; // pattern_len = 7
+        let pure_match = vec![CigarElem { op: Match, cnt: 7 }]; // pattern_len = 7
+        let s_err = simple_kmer_score(&with_sub, 1.0, 1.0);
+        let s_pure = simple_kmer_score(&pure_match, 1.0, 1.0);
+        assert!(s_err < s_pure);
+    }
 
     #[test]
-    fn test_blast_bit_score_and_evalue_helpers() {
-        // Construct two alignments with similar identity but different lengths
-        let short = vec![
-            CigarElem { op: Match, cnt: 45 },
-            CigarElem { op: Sub, cnt: 5 },
-        ]; // length ~50
-        let long = vec![
-            CigarElem { op: Match, cnt: 90 },
-            CigarElem { op: Sub, cnt: 10 },
-        ]; // length ~100
-
-        let blast = BlastModel::default();
-
-        let short_bits = blast.bit_score_from_cigar(&short);
-        let long_bits = blast.bit_score_from_cigar(&long);
-        // Longer alignment should have a larger bit score
-        assert!(long_bits > short_bits);
-
-        // E-values incorporate effective lengths. With the same identity rate,
-        // the longer alignment should be even more significant (smaller E-value)
-        let e_short = blast.e_value_from_cigar(&short, 50, 50);
-        let e_long = blast.e_value_from_cigar(&long, 100, 100);
-        assert!(e_long < e_short);
+    fn test_two_cigars() {
+        let c1 = &[
+            CigarElem { op: Sub, cnt: 3 },
+            CigarElem { op: Match, cnt: 8 },
+        ];
+        let c2 = &[
+            CigarElem { op: Match, cnt: 1 },
+            CigarElem { op: Sub, cnt: 1 },
+            CigarElem { op: Match, cnt: 2 },
+            CigarElem { op: Sub, cnt: 1 },
+            CigarElem { op: Match, cnt: 2 },
+            CigarElem { op: Sub, cnt: 1 },
+            CigarElem { op: Match, cnt: 1 },
+            CigarElem { op: Sub, cnt: 1 },
+            CigarElem { op: Match, cnt: 1 },
+        ];
+        let s1 = simple_kmer_score(c1, 1.0, 1.0);
+        let s2 = simple_kmer_score(c2, 1.0, 1.0);
+        println!("s1: {}, s2: {}", s1, s2);
     }
 }

@@ -289,11 +289,17 @@ impl Demuxer {
                 else {
                     continue; // no room for barcode?
                 };
+                // let barcode_region_start =
+                //     (flank_match.text_start + barcode_region_start).saturating_sub(10);
+                // let barcode_region_end = (flank_match.text_start + barcode_region_end)
+                //     .saturating_add(10 + 6)
+                //     .min(read.len());
+
                 let barcode_region_start =
-                    (flank_match.text_start + barcode_region_start).saturating_sub(10);
-                let barcode_region_end = (flank_match.text_start + barcode_region_end)
-                    .saturating_add(10 + 6)
-                    .min(read.len());
+                    (flank_match.text_start + barcode_region_start).saturating_sub(10 + 5);
+                let barcode_region_end =
+                    (flank_match.text_start + barcode_region_end + 10 + 5).min(read.len());
+
                 let region_size = barcode_region_end - barcode_region_start;
                 //assert_eq!(region_size, 24 + 5 + 10);
 
@@ -378,7 +384,7 @@ impl Demuxer {
                         // let avg_cost_per_pattern_base =
                         //     simple_model.avg_cost_per_pattern_base(&m.cigar.ops, verbose);
 
-                        let s = triangle_score(&m.cigar.ops, 1.0, -1.0);
+                        let s = simple_kmer_score(&m.cigar.ops, 1.0, -1.0);
 
                         (s, m, b)
                     })
@@ -437,10 +443,15 @@ impl Demuxer {
                     bar_read_region.expect("No barcode match region found; unusual");
 
                 // 15 and 5 worked well
-                let mut is_valid_barcode_match = scored[0].0 >= 4.0;
+
+                let mut is_valid_barcode_match = scored[0].0 > 15.0;
                 if scored.len() > 1 {
-                    is_valid_barcode_match = scored[0].0 - scored[1].0 >= 1.0;
+                    is_valid_barcode_match =
+                        is_valid_barcode_match && scored[0].0 - scored[1].0 >= 3.5
                 }
+                // } else {
+                //     scored[0].0 >= 15.0
+                // };
 
                 let first_barcode_cost = scored[0].1.cost;
                 let second_barcode_cost = if scored.len() > 1 {
@@ -519,7 +530,7 @@ impl Demuxer {
                         bar_end - barcode_group.flank_prefix.len(),
                         scored[0].2.match_type.clone(),
                         flank_match.cost,
-                        first_barcode_cost, //(*best_score).round() as i32,
+                        scored[0].0.round() as i32,
                         scored[0].2.label.clone(),
                         scored[0].1.strand,
                         read.len(),
@@ -537,7 +548,7 @@ impl Demuxer {
                         0,
                         barcode_group.barcodes[0].match_type.as_flank().clone(),
                         flank_match.cost,
-                        barcode_group.barcodes[0].seq.len() as Cost,
+                        scored[0].0.round() as i32,
                         "flank".to_string(),
                         flank_match.strand,
                         read.len(),
