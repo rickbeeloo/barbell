@@ -378,7 +378,7 @@ impl Demuxer {
                         // let avg_cost_per_pattern_base =
                         //     simple_model.avg_cost_per_pattern_base(&m.cigar.ops, verbose);
 
-                        let s = ema_score_simple(&m.cigar.ops, 1.0, -1.0, 0.7);
+                        let s = triangle_score(&m.cigar.ops, 1.0, -1.0);
 
                         (s, m, b)
                     })
@@ -437,9 +437,9 @@ impl Demuxer {
                     bar_read_region.expect("No barcode match region found; unusual");
 
                 // 15 and 5 worked well
-                let mut is_valid_barcode_match = scored[0].0 >= 15.0;
+                let mut is_valid_barcode_match = scored[0].0 >= 4.0;
                 if scored.len() > 1 {
-                    is_valid_barcode_match = scored[0].0 - scored[1].0 >= 4.0;
+                    is_valid_barcode_match = scored[0].0 - scored[1].0 >= 1.0;
                 }
 
                 let first_barcode_cost = scored[0].1.cost;

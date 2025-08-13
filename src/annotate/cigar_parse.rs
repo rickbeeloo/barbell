@@ -66,27 +66,85 @@ pub fn ema_score(cigar: &[CigarElem], params: &EmaParams) -> f64 {
     score
 }
 
-pub fn ema_score_simple(cigar: &[CigarElem], match_step: f64, error_step: f64, alpha: f64) -> f64 {
+fn pattern_bases_in_cigar(cigar: &[CigarElem]) -> usize {
+    let mut len: usize = 0;
+    for e in cigar.iter() {
+        match e.op {
+            CigarOp::Match | CigarOp::Sub | CigarOp::Del => len += e.cnt as usize,
+            CigarOp::Ins => {}
+        }
+    }
+    len
+}
+
+pub fn triangle_score(cigar: &[CigarElem], match_step: f64, error_step: f64) -> f64 {
     if cigar.is_empty() {
         return 0.0;
     }
 
-    let mut ema = 0.0_f64;
-    let mut score = 0.0_f64;
+    let mut match_total: f64 = 0.0;
+    let mut error_total: f64 = 0.0;
+    let mut cur_match_run: usize = 0;
 
     for elem in cigar {
-        let step_val = match elem.op {
-            CigarOp::Match => match_step,
-            CigarOp::Sub | CigarOp::Del | CigarOp::Ins => error_step,
-        };
-        for _ in 0..elem.cnt {
-            ema = alpha * ema + (1.0 - alpha) * step_val;
-            score += ema;
+        match elem.op {
+            CigarOp::Match => {
+                // extend current match run by elem.cnt
+                cur_match_run += elem.cnt as usize;
+            }
+
+            // treat Sub, Ins, Del as errors; flush any pending match run first
+            CigarOp::Sub | CigarOp::Ins | CigarOp::Del => {
+                if cur_match_run > 0 {
+                    let l = cur_match_run as f64;
+                    match_total += match_step * (l * (l + 1.0) / 2.0);
+                    cur_match_run = 0;
+                }
+                // errors contribute per-base, we could do "streaks" here as well
+                // as streaks of errors are likely more "okay" than single errors
+                error_total += (elem.cnt as f64) * error_step;
+            }
         }
     }
 
-    score
+    // flush at end
+    if cur_match_run > 0 {
+        let l = cur_match_run as f64;
+        match_total += match_step * (l * (l + 1.0) / 2.0);
+    }
+
+    let raw_score = match_total + error_total;
+
+    let qlen = pattern_bases_in_cigar(cigar);
+
+    if qlen == 0 {
+        unreachable!("CIGAR should at least have some match");
+    } else {
+        raw_score / (qlen as f64)
+    }
 }
+
+// pub fn ema_score_simple(cigar: &[CigarElem], match_step: f64, error_step: f64, alpha: f64) -> f64 {
+//     if cigar.is_empty() {
+//         return 0.0;
+//     }
+
+//     let mut ema = 0.0_f64;
+//     let mut score = 0.0_f64;
+
+//     for elem in cigar {
+//         let step_val = match elem.op {
+//             CigarOp::Match => match_step,
+//             CigarOp::Sub | CigarOp::Del | CigarOp::Ins => error_step,
+//         };
+//         for _ in 0..elem.cnt {
+//             ema = alpha * ema + (1.0 - alpha) * step_val;
+//             score += ema;
+//         }
+//     }
+
+//     score
+// }
 
 pub fn ema_area_between(a: &[CigarElem], b: &[CigarElem], params: &EmaParams) -> f64 {
     let curve_a = ema_curve(a, params);
