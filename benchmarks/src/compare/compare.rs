@@ -171,7 +171,7 @@ impl Tool for Barbell {
         }
 
         let cmd = format!(
-            "{0} preset -p rapid -i {fastq_file} -o {output_folder} -t {threads}",
+            "{0} preset -p rapid -i {fastq_file} -o {output_folder} -t {threads} --maximize",
             self.exec_path
         );
         let result: std::process::Output = Command::new("bash").arg("-c").arg(cmd).output()?;

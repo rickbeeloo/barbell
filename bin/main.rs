@@ -160,9 +160,9 @@ enum Commands {
         #[arg(short = 'o', long)]
         output: String,
 
-        /// Maximum errors as percentage of flank / barcode length
-        #[arg(short = 'e', long, default_value = "0.3")]
-        max_error_perc: Option<f32>,
+        /// Add more 'risky' patterns to demuxing to maximize assigned reads
+        #[arg(long, default_value_t = false)]
+        maximize: bool,
 
         /// Enable verbose output for debugging
         #[arg(long, default_value_t = false)]
@@ -298,17 +298,10 @@ fn main() {
             input,
             threads,
             output,
-            max_error_perc,
+            maximize,
             verbose,
         } => {
-            use_preset(
-                preset.clone(),
-                input,
-                *threads,
-                output,
-                *max_error_perc,
-                *verbose,
-            );
+            use_preset(preset.clone(), input, *threads, output, *maximize, *verbose);
         }
 
         Commands::Tune {

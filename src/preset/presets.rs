@@ -10,12 +10,12 @@ pub fn use_preset(
     fastq_file: &str,
     threads: usize,
     output_folder: &str,
-    max_error_perc: Option<f32>,
+    maximize: bool,
     verbose: bool,
 ) {
     match preset {
         PresetName::Rapid => {
-            demux_rapid_barcodes(fastq_file, threads, output_folder, max_error_perc, verbose)
+            demux_rapid_barcodes(fastq_file, threads, output_folder, maximize, verbose)
         }
         _ => panic!("Unsupported preset, use one of: {:?}", PresetName::Rapid),
     }

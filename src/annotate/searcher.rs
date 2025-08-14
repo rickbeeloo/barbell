@@ -243,7 +243,7 @@ impl Demuxer {
         self
     }
 
-    pub fn demux(&mut self, read_id: &str, read: &[u8], qual: &[u8]) -> Vec<BarbellMatch> {
+    pub fn demux(&mut self, read_id: &str, read: &[u8]) -> Vec<BarbellMatch> {
         let mut results: Vec<BarbellMatch> = Vec::new();
 
         // Initialize thread-local searcher if not already done
@@ -299,9 +299,6 @@ impl Demuxer {
                     (flank_match.text_start + barcode_region_start).saturating_sub(10 + 5);
                 let barcode_region_end =
                     (flank_match.text_start + barcode_region_end + 10 + 5).min(read.len());
-
-                let region_size = barcode_region_end - barcode_region_start;
-                //assert_eq!(region_size, 24 + 5 + 10);
 
                 let barcode_region = &read[barcode_region_start..barcode_region_end];
 
@@ -393,36 +390,9 @@ impl Demuxer {
                 // Sort high to low
                 scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-                // // Actually now do a sort by m.cost
-                // scored.sort_by(|a, b| {
-                //     a.1.cost
-                //         .partial_cmp(&b.1.cost)
-                //         .unwrap_or(std::cmp::Ordering::Equal)
-                // });
-
-                // Outside verbose: write top-2 per-read candidate summary if writer configured
-                if let Some(writer) = &self.top2_writer {
-                    if !scored.is_empty() {
-                        let (label1, cigar1) =
-                            (scored[0].2.label.as_str(), scored[0].1.cigar.to_string());
-                        let (label2, cigar2) = if scored.len() > 1 {
-                            (scored[1].2.label.as_str(), scored[1].1.cigar.to_string())
-                        } else {
-                            ("-", "-".to_string())
-                        };
-                        let mut w = writer.lock().unwrap();
-                        let _ = writeln!(
-                            &mut *w,
-                            "{}\t{}\t{}\t{}\t{}",
-                            read_id, label1, cigar1, label2, cigar2
-                        );
-                    }
-                }
-
                 if verbose {
                     // print top 5 candidates
                     for (i, (score, m, b)) in scored.iter().take(5).enumerate() {
-                        println!("Candidate {i}: {}", b.label);
                         println!("Cost: {:?}", m.cost);
                         println!("Strand: {:?}", m.strand);
                         println!("Cigar: {}", m.cigar.to_string());

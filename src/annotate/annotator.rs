@@ -101,14 +101,6 @@ pub fn annotate(
             .unwrap(),
     ));
 
-    // Optional top-2 candidate writer (tab-separated):
-    // read_id  label1  cigar1  label2  cigar2
-    let top2_writer: Option<Arc<Mutex<BufWriter<File>>>> = if let Some(path) = top2_out {
-        Some(Arc::new(Mutex::new(BufWriter::new(File::create(path)?))))
-    } else {
-        None
-    };
-
     // Make sure not percentage and other errors are set
     if max_error_perc.is_some() && (max_flank_errors.is_some() || max_bar_errors.is_some()) {
         return Err(anyhow::anyhow!(
@@ -157,10 +149,7 @@ pub fn annotate(
             }
             DEMUXER.with(|cell| {
                 if cell.borrow().is_none() {
-                    #[cfg(feature = "verbose")]
-                    println!("Thread {:?} initializing demuxer", thread_id::get());
-                    let mut demux =
-                        Demuxer::new_with_verbose_and_top2(alpha, verbose, top2_writer.clone());
+                    let mut demux = Demuxer::new_with_verbose(alpha, verbose);
                     for query_group in query_groups.iter() {
                         demux.add_query_group(query_group.clone());
                     }
@@ -178,7 +167,7 @@ pub fn annotate(
                 // Use the demuxer through thread-local storage
                 let matches: Vec<crate::annotate::searcher::BarbellMatch> = DEMUXER.with(|cell| {
                     if let Some(ref mut demuxer) = *cell.borrow_mut() {
-                        demuxer.demux(record.id().unwrap(), record.seq(), record.qual())
+                        demuxer.demux(record.id().unwrap(), record.seq())
                     } else {
                         panic!("Demuxer not initialized");
                     }

@@ -13,7 +13,7 @@ pub fn demux_rapid_barcodes(
     fastq_file: &str,
     threads: usize,
     output_folder: &str,
-    max_error_perc: Option<f32>,
+    maximize: bool,
     verbose: bool,
 ) {
     // Create temp file for string content
@@ -61,18 +61,33 @@ pub fn demux_rapid_barcodes(
 
     // Filter
     println!("\n{}", "Running annotation filter".purple().bold());
+
+    // The "safe" patterns
+    // ideal - single barcode on the left side
     let pattern1 = pattern_from_str!("Ftag[fw, *, @left(0..250), >>]");
+    // still good, two barcodes on the left side with the SAME label (?1 wildcard)
     let pattern2 =
-        pattern_from_str!("Ftag[fw, $1, @left(0..250)]__Ftag[fw, $1, @prev_left(0..250), >>]");
-    let pattern3 = pattern_from_str!("Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @right(0..250), >>]");
-    let pattern4 = pattern_from_str!(
+        pattern_from_str!("Ftag[fw, ?1, @left(0..250)]__Ftag[fw, ?1, @prev_left(0..250), >>]");
+
+    // Much more risky patterns to maximize assignment
+    let pattern3 =
+        pattern_from_str!("Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @prev_left(0..250), >>]");
+    let pattern4 = pattern_from_str!("Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @right(0..250), >>]");
+    let pattern5 = pattern_from_str!(
         "Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @prev_left(0..250)]__Ftag[fw, *, @right(0..250), >>]"
     );
+
+    let patterns = if maximize {
+        vec![pattern1, pattern3, pattern4, pattern5]
+    } else {
+        vec![pattern1, pattern2]
+    };
+
     filter(
         format!("{output_folder}/annotation.tsv").as_str(),
         format!("{output_folder}/filtered.tsv").as_str(),
         None,
-        vec![pattern1, pattern2, pattern3, pattern4],
+        patterns,
     )
     .expect("Filter failed");
 

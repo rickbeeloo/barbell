@@ -9,3 +9,4 @@ filter.txt
 *.txt
 *.tsv
 *.py
+*.fasta

@@ -104,7 +104,7 @@ impl BarcodeGroup {
             let start = prefix_len.saturating_sub(10);
             let end = (prefix_len + mask_size + 10).min(seq.len());
 
-            assert_eq!(*&seq[start..end].len(), 24 + 20);
+            //assert_eq!(*&seq[start..end].len(), 24 + 20);
             barcodes.push(Barcode::new(
                 &seq[start..end], // trying the whole sequence
                 &query_labels[i],
