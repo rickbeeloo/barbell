@@ -17,6 +17,7 @@ use std::thread_local;
 use crate::WIGGLE_ROOM;
 use cigar_lodhi_rs::*;
 use pa_types::*;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::sync::{Arc, Mutex};
@@ -35,6 +36,14 @@ pub struct Demuxer {
     queries: Vec<BarcodeGroup>,
     verbose: bool,
     top2_writer: Option<Arc<Mutex<BufWriter<File>>>>,
+    // Fractional thresholds 0..1
+    min_score_frac: f64,
+    min_score_diff_frac: f64,
+    // Lodhi parameters used throughout
+    lodhi_k: usize,
+    lodhi_lambda: f64,
+    // Cache Smax by barcode length
+    smax_cache: HashMap<usize, f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -208,34 +217,17 @@ fn rel_dist_to_end(pos: isize, read_len: usize) -> isize {
 }
 
 impl Demuxer {
-    pub fn new(alpha: f32) -> Self {
-        Self {
-            alpha,
-            queries: Vec::new(),
-            verbose: false,
-            top2_writer: None,
-        }
-    }
-
-    pub fn new_with_verbose(alpha: f32, verbose: bool) -> Self {
+    pub fn new(alpha: f32, verbose: bool, min_score_frac: f64, min_score_diff_frac: f64) -> Self {
         Self {
             alpha,
             queries: Vec::new(),
             verbose,
             top2_writer: None,
-        }
-    }
-
-    pub fn new_with_verbose_and_top2(
-        alpha: f32,
-        verbose: bool,
-        top2_writer: Option<Arc<Mutex<BufWriter<File>>>>,
-    ) -> Self {
-        Self {
-            alpha,
-            queries: Vec::new(),
-            verbose,
-            top2_writer,
+            min_score_frac,
+            min_score_diff_frac,
+            lodhi_k: 3,
+            lodhi_lambda: 0.5,
+            smax_cache: HashMap::new(),
         }
     }
 
@@ -290,11 +282,6 @@ impl Demuxer {
                 else {
                     continue; // no room for barcode?
                 };
-                // let barcode_region_start =
-                //     (flank_match.text_start + barcode_region_start).saturating_sub(10);
-                // let barcode_region_end = (flank_match.text_start + barcode_region_end)
-                //     .saturating_add(10 + 6)
-                //     .min(read.len());
 
                 let barcode_region_start =
                     (flank_match.text_start + barcode_region_start).saturating_sub(10 + 5);
@@ -315,25 +302,18 @@ impl Demuxer {
                 let mut candidates: Vec<(Match, &Barcode)> = Vec::new();
 
                 for barcode_and_flank in barcode_group.barcodes.iter() {
-                    // println!(
-                    //     "Looking for: {}",
-                    //     String::from_utf8_lossy(&barcode_and_flank.seq)
-                    // );
-                    // Search the forward version
                     let fwd_best_hit = REGULAR_SEARCHER.with(|cell| {
                         if let Some(ref mut searcher) = *cell.borrow_mut() {
                             searcher
                                 .search(&barcode_and_flank.seq, &barcode_region, 20)
                                 .into_iter()
                                 .filter(|m| m.strand == flank_match.strand)
-                                // iter mutate and we do region_len - (m.text_start + m.text_start)
                                 .min_by_key(|m| m.cost)
                         } else {
                             None
                         }
                     });
 
-                    // if a fwd hit add it
                     if let Some(fwd_hit) = fwd_best_hit {
                         candidates.push((fwd_hit, barcode_and_flank));
                     }
@@ -361,126 +341,81 @@ impl Demuxer {
                     continue;
                 }
 
-                // Look at top candidates
-                let top_candidates: Vec<(Match, &Barcode)> = candidates.into_iter().collect();
+                // Score using Lodhi
+                let mut lodhi = Lodhi::new(self.lodhi_k, self.lodhi_lambda);
+                let mut scored: Vec<(f64, f64, Match, &Barcode)> =
+                    Vec::with_capacity(candidates.len());
+                // Use group-level pad-region length; compute Smax once per group
+                let l_bar = barcode_group.pad_region.1 - barcode_group.pad_region.0;
+                // println!("l bar size: {}", l_bar);
+                let mut lodhi_smax = Lodhi::new(self.lodhi_k, self.lodhi_lambda);
+                let perfect = Cigar {
+                    ops: vec![CigarElem {
+                        op: CigarOp::Match,
+                        cnt: l_bar as i32,
+                    }],
+                };
+                let smax = lodhi_smax.compute(&perfect);
 
-                let mut lodhi = Lodhi::new(3, 0.5);
-                // Now only calculate likelihood scores for the top candidates
-                let mut scored: Vec<(f64, Match, &Barcode)> = top_candidates
-                    .into_iter()
-                    .map(|(m, b)| {
-                        // // Convert to per base with a convex reward for contiguous match runs
-                        // // Tuneable: prefer longer runs without overwhelming the base model
-                        // let coeff = 0.05_f64; // small coefficient
-                        // let exponent = 1.6_f64; // convex (>1)
-                        // let avg_cost_per_pattern_base =
-                        //     simple_model.avg_cost_per_pattern_base(&m.cigar.ops, verbose);
+                for (m, b) in candidates.into_iter() {
+                    let s = lodhi.compute(&m.cigar);
+                    let s_norm = if smax > 0.0 { s / smax } else { 0.0 };
+                    scored.push((s_norm, s, m, b));
+                }
 
-                        let s = lodhi.compute(&m.cigar);
-
-                        // let s = m.cost as f64;
-                        (s, m, b)
-                    })
-                    .collect();
-
-                // sort high to low
+                // sort by normalized score high to low
                 scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-                // sort low to high
-                //scored.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-
                 if verbose {
-                    // print top 5 candidates
-                    for (i, (score, m, b)) in scored.iter().take(5).enumerate() {
+                    for (i, (s_norm, s, m, b)) in scored.iter().take(5).enumerate() {
                         println!("Cost: {:?}", m.cost);
                         println!("Strand: {:?}", m.strand);
                         println!("Cigar: {}", m.cigar.to_string());
-                        println!("Score: {}", score);
+                        println!("Score: {} (norm: {})", s, s_norm);
                         println!("--------------------------------");
                     }
                 }
 
                 let (mask_start, mask_end) = barcode_group.bar_region;
-                // println!("Mask start: {mask_start}, mask end: {mask_end}");
-                // println!(
-                //     "bar slice: {}",
-                //     String::from_utf8_lossy(&barcode_group.barcodes[0].seq[mask_start..=mask_end])
-                // );
                 let bar_read_region =
-                    map_pat_to_text(&scored[0].1, mask_start as i32, mask_end as i32);
+                    map_pat_to_text(&scored[0].2, mask_start as i32, mask_end as i32);
                 let ((bar_start, bar_end), (read_bar_start, read_bar_end)) =
                     bar_read_region.expect("No barcode match region found; unusual");
 
-                // 15 and 5 worked well
-
-                let mut is_valid_barcode_match = scored[0].0 > 8.0;
+                // Apply fractional thresholds
+                let top_norm = scored[0].0;
+                let mut is_valid_barcode_match = top_norm >= self.min_score_frac;
                 if scored.len() > 1 {
-                    is_valid_barcode_match =
-                        is_valid_barcode_match && scored[0].0 - scored[1].0 >= 2.0;
+                    is_valid_barcode_match = is_valid_barcode_match
+                        && (top_norm - scored[1].0) >= self.min_score_diff_frac;
+                    if verbose {
+                        println!(
+                            "Top norm: {} min score diff: {}",
+                            top_norm,
+                            top_norm - scored[1].0
+                        );
+                    }
                 }
-                // } else {
-                //     scored[0].0 >= 15.0
-                // };
 
-                let first_barcode_cost = scored[0].1.cost;
+                let first_barcode_cost = scored[0].2.cost;
                 let second_barcode_cost = if scored.len() > 1 {
-                    scored[1].1.cost
+                    scored[1].2.cost
                 } else {
                     1000
                 };
 
-                // // Single acceptance rule: uniqueness LR
-                // let (first_barcode_cost, second_barcode_cost, is_valid_barcode_match) = if scored
-                //     .len()
-                //     == 1
-                // {
-                //     let first_barcode_cost = scored[0].1.cost;
-                //     if first_barcode_cost <= 6 || scored[0].0 <= 0.6 {
-                //         (first_barcode_cost, 1000, true)
-                //     } else {
-                //         (first_barcode_cost, 1000, false)
-                //     }
-                // } else {
-                //     let odds = (scored[0].0 - scored[1].0);
-                //     //println!("odds: {}", odds);
-
-                //     // Then we also check the barcode region to see if we have at most 8 edits
-                //     let first_barcode_cost = scored[0].1.cost;
-                //     let second_barcode_cost = scored[1].1.cost;
-
-                //     let is_valid_barcode_match =
-                //             // Rule 1: penalty <= 9 and gap from 2nd >= 3
-                //             (first_barcode_cost <= 9 && (second_barcode_cost - first_barcode_cost) >= 3)
-                //             ||
-                //             // Rule 2: penalty <= 6 and gap from both 2nd & 3rd >= 6
-                //             (second_barcode_cost - first_barcode_cost) >= 6
-                //             ||
-                //             odds > 1.2;
-
-                //     // let is_valid_barcode_match = first_barcode_cost <= 6
-                //     //     || (second_barcode_cost - first_barcode_cost >= 6);
-
-                //     (
-                //         first_barcode_cost,
-                //         second_barcode_cost,
-                //         is_valid_barcode_match,
-                //     )
-                // };
-
                 if verbose {
                     for _ in 0..10 {
-                        println!("Best label: {}", scored[0].2.label);
-                        println!("Best match: {}", scored[0].1.cigar.to_string());
-                        println!("Best score: {}", scored[0].0);
+                        println!("Best label: {}", scored[0].3.label);
+                        println!("Best match: {}", scored[0].2.cigar.to_string());
+                        println!("Best score: {} (norm {})", scored[0].1, scored[0].0);
                         println!("Best cost: {}", first_barcode_cost);
 
                         if scored.len() > 1 {
-                            println!("Second score: {}", scored[1].0);
-                            println!("Second label: {}", scored[1].2.label);
+                            println!("Second score: {} (norm {})", scored[1].1, scored[1].0);
+                            println!("Second label: {}", scored[1].3.label);
                             println!("Second cost: {}", second_barcode_cost);
-                            println!("Second cigar: {}", scored[1].1.cigar.to_string());
-                            let odds = (scored[1].0 - scored[0].0).exp();
-                            println!("Odds: {}", odds);
+                            println!("Second cigar: {}", scored[1].2.cigar.to_string());
                         } else {
                             println!("No second match");
                         }
@@ -497,11 +432,11 @@ impl Demuxer {
                         flank_match.text_end,
                         bar_start - barcode_group.flank_prefix.len(),
                         bar_end - barcode_group.flank_prefix.len(),
-                        scored[0].2.match_type.clone(),
+                        scored[0].3.match_type.clone(),
                         flank_match.cost,
-                        scored[0].0.round() as i32,
-                        scored[0].2.label.clone(),
-                        scored[0].1.strand,
+                        first_barcode_cost as Cost,
+                        scored[0].3.label.clone(),
+                        scored[0].2.strand,
                         read.len(),
                         read_id.to_string(),
                         rel_dist_to_end(flank_match.text_start as isize, read.len()),
@@ -517,7 +452,7 @@ impl Demuxer {
                         0,
                         barcode_group.barcodes[0].match_type.as_flank().clone(),
                         flank_match.cost,
-                        scored[0].0.round() as i32,
+                        first_barcode_cost as Cost,
                         "flank".to_string(),
                         flank_match.strand,
                         read.len(),

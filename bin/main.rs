@@ -76,6 +76,14 @@ enum Commands {
         /// Optional path to write top-2 candidates per read (TSV: read_id label1 cigar1 label2 cigar2)
         #[arg(long = "top2-out")]
         top2_out: Option<String>,
+
+        /// Fraction compared to 'perfect' match score for top candidate
+        #[arg(long = "min-score", default_value_t = 0.5)]
+        min_score: f64,
+
+        /// Fraction difference between top 2 candidates
+        #[arg(long = "min-score-diff", default_value_t = 0.05)]
+        min_score_diff: f64,
     },
     /// Filter annotation files based on pattern
     Filter {
@@ -167,6 +175,14 @@ enum Commands {
         /// Enable verbose output for debugging
         #[arg(long, default_value_t = false)]
         verbose: bool,
+
+        /// Fraction compared to 'perfect' match score for top candidate
+        #[arg(long = "min-score", default_value_t = 0.5)]
+        min_score: f64,
+
+        /// Fraction difference between top 2 candidates
+        #[arg(long = "min-score-diff", default_value_t = 0.05)]
+        min_score_diff: f64,
     },
 
     /// Tune the parameters for a given query file using Monte Carlo simulation
@@ -204,6 +220,8 @@ fn main() {
             min_fit,
             conservative_runs,
             top2_out,
+            min_score,
+            min_score_diff,
         } => {
             println!("{}", "Starting annotation...".green());
 
@@ -236,7 +254,10 @@ fn main() {
                 0.5,
                 *threads as u32,
                 *verbose,
+                *min_score,
+                *min_score_diff,
             ) {
+                // Convert fractions to raw scores
                 Ok(_) => println!("{}", "Annotation complete!".green()),
                 Err(e) => println!("{} {}", "Error during processing:".red(), e),
             }
@@ -297,8 +318,19 @@ fn main() {
             output,
             maximize,
             verbose,
+            min_score,
+            min_score_diff,
         } => {
-            use_preset(preset.clone(), input, *threads, output, *maximize, *verbose);
+            use_preset(
+                preset.clone(),
+                input,
+                *threads,
+                output,
+                *maximize,
+                *verbose,
+                *min_score,
+                *min_score_diff,
+            );
         }
 
         Commands::Tune {

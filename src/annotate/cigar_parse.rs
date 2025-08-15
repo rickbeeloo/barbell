@@ -1,3 +1,4 @@
+use cigar_lodhi_rs::Lodhi;
 use pa_types::CostModel;
 use pa_types::Pos;
 use pa_types::*;
@@ -1268,6 +1269,44 @@ pub fn collapse_cigar_elems(elems: &[CigarElem]) -> Vec<CigarElem> {
     out
 }
 
+/// Convert a raw Lodhi score to a fraction of the maximum possible score for a perfect
+/// contiguous match of length `l` using the same `k` and `lambda_decay`.
+pub fn score_to_frac(score: f64, l: usize, k: usize, lambda_decay: f64) -> f64 {
+    if k == 0 || l < k {
+        return 0.0;
+    }
+    let mut lodhi = Lodhi::new(k, lambda_decay);
+    let perfect = Cigar {
+        ops: vec![CigarElem {
+            op: CigarOp::Match,
+            cnt: l as i32,
+        }],
+    };
+    let smax = lodhi.compute(&perfect);
+    if smax <= 0.0 {
+        0.0
+    } else {
+        (score / smax).clamp(0.0, 1.0)
+    }
+}
+
+/// Convert a fraction (0..1) back to a raw Lodhi score scale for a target length `l`,
+/// given `k` and `lambda_decay`.
+pub fn frac_to_score(frac: f64, l: usize, k: usize, lambda_decay: f64) -> f64 {
+    if k == 0 || l < k {
+        return 0.0;
+    }
+    let mut lodhi = Lodhi::new(k, lambda_decay);
+    let perfect = Cigar {
+        ops: vec![CigarElem {
+            op: CigarOp::Match,
+            cnt: l as i32,
+        }],
+    };
+    let smax = lodhi.compute(&perfect);
+    (frac.clamp(0.0, 1.0)) * smax
+}
+
 #[cfg(test)]
 mod subcigar_tests {
     use super::*;
@@ -1532,5 +1571,19 @@ mod test {
         let s1 = simple_kmer_score(c1, 1.0, 1.0, 3);
         let s2 = simple_kmer_score(c2, 1.0, 1.0, 3);
         println!("s1: {}, s2: {}", s1, s2);
+    }
+
+    #[test]
+    fn get_frac_for_score() {
+        let score = 1.0;
+        let frac = score_to_frac(score, 44, 3, 0.5);
+        println!("Fraction: {}", frac);
+    }
+
+    #[test]
+    fn get_score_for_frac() {
+        let frac = 0.5;
+        let score = frac_to_score(frac, 44, 3, 0.5);
+        println!("Score: {}", score);
     }
 }

@@ -86,6 +86,8 @@ pub fn annotate(
     alpha: f32,
     n_threads: u32,
     verbose: bool,
+    min_score: f64,
+    min_score_diff: f64,
 ) -> anyhow::Result<()> {
     let reader = Reader::from_path(read_file).unwrap();
     let writer = Arc::new(Mutex::new(
@@ -143,7 +145,7 @@ pub fn annotate(
             }
             DEMUXER.with(|cell| {
                 if cell.borrow().is_none() {
-                    let mut demux = Demuxer::new_with_verbose(alpha, verbose);
+                    let mut demux = Demuxer::new(alpha, verbose, min_score, min_score_diff);
                     for query_group in query_groups.iter() {
                         demux.add_query_group(query_group.clone());
                     }

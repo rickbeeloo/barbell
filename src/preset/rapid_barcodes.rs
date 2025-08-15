@@ -15,6 +15,8 @@ pub fn demux_rapid_barcodes(
     output_folder: &str,
     maximize: bool,
     verbose: bool,
+    min_score: f64,
+    min_score_diff: f64,
 ) {
     // Create temp file for string content
     let mut tmp_query_file = NamedTempFile::new().expect("Failed to create temporary file");
@@ -43,6 +45,8 @@ pub fn demux_rapid_barcodes(
         0.5, // Overhang alpha
         threads as u32,
         verbose,
+        min_score,
+        min_score_diff,
     )
     .expect("Annotation failed");
 
