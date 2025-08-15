@@ -78,7 +78,7 @@ enum Commands {
         top2_out: Option<String>,
 
         /// Fraction compared to 'perfect' match score for top candidate
-        #[arg(long = "min-score", default_value_t = 0.5)]
+        #[arg(long = "min-score", default_value_t = 0.4)]
         min_score: f64,
 
         /// Fraction difference between top 2 candidates
