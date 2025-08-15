@@ -1,11 +1,8 @@
 use crate::annotate::barcodes::{BarcodeGroup, BarcodeType};
-use crate::annotate::model::Model;
 use crate::annotate::searcher::Demuxer;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use seq_io::fastq::{Reader, Record};
 use seq_io::parallel::read_parallel;
-use std::fs::File;
-use std::io::{BufWriter, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread_local;
@@ -89,9 +86,6 @@ pub fn annotate(
     alpha: f32,
     n_threads: u32,
     verbose: bool,
-    min_fit: Option<f64>,
-    conservative_runs: bool,
-    top2_out: Option<&str>,
 ) -> anyhow::Result<()> {
     let reader = Reader::from_path(read_file).unwrap();
     let writer = Arc::new(Mutex::new(

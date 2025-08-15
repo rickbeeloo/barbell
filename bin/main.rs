@@ -236,9 +236,6 @@ fn main() {
                 0.5,
                 *threads as u32,
                 *verbose,
-                min_fit.clone(),
-                *conservative_runs,
-                top2_out.as_deref(),
             ) {
                 Ok(_) => println!("{}", "Annotation complete!".green()),
                 Err(e) => println!("{} {}", "Error during processing:".red(), e),

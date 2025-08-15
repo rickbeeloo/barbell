@@ -34,6 +34,7 @@ once_cell = "1.19.0"
 thread-id = "5.0.0"
 plotpy = "1.13.0"
 itertools = "*"
+cigar-lodhi-rs = {git = "ssh://git@github.com/rickbeeloo/cigar-lodhi-rs.git"}
 
 # Enable native CPU optimizations for release builds
 [profile.release]

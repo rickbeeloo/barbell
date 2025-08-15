@@ -58,7 +58,8 @@ pub struct BarcodeGroup {
     pub flank_prefix: Vec<u8>,
     pub flank_suffix: Vec<u8>,
     pub bar_region: (usize, usize),
-    pub barcodes: Vec<Barcode>, // Think always assume IUPAC anyway
+    pub pad_region: (usize, usize), // barcode + padding
+    pub barcodes: Vec<Barcode>,
     pub k_cutoff: Option<usize>,
     pub barcode_type: BarcodeType,
     pub prefix_k: Option<usize>,
@@ -100,9 +101,10 @@ impl BarcodeGroup {
 
         // Slice out all the masked region sequences
         let mut barcodes = Vec::new();
+        let (pad_start, pad_end) = (prefix_len.saturating_sub(10), prefix_len + mask_size + 10);
         for (i, seq) in query_seqs.iter().enumerate() {
-            let start = prefix_len.saturating_sub(10);
-            let end = (prefix_len + mask_size + 10).min(seq.len());
+            let start = pad_start;
+            let end: usize = pad_end.min(seq.len());
 
             //assert_eq!(*&seq[start..end].len(), 24 + 20);
             barcodes.push(Barcode::new(
@@ -117,6 +119,7 @@ impl BarcodeGroup {
             flank_prefix: prefix.clone().unwrap_or_default(),
             flank_suffix: suffix.clone().unwrap_or_default(),
             bar_region: (prefix_len, prefix_len + mask_size - 1), //inclsuve
+            pad_region: (pad_start, pad_end),
             barcodes,
             k_cutoff: None,
             barcode_type,
@@ -126,22 +129,43 @@ impl BarcodeGroup {
     }
 
     pub fn display(&self) {
+        // This will show with padding, if we get the bar region
         let (mask_start, mask_end) = self.bar_region;
-        let left_flank = &self.flank[..mask_start];
-        let right_flank = &self.flank[mask_end + 1..]; // As inclusive mask end
+
         // Create colored string to show flank composition
         // left flank & right_flank = blue, mask = cyan
-        let left_flank_str = String::from_utf8_lossy(left_flank).blue();
-        let right_flank_str = String::from_utf8_lossy(right_flank).blue();
+        let left_flank_str = String::from_utf8_lossy(self.flank_prefix.as_slice()).blue();
+        let right_flank_str = String::from_utf8_lossy(self.flank_suffix.as_slice()).blue();
         let mask_size = mask_end - mask_start + 1;
         let mask_str = "-".repeat(mask_size).to_string().bright_yellow();
 
         println!("{left_flank_str}{mask_str}{right_flank_str}");
+
+        let left_flank_len = self.flank_prefix.len();
         for barcode in self.barcodes.iter().take(5) {
+            // We have "padding" which we remove before printing
+            let (pad_start, pad_end) = self.pad_region;
+            let (bar_start, bar_end) = self.bar_region;
+            let start_pos = bar_start - pad_start;
+            let end_pos = (barcode.seq.len() - (pad_end - bar_end) + 1).min(barcode.seq.len());
+
+            let just_bar_slice = &barcode.seq[start_pos..end_pos];
+
+            // Align the barcode sequence so it starts under the mask region
+            let label_text = format!("{}: ", barcode.label);
+            let visible_label_len = label_text.len();
+            let pad_spaces = left_flank_len.saturating_sub(visible_label_len);
+            let pad_str = if pad_spaces == 0 {
+                " ".to_string()
+            } else {
+                " ".repeat(pad_spaces)
+            };
+
             println!(
-                "{}: {}",
-                barcode.label.green(),
-                String::from_utf8_lossy(&barcode.seq).bright_yellow()
+                "{}{}{}",
+                label_text.green(),
+                pad_str,
+                String::from_utf8_lossy(just_bar_slice).bright_yellow()
             );
         }
         if self.barcodes.len() > 2 {

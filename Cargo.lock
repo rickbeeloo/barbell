@@ -84,6 +84,7 @@ name = "barbell-sassy-rewrite"
 version = "0.1.7"
 dependencies = [
  "anyhow",
+ "cigar-lodhi-rs",
  "clap",
  "colored",
  "csv",
@@ -179,6 +180,14 @@ name = "cfg-if"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9555578bc9e57714c812a1f84e4fc5b4d21fcb063490c624de019f7464c91268"
+
+[[package]]
+name = "cigar-lodhi-rs"
+version = "0.1.0"
+source = "git+ssh://git@github.com/rickbeeloo/cigar-lodhi-rs.git#ce1dfb26b6daa6dedab1f2653d3dd2fd4cdd058e"
+dependencies = [
+ "pa-types",
+]
 
 [[package]]
 name = "clap"

@@ -181,12 +181,12 @@ pub fn triangle_score(cigar: &[CigarElem], match_step: f64, error_step: f64) -> 
     }
 }
 
-pub fn simple_kmer_score(cigar: &[CigarElem], match_step: f64, error_step: f64) -> f64 {
+pub fn simple_kmer_score(cigar: &[CigarElem], match_step: f64, error_step: f64, k: usize) -> f64 {
     if cigar.is_empty() {
         return 0.0;
     }
 
-    const K: usize = 6;
+    //const K: usize = 6;
 
     // total number of pattern positions spanned by the CIGAR (M+S+D)
     let pattern_len = pattern_bases_in_cigar(cigar);
@@ -199,14 +199,14 @@ pub fn simple_kmer_score(cigar: &[CigarElem], match_step: f64, error_step: f64) 
     let e_scale = error_step.abs();
 
     let kernel_sum_at = |anchor: usize| -> f64 {
-        let left_span = anchor.min(K - 1);
-        let right_span = (pattern_len - 1 - anchor).min(K - 1);
-        let mut sum = K as f64; // d=0
+        let left_span = anchor.min(k - 1);
+        let right_span = (pattern_len - 1 - anchor).min(k - 1);
+        let mut sum = k as f64; // d=0
         for d in 1..=left_span {
-            sum += (K - d) as f64;
+            sum += (k - d) as f64;
         }
         for d in 1..=right_span {
-            sum += (K - d) as f64;
+            sum += (k - d) as f64;
         }
         sum
     };
@@ -1498,9 +1498,9 @@ mod test {
         let l6 = vec![CigarElem { op: Match, cnt: 6 }];
         let l7 = vec![CigarElem { op: Match, cnt: 7 }];
 
-        let s5 = simple_kmer_score(&l5, 1.0, 1.0);
-        let s6 = simple_kmer_score(&l6, 1.0, 1.0);
-        let s7 = simple_kmer_score(&l7, 1.0, 1.0);
+        let s5 = simple_kmer_score(&l5, 1.0, 1.0, 6);
+        let s6 = simple_kmer_score(&l6, 1.0, 1.0, 6);
+        let s7 = simple_kmer_score(&l7, 1.0, 1.0, 6);
 
         // Longer contiguous matches should score higher
         assert!(s6 > s5);
@@ -1511,30 +1511,26 @@ mod test {
             CigarElem { op: Sub, cnt: 1 },
         ]; // pattern_len = 7
         let pure_match = vec![CigarElem { op: Match, cnt: 7 }]; // pattern_len = 7
-        let s_err = simple_kmer_score(&with_sub, 1.0, 1.0);
-        let s_pure = simple_kmer_score(&pure_match, 1.0, 1.0);
+        let s_err = simple_kmer_score(&with_sub, 1.0, 1.0, 6);
+        let s_pure = simple_kmer_score(&pure_match, 1.0, 1.0, 6);
         assert!(s_err < s_pure);
     }
 
     #[test]
     fn test_two_cigars() {
         let c1 = &[
-            CigarElem { op: Sub, cnt: 3 },
-            CigarElem { op: Match, cnt: 8 },
+            CigarElem { op: Sub, cnt: 2 },
+            CigarElem { op: Match, cnt: 3 },
         ];
         let c2 = &[
             CigarElem { op: Match, cnt: 1 },
             CigarElem { op: Sub, cnt: 1 },
-            CigarElem { op: Match, cnt: 2 },
-            CigarElem { op: Sub, cnt: 1 },
-            CigarElem { op: Match, cnt: 2 },
-            CigarElem { op: Sub, cnt: 1 },
             CigarElem { op: Match, cnt: 1 },
             CigarElem { op: Sub, cnt: 1 },
             CigarElem { op: Match, cnt: 1 },
         ];
-        let s1 = simple_kmer_score(c1, 1.0, 1.0);
-        let s2 = simple_kmer_score(c2, 1.0, 1.0);
+        let s1 = simple_kmer_score(c1, 1.0, 1.0, 3);
+        let s2 = simple_kmer_score(c2, 1.0, 1.0, 3);
         println!("s1: {}, s2: {}", s1, s2);
     }
 }

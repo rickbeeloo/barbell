@@ -15,6 +15,7 @@ use std::thread_local;
 // (CigarElem, CigarOp) were only required by the previous, now removed implementation
 // of `extract_bar_cost`.  They are no longer used, so the import has been removed.
 use crate::WIGGLE_ROOM;
+use cigar_lodhi_rs::*;
 use pa_types::*;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -326,13 +327,6 @@ impl Demuxer {
                                 .into_iter()
                                 .filter(|m| m.strand == flank_match.strand)
                                 // iter mutate and we do region_len - (m.text_start + m.text_start)
-                                .map(|mut m| {
-                                    //let cost_left =
-                                    //    region_size as i32 - (m.text_end - m.text_start) as i32;
-                                    //println!("cost left: {:?}", cost_left);
-                                    m.cost = m.cost + 0; //cost_left;
-                                    m
-                                })
                                 .min_by_key(|m| m.cost)
                         } else {
                             None
@@ -370,6 +364,7 @@ impl Demuxer {
                 // Look at top candidates
                 let top_candidates: Vec<(Match, &Barcode)> = candidates.into_iter().collect();
 
+                let mut lodhi = Lodhi::new(3, 0.5);
                 // Now only calculate likelihood scores for the top candidates
                 let mut scored: Vec<(f64, Match, &Barcode)> = top_candidates
                     .into_iter()
@@ -381,14 +376,18 @@ impl Demuxer {
                         // let avg_cost_per_pattern_base =
                         //     simple_model.avg_cost_per_pattern_base(&m.cigar.ops, verbose);
 
-                        let s = simple_kmer_score(&m.cigar.ops, 1.0, -1.0);
+                        let s = lodhi.compute(&m.cigar);
 
+                        // let s = m.cost as f64;
                         (s, m, b)
                     })
                     .collect();
 
-                // Sort high to low
+                // sort high to low
                 scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+                // sort low to high
+                //scored.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
                 if verbose {
                     // print top 5 candidates
@@ -414,10 +413,10 @@ impl Demuxer {
 
                 // 15 and 5 worked well
 
-                let mut is_valid_barcode_match = scored[0].0 > 15.0;
+                let mut is_valid_barcode_match = scored[0].0 > 8.0;
                 if scored.len() > 1 {
                     is_valid_barcode_match =
-                        is_valid_barcode_match && scored[0].0 - scored[1].0 >= 3.5
+                        is_valid_barcode_match && scored[0].0 - scored[1].0 >= 2.0;
                 }
                 // } else {
                 //     scored[0].0 >= 15.0

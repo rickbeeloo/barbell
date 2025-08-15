@@ -43,9 +43,6 @@ pub fn demux_rapid_barcodes(
         0.5, // Overhang alpha
         threads as u32,
         verbose,
-        None,
-        true,
-        Some("rapid_top2_out.txt"),
     )
     .expect("Annotation failed");
 
