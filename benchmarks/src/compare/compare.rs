@@ -170,8 +170,10 @@ impl Tool for Barbell {
             std::fs::create_dir_all(output_folder).expect("Failed to create output folder");
         }
 
+        let failed_out = format!("{output_folder}/failed_trimmed.txt");
+
         let cmd = format!(
-            "{0} preset -p rapid -i {fastq_file} -o {output_folder} -t {threads} --maximize",
+            "{0} preset -p rapid -i {fastq_file} -o {output_folder} -t {threads} --failed-out {failed_out} --maximize",
             self.exec_path
         );
         let result: std::process::Output = Command::new("bash").arg("-c").arg(cmd).output()?;
