@@ -218,7 +218,7 @@ pub fn process_read_and_anno(
 
     // Group slices by cut group ID
     for slice in &slices {
-        if slice.start > slice.end {
+        if slice.start > slice.end || slice.start == slice.end {
             continue;
         }
 
