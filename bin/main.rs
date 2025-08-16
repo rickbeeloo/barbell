@@ -78,7 +78,7 @@ enum Commands {
         top2_out: Option<String>,
 
         /// Fraction compared to 'perfect' match score for top candidate
-        #[arg(long = "min-score", default_value_t = 0.4)]
+        #[arg(long = "min-score", default_value_t = 0.5)]
         min_score: f64,
 
         /// Fraction difference between top 2 candidates
@@ -133,6 +133,10 @@ enum Commands {
         /// Sort barcode labels in output filenames
         #[arg(long, default_value_t = false)]
         sort_labels: bool,
+
+        /// Write ids of failed trimmed reads to this file
+        #[arg(long)]
+        failed_out: Option<String>,
     },
 
     /// View most common patterns in annotation
@@ -183,6 +187,10 @@ enum Commands {
         /// Fraction difference between top 2 candidates
         #[arg(long = "min-score-diff", default_value_t = 0.05)]
         min_score_diff: f64,
+
+        /// Write ids of failed trimmed reads to this file
+        #[arg(long)]
+        failed_out: Option<String>,
     },
 
     /// Tune the parameters for a given query file using Monte Carlo simulation
@@ -285,6 +293,7 @@ fn main() {
             no_orientation,
             no_flanks,
             sort_labels,
+            failed_out,
         } => {
             println!("{}", "Starting trimming...".green());
             trim_matches(
@@ -295,6 +304,7 @@ fn main() {
                 !no_orientation,
                 !no_flanks,
                 *sort_labels,
+                failed_out.clone(),
             );
         }
 
@@ -320,6 +330,7 @@ fn main() {
             verbose,
             min_score,
             min_score_diff,
+            failed_out,
         } => {
             use_preset(
                 preset.clone(),
@@ -330,6 +341,7 @@ fn main() {
                 *verbose,
                 *min_score,
                 *min_score_diff,
+                failed_out.clone(),
             );
         }
 

@@ -14,6 +14,7 @@ pub fn use_preset(
     verbose: bool,
     min_score: f64,
     min_score_diff: f64,
+    failed_out: Option<String>,
 ) {
     match preset {
         PresetName::Rapid => demux_rapid_barcodes(
@@ -24,6 +25,7 @@ pub fn use_preset(
             verbose,
             min_score,
             min_score_diff,
+            failed_out,
         ),
         _ => panic!("Unsupported preset, use one of: {:?}", PresetName::Rapid),
     }

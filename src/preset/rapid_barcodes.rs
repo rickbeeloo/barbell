@@ -17,6 +17,7 @@ pub fn demux_rapid_barcodes(
     verbose: bool,
     min_score: f64,
     min_score_diff: f64,
+    failed_out: Option<String>,
 ) {
     // Create temp file for string content
     let mut tmp_query_file = NamedTempFile::new().expect("Failed to create temporary file");
@@ -102,5 +103,6 @@ pub fn demux_rapid_barcodes(
         true,
         true,
         true,
+        failed_out,
     );
 }

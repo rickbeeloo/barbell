@@ -222,10 +222,6 @@ pub fn process_read_and_anno(
             continue;
         }
 
-        if slice.start == slice.end {
-            continue;
-        }
-
         let trimmed_seq = seq[slice.start..slice.end].to_vec();
         let trimmed_qual = qual[slice.start..slice.end].to_vec();
 
@@ -303,6 +299,7 @@ pub fn trim_matches(
     add_orientation: bool,
     add_flank: bool,
     sort_labels: bool,
+    failed_trimmed_writer: Option<String>, // if provided we write ids of failed trimmed reads to this file, like empty reads
 ) {
     // Create output folder if it doesn't exist
     if !Path::new(output_folder).exists() {
@@ -334,6 +331,11 @@ pub fn trim_matches(
     // Create writers
     let mut writers: HashMap<String, BufWriter<File>> = HashMap::new();
 
+    // If there is a failed trimmed writer, create it
+    let mut failed_trimmed_writer = failed_trimmed_writer.map(|failed_trimmed_writer_path| {
+        BufWriter::new(File::create(failed_trimmed_writer_path).unwrap())
+    });
+
     // Process reads
     let mut reader = Reader::from_path(read_fastq_file).expect("Failed to open FASTQ file");
 
@@ -346,13 +348,17 @@ pub fn trim_matches(
         if let Some(annotations) = annotations_by_read.get(&read_id) {
             // mapped_reads += 1;
 
-            let results =
+            let results: Vec<(Vec<u8>, Vec<u8>, String, String)> =
                 process_read_and_anno(record.seq(), record.qual(), annotations, &label_config);
 
             if !results.is_empty() {
                 trimmed_bar.inc(1);
             } else {
                 failed_bar.inc(1);
+                if let Some(ref mut failed_trimmed_writer) = failed_trimmed_writer {
+                    writeln!(failed_trimmed_writer, "{read_id}")
+                        .expect("Failed to write to failed trimmed writer");
+                }
             }
 
             for (trimmed_seq, trimmed_qual, group, _) in results {
