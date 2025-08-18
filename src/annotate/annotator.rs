@@ -1,4 +1,5 @@
 use crate::annotate::barcodes::{BarcodeGroup, BarcodeType};
+use crate::annotate::edit_model::get_edit_cut_off;
 use crate::annotate::searcher::Demuxer;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use seq_io::fastq::{Reader, Record};
@@ -7,32 +8,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread_local;
 use std::time::Duration;
-
-#[cfg(feature = "verbose")]
-use thread_id;
-
-// Macro as otherwise init logic is unclear below
-macro_rules! thread_local_demuxer {
-    ($name:ident, $alpha:expr, $query_groups:expr, $verbose:expr) => {
-        thread_local! {
-            static $name: std::cell::RefCell<Option<Demuxer>> = std::cell::RefCell::new(None);
-        }
-
-        $name.with(|cell| {
-            if cell.borrow().is_none() {
-                #[cfg(feature = "verbose")]
-                println!("Thread {:?} initializing demuxer", thread_id::get());
-                *cell.borrow_mut() = Some(Demuxer::new_with_verbose($alpha, $verbose));
-                for query_group in $query_groups.iter() {
-                    cell.borrow_mut()
-                        .as_mut()
-                        .unwrap()
-                        .add_query_group(query_group.clone());
-                }
-            }
-        });
-    };
-}
 
 fn create_progress_bar() -> (ProgressBar, ProgressBar, ProgressBar) {
     // Create multiprogress bar
@@ -80,9 +55,7 @@ pub fn annotate(
     query_files: Vec<&str>,
     query_types: Vec<BarcodeType>,
     out_file: &str,
-    max_error_perc: Option<f32>,
     max_flank_errors: Option<usize>,
-    max_bar_errors: Option<usize>,
     alpha: f32,
     n_threads: u32,
     verbose: bool,
@@ -97,25 +70,17 @@ pub fn annotate(
             .unwrap(),
     ));
 
-    // Make sure not percentage and other errors are set
-    if max_error_perc.is_some() && (max_flank_errors.is_some() || max_bar_errors.is_some()) {
-        return Err(anyhow::anyhow!(
-            "Cannot set both percentage and other errors"
-        ));
-    }
-
     // Get query groups
     let mut query_groups = Vec::new();
     for (query_file, query_type) in query_files.iter().zip(query_types.iter()) {
         let mut query_group = BarcodeGroup::new_from_fasta(query_file, query_type.clone());
-        if let Some(max_error_perc) = max_error_perc {
-            query_group.set_perc_threshold(max_error_perc);
-        }
         if let Some(max_flank_errors) = max_flank_errors {
             query_group.set_flank_threshold(max_flank_errors);
-        }
-        if let Some(max_bar_errors) = max_bar_errors {
-            query_group.set_barcode_threshold(max_bar_errors);
+        } else {
+            // Determine based on formula
+            let edit_cut_off = get_edit_cut_off(query_group.get_effective_len());
+            println!("Auto edit flank cut off: {}", edit_cut_off);
+            query_group.set_flank_threshold(edit_cut_off);
         }
         query_groups.push(query_group);
     }

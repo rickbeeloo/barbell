@@ -390,8 +390,8 @@ macro_rules! pattern_from_str {
     }};
 }
 
+#[cfg(test)]
 mod tests {
-
     use super::*;
 
     #[test]

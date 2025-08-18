@@ -274,8 +274,14 @@ impl BarcodeGroup {
 
         Some(first[first.len() - common_len..].to_vec())
     }
+
+    pub fn get_effective_len(&self) -> usize {
+        // Simply length of prefix + suffix
+        self.flank_prefix.len() + self.flank_suffix.len()
+    }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
     // use crate::annotate::tune::tune_single_sequence;

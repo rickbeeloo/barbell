@@ -1,4 +1,3 @@
-use crate::annotate::barcodes::BarcodeType;
 use crate::annotate::searcher::BarbellMatch;
 use colored::*;
 use sassy::Strand;
@@ -49,25 +48,25 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
                 // Prefer prev_left
                 let gap_start_bucket = bucket_position(distance_to_prev);
                 let gap_end_bucket = gap_start_bucket + BUCKET_SIZE;
-                format!("@prev_left({}..{})", gap_start_bucket, gap_end_bucket)
+                format!("@prev_left({gap_start_bucket}..{gap_end_bucket})")
             } else {
                 // Closer to right end
                 let right_start = bucket_position(annotation.read_len.saturating_sub(end));
                 let right_end =
                     bucket_position(annotation.read_len.saturating_sub(start)) + BUCKET_SIZE;
-                format!("@right({}..{})", right_start, right_end)
+                format!("@right({right_start}..{right_end})")
             }
         } else if annotation.rel_dist_to_end > 0 {
             // No previous element and on the left half – tag as left
             let start_bucket = bucket_position(start);
             let end_bucket = start_bucket + BUCKET_SIZE;
-            format!("@left({}..{})", start_bucket, end_bucket)
+            format!("@left({start_bucket}..{end_bucket})")
         } else {
             // No previous element, right side
             let right_start = bucket_position(annotation.read_len.saturating_sub(end));
             let right_end =
                 bucket_position(annotation.read_len.saturating_sub(start)) + BUCKET_SIZE;
-            format!("@right({}..{})", right_start, right_end)
+            format!("@right({right_start}..{right_end})")
         };
 
         // let label = annotation.label.clone();

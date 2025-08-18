@@ -1,30 +1,18 @@
 use crate::annotate::barcodes::{Barcode, BarcodeGroup, BarcodeType};
 use crate::annotate::cigar_parse::*;
 use crate::annotate::interval::collapse_overlapping_matches;
-use crate::annotate::model::Model;
 use crate::filter::pattern::Cut;
-use colored::*;
-use itertools::Itertools;
-use needletail::{FastxReader, Sequence, parse_fastx_file};
-use pa_types::{CigarOp, Cost, CostModel, Pos};
+use cigar_lodhi_rs::*;
+use pa_types::*;
+use pa_types::{CigarOp, Cost};
 use sassy::profiles::Iupac;
-use sassy::profiles::Profile;
 use sassy::{Match, Searcher, Strand};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::thread_local;
-// (CigarElem, CigarOp) were only required by the previous, now removed implementation
-// of `extract_bar_cost`.  They are no longer used, so the import has been removed.
-use crate::WIGGLE_ROOM;
-use cigar_lodhi_rs::*;
-use pa_types::*;
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufWriter, Write};
-use std::sync::{Arc, Mutex};
 
 thread_local! {
-    static OVERHANG_SEARCHER: std::cell::RefCell<Option<Searcher<Iupac>>> = std::cell::RefCell::new(None);
-    static REGULAR_SEARCHER: std::cell::RefCell<Option<Searcher<Iupac>>> = std::cell::RefCell::new(None);
+    static OVERHANG_SEARCHER: std::cell::RefCell<Option<Searcher<Iupac>>> = const { std::cell::RefCell::new(None) };
+    static REGULAR_SEARCHER: std::cell::RefCell<Option<Searcher<Iupac>>> = const { std::cell::RefCell::new(None) };
 
 }
 
@@ -35,15 +23,12 @@ pub struct Demuxer {
     alpha: f32,
     queries: Vec<BarcodeGroup>,
     verbose: bool,
-    top2_writer: Option<Arc<Mutex<BufWriter<File>>>>,
     // Fractional thresholds 0..1
     min_score_frac: f64,
     min_score_diff_frac: f64,
     // Lodhi parameters used throughout
     lodhi_k: usize,
     lodhi_lambda: f64,
-    // Cache Smax by barcode length
-    smax_cache: HashMap<usize, f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -222,12 +207,10 @@ impl Demuxer {
             alpha,
             queries: Vec::new(),
             verbose,
-            top2_writer: None,
             min_score_frac,
             min_score_diff_frac,
             lodhi_k: 3,
             lodhi_lambda: 0.5,
-            smax_cache: HashMap::new(),
         }
     }
 
@@ -252,7 +235,7 @@ impl Demuxer {
             }
         });
 
-        for (i, barcode_group) in self.queries.iter().enumerate() {
+        for barcode_group in self.queries.iter() {
             let flank = &barcode_group.flank;
             let flank_k = barcode_group.k_cutoff.unwrap_or(0);
             let flank_matches = OVERHANG_SEARCHER.with(|cell| {
@@ -278,7 +261,7 @@ impl Demuxer {
 
                 // Extract read positions for barcode matchign region
                 let Some((barcode_region_start, barcode_region_end)) =
-                    get_matching_region(&flank_match, mask_start, mask_end)
+                    get_matching_region(flank_match, mask_start, mask_end)
                 else {
                     continue; // no room for barcode?
                 };
@@ -367,7 +350,7 @@ impl Demuxer {
                 scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
                 if verbose {
-                    for (i, (s_norm, s, m, b)) in scored.iter().take(5).enumerate() {
+                    for (s_norm, s, m, _b) in scored.iter().take(5) {
                         println!("Cost: {:?}", m.cost);
                         println!("Strand: {:?}", m.strand);
                         println!("Cigar: {}", m.cigar.to_string());

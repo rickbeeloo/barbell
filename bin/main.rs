@@ -1,12 +1,10 @@
 use barbell::annotate::annotator::*;
-use barbell::annotate::barcodes::{BarcodeGroup, BarcodeType};
-use barbell::annotate::searcher::Demuxer;
+use barbell::annotate::barcodes::BarcodeType;
 use barbell::filter::filter::filter_from_text_file;
 use barbell::inspect::inspect;
 use barbell::preset::presets::PresetName;
 use barbell::preset::presets::use_preset;
 use barbell::trim::trim::trim_matches;
-use barbell::tune::tune::tune;
 use clap::{Parser, Subcommand};
 use colored::*;
 
@@ -37,51 +35,23 @@ enum Commands {
         #[arg(short = 'q', long)]
         queries: String,
 
-        /// Barcode types (comma-separated: Fbar,Rbar,Fflank,Rflank)
+        /// Barcode types (comma-separated: Fbar,Rbar,Fflank,Rflank) matching your query file (-q)
         #[arg(short = 'b', long, default_value = "Fbar")]
         barcode_types: String,
 
-        /// Maximum errors as percentage of flank / barcode length (mutually exclusive with specific error counts)
-        #[arg(short = 'e', long, conflicts_with_all = ["flank_max_errors", "barcode_max_errors"])]
-        max_error_perc: Option<f32>,
-
-        /// Maximum absolute errors allowed in flanks (mutually exclusive with -e/--max-error-perc)
-        #[arg(
-            long = "flank-max-errors",
-            value_name = "INT",
-            conflicts_with = "max_error_perc"
-        )]
+        /// Flank maximum erors in flank, ONLY set manually when you know what you are doing
+        #[arg(long = "flank-max-errors", value_name = "INT")]
         flank_max_errors: Option<usize>,
-
-        /// Maximum absolute errors allowed in barcodes (mutually exclusive with -e/--max-error-perc)
-        #[arg(
-            long = "barcode-max-errors",
-            value_name = "INT",
-            conflicts_with = "max_error_perc"
-        )]
-        barcode_max_errors: Option<usize>,
 
         /// Enable verbose output for debugging
         #[arg(long, default_value_t = false)]
         verbose: bool,
 
-        /// Minimum "fit" (0..1) translated via the probabilistic model to a score cutoff for the barcode region
-        #[arg(long = "min-fit", value_name = "FLOAT")]
-        min_fit: Option<f64>,
-
-        /// Use conservative error-run model (each error opens a run). If false, assumes one contiguous run.
-        #[arg(long = "conservative-runs", default_value_t = true)]
-        conservative_runs: bool,
-
-        /// Optional path to write top-2 candidates per read (TSV: read_id label1 cigar1 label2 cigar2)
-        #[arg(long = "top2-out")]
-        top2_out: Option<String>,
-
-        /// Fraction compared to 'perfect' match score for top candidate
+        /// Barcode: fraction compared to 'perfect' match score for top candidate
         #[arg(long = "min-score", default_value_t = 0.5)]
         min_score: f64,
 
-        /// Fraction difference between top 2 candidates
+        /// Barcode: fraction difference between top 2 candidates
         #[arg(long = "min-score-diff", default_value_t = 0.05)]
         min_score_diff: f64,
     },
@@ -192,21 +162,6 @@ enum Commands {
         #[arg(long)]
         failed_out: Option<String>,
     },
-
-    /// Tune the parameters for a given query file using Monte Carlo simulation
-    Tune {
-        /// Input FASTQ file (not used in simulation, kept for compatibility)
-        #[arg(short = 'i', long)]
-        input: String,
-
-        /// Query file
-        #[arg(short = 'q', long)]
-        query: String,
-
-        /// Confidence level for edit distance cutoff (default=0.999 for 99.9%)
-        #[arg(short = 'c', long, default_value = "0.999")]
-        confidence: f64,
-    },
 }
 
 fn main() {
@@ -221,13 +176,8 @@ fn main() {
             output,
             queries,
             barcode_types,
-            max_error_perc,
             flank_max_errors,
-            barcode_max_errors,
             verbose,
-            min_fit,
-            conservative_runs,
-            top2_out,
             min_score,
             min_score_diff,
         } => {
@@ -247,7 +197,7 @@ fn main() {
                     "Rtag" => BarcodeType::Rtag,
                     "Fflank" => BarcodeType::Fflank,
                     "Rflank" => BarcodeType::Rflank,
-                    _ => panic!("Unknown barcode type: {}", s),
+                    _ => panic!("Unknown barcode type: {s}"),
                 })
                 .collect();
 
@@ -256,9 +206,7 @@ fn main() {
                 query_files_refs,
                 barcode_types_vec,
                 output,
-                max_error_perc.clone(),
-                flank_max_errors.clone(),
-                barcode_max_errors.clone(),
+                *flank_max_errors,
                 0.5,
                 *threads as u32,
                 *verbose,
@@ -343,14 +291,6 @@ fn main() {
                 *min_score_diff,
                 failed_out.clone(),
             );
-        }
-
-        Commands::Tune {
-            input,
-            query,
-            confidence,
-        } => {
-            barbell::tune::tune::tune(input, query, None, None, Some(*confidence));
         }
     }
 }

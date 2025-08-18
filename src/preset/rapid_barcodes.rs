@@ -40,12 +40,10 @@ pub fn demux_rapid_barcodes(
         vec![tmp_query_file.path().to_str().unwrap()],
         vec![BarcodeType::Ftag],
         format!("{output_folder}/annotation.tsv").as_str(),
-        None,
         Some(20),
-        Some(7),
-        0.5, // Overhang alpha
+        0.5,
         threads as u32,
-        verbose,
+        false,
         min_score,
         min_score_diff,
     )

@@ -27,6 +27,5 @@ pub fn use_preset(
             min_score_diff,
             failed_out,
         ),
-        _ => panic!("Unsupported preset, use one of: {:?}", PresetName::Rapid),
     }
 }
