@@ -79,7 +79,7 @@ pub fn annotate(
         } else {
             // Determine based on formula
             let edit_cut_off = get_edit_cut_off(query_group.get_effective_len());
-            println!("Auto edit flank cut off: {}", edit_cut_off);
+            println!("Auto edit flank cut off: {edit_cut_off}");
             query_group.set_flank_threshold(edit_cut_off);
         }
         query_groups.push(query_group);
@@ -106,7 +106,7 @@ pub fn annotate(
         |record_set| {
             // Create thread local demuxer if not init for current thread yet
             thread_local! {
-                static DEMUXER: std::cell::RefCell<Option<Demuxer>> = std::cell::RefCell::new(None);
+                static DEMUXER: std::cell::RefCell<Option<Demuxer>> = const { std::cell::RefCell::new(None) };
             }
             DEMUXER.with(|cell| {
                 if cell.borrow().is_none() {
