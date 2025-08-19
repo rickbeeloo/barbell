@@ -11,11 +11,20 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::time::Duration;
 
+use clap::ValueEnum;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum LabelSide {
+    Left,
+    Right,
+}
+
 pub struct LabelConfig {
     include_label: bool,
     include_orientation: bool,
     include_flank: bool,
     sort_labels: bool,
+    only_side: Option<LabelSide>,
 }
 
 impl LabelConfig {
@@ -24,12 +33,14 @@ impl LabelConfig {
         include_orientation: bool,
         include_flank: bool,
         sort_labels: bool,
+        only_side: Option<LabelSide>,
     ) -> Self {
         Self {
             include_label,
             include_orientation,
             include_flank,
             sort_labels,
+            only_side,
         }
     }
 
@@ -62,11 +73,22 @@ impl LabelConfig {
             })
             .collect();
 
+        if self.sort_labels && self.only_side.is_some() {
+            panic!("Cannot enable only keeping left label and sorting as this makes it ambiguous");
+        }
+
         if label_parts.is_empty() {
             "none".to_string()
         } else if self.sort_labels {
             label_parts.sort();
             label_parts.join("__")
+        } else if self.only_side.is_some() {
+            let side = self.only_side.unwrap();
+            if side == LabelSide::Left {
+                label_parts.first().unwrap().clone()
+            } else {
+                label_parts.last().unwrap().clone()
+            }
         } else {
             label_parts.join("__")
         }
@@ -299,6 +321,7 @@ pub fn trim_matches(
     add_orientation: bool,
     add_flank: bool,
     sort_labels: bool,
+    only_side: Option<LabelSide>,
     failed_trimmed_writer: Option<String>, // if provided we write ids of failed trimmed reads to this file, like empty reads
 ) {
     // Create output folder if it doesn't exist
@@ -307,7 +330,13 @@ pub fn trim_matches(
     }
 
     // Label formatting config
-    let label_config = LabelConfig::new(add_labels, add_orientation, add_flank, sort_labels);
+    let label_config = LabelConfig::new(
+        add_labels,
+        add_orientation,
+        add_flank,
+        sort_labels,
+        only_side,
+    );
 
     // Read all annotations and group by read ID
     let mut annotations_by_read: HashMap<String, Vec<BarbellMatch>> = HashMap::new();
@@ -449,7 +478,7 @@ mod tests {
             ),
         ];
 
-        let label_config = LabelConfig::new(true, true, true, true);
+        let label_config = LabelConfig::new(true, true, true, true, None);
         let results = process_read_and_anno(seq, qual, &annotations, &label_config);
 
         assert_eq!(results.len(), 1);

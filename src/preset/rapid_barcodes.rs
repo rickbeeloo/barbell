@@ -5,7 +5,7 @@ use crate::annotate::{annotator::annotate, barcodes::BarcodeType};
 use crate::filter::filter::filter;
 use crate::inspect::inspect::inspect;
 use crate::pattern_from_str;
-use crate::trim::trim::trim_matches;
+use crate::trim::trim::{LabelSide, trim_matches};
 use colored::*;
 use tempfile::NamedTempFile;
 
@@ -72,9 +72,10 @@ pub fn demux_rapid_barcodes(
     // Much more risky patterns to maximize assignment
     let pattern3 =
         pattern_from_str!("Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @prev_left(0..250), >>]");
-    let pattern4 = pattern_from_str!("Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @right(0..250), >>]");
+    let pattern4 =
+        pattern_from_str!("Ftag[fw, *, @left(0..250), >>]__Ftag[<<, fw, *, @right(0..250)]");
     let pattern5 = pattern_from_str!(
-        "Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @prev_left(0..250)]__Ftag[fw, *, @right(0..250), >>]"
+        "Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @prev_left(0..250), >>]__Ftag[<<, fw, *, @right(0..250)]"
     );
 
     let patterns = if maximize {
@@ -101,6 +102,7 @@ pub fn demux_rapid_barcodes(
         true,
         true,
         true,
+        Some(LabelSide::Left),
         failed_out,
     );
 }

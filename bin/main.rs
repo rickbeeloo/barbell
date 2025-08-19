@@ -4,7 +4,7 @@ use barbell::filter::filter::filter_from_text_file;
 use barbell::inspect::inspect;
 use barbell::preset::presets::PresetName;
 use barbell::preset::presets::use_preset;
-use barbell::trim::trim::trim_matches;
+use barbell::trim::trim::{LabelSide, trim_matches};
 use clap::{Parser, Subcommand};
 use colored::*;
 
@@ -103,6 +103,10 @@ enum Commands {
         /// Sort barcode labels in output filenames
         #[arg(long, default_value_t = false)]
         sort_labels: bool,
+
+        /// Only keep left or right label in output filenames
+        #[arg(long, conflicts_with = "sort_labels")]
+        only_side: Option<LabelSide>,
 
         /// Write ids of failed trimmed reads to this file
         #[arg(long)]
@@ -241,6 +245,7 @@ fn main() {
             no_orientation,
             no_flanks,
             sort_labels,
+            only_side,
             failed_out,
         } => {
             println!("{}", "Starting trimming...".green());
@@ -252,6 +257,7 @@ fn main() {
                 !no_orientation,
                 !no_flanks,
                 *sort_labels,
+                *only_side,
                 failed_out.clone(),
             );
         }
