@@ -151,11 +151,11 @@ enum Commands {
         verbose: bool,
 
         /// Fraction compared to 'perfect' match score for top candidate
-        #[arg(long = "min-score", default_value_t = 0.5)]
+        #[arg(long = "min-score", default_value_t = 0.4)]
         min_score: f64,
 
         /// Fraction difference between top 2 candidates
-        #[arg(long = "min-score-diff", default_value_t = 0.05)]
+        #[arg(long = "min-score-diff", default_value_t = 0.07)]
         min_score_diff: f64,
 
         /// Write ids of failed trimmed reads to this file
