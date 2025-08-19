@@ -100,8 +100,8 @@ pub fn demux_rapid_barcodes(
         output_folder,
         true,
         true,
-        true,
-        true,
+        false,
+        false,
         Some(LabelSide::Left),
         failed_out,
     );
