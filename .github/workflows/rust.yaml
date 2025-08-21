@@ -22,10 +22,6 @@ jobs:
         toolchain: nightly
         override: true
 
-    - name: Setup git auth for Cargo
-      run: |
-        git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
     - name: Build
       run: |
         export CARGO_NET_GIT_FETCH_WITH_CLI=true
