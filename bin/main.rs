@@ -36,7 +36,7 @@ enum Commands {
         queries: String,
 
         /// Barcode types (comma-separated: Fbar,Rbar,Fflank,Rflank) matching your query file (-q)
-        #[arg(short = 'b', long, default_value = "Fbar")]
+        #[arg(short = 'b', long, default_value = "Ftag")]
         barcode_types: String,
 
         /// Flank maximum erors in flank, ONLY set manually when you know what you are doing
@@ -155,11 +155,11 @@ enum Commands {
         verbose: bool,
 
         /// Fraction compared to 'perfect' match score for top candidate
-        #[arg(long = "min-score", default_value_t = 0.5)]
+        #[arg(long = "min-score", default_value_t = 0.2)]
         min_score: f64,
 
         /// Fraction difference between top 2 candidates
-        #[arg(long = "min-score-diff", default_value_t = 0.05)]
+        #[arg(long = "min-score-diff", default_value_t = 0.1)]
         min_score_diff: f64,
 
         /// Write ids of failed trimmed reads to this file
@@ -201,7 +201,9 @@ fn main() {
                     "Rtag" => BarcodeType::Rtag,
                     "Fflank" => BarcodeType::Fflank,
                     "Rflank" => BarcodeType::Rflank,
-                    _ => panic!("Unknown barcode type: {s}"),
+                    _ => {
+                        panic!("Unknown barcode type: {s}, use one of: Ftag, Rtag, Fflank, Rflank")
+                    }
                 })
                 .collect();
 
