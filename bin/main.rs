@@ -35,7 +35,7 @@ enum Commands {
         #[arg(short = 'q', long)]
         queries: String,
 
-        /// Barcode types (comma-separated: Fbar,Rbar,Fflank,Rflank) matching your query file (-q)
+        /// Barcode types (comma-separated: Ftag,Rtag) matching your query file (-q)
         #[arg(short = 'b', long, default_value = "Ftag")]
         barcode_types: String,
 
@@ -162,6 +162,10 @@ enum Commands {
         #[arg(long = "min-score-diff", default_value_t = 0.1)]
         min_score_diff: f64,
 
+        /// Flank maximum erors in flank, ONLY set manually when you know what you are doing
+        #[arg(long = "flank-max-errors", value_name = "INT")]
+        flank_max_errors: Option<usize>,
+
         /// Write ids of failed trimmed reads to this file
         #[arg(long)]
         failed_out: Option<String>,
@@ -199,10 +203,8 @@ fn main() {
                 .map(|s| match s.trim() {
                     "Ftag" => BarcodeType::Ftag,
                     "Rtag" => BarcodeType::Rtag,
-                    "Fflank" => BarcodeType::Fflank,
-                    "Rflank" => BarcodeType::Rflank,
                     _ => {
-                        panic!("Unknown barcode type: {s}, use one of: Ftag, Rtag, Fflank, Rflank")
+                        panic!("Unknown barcode type: {s}, use one of: Ftag, Rtag")
                     }
                 })
                 .collect();
@@ -286,6 +288,7 @@ fn main() {
             verbose,
             min_score,
             min_score_diff,
+            flank_max_errors,
             failed_out,
         } => {
             use_preset(
@@ -297,6 +300,7 @@ fn main() {
                 *verbose,
                 *min_score,
                 *min_score_diff,
+                *flank_max_errors,
                 failed_out.clone(),
             );
         }

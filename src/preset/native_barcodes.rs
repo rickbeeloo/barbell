@@ -9,7 +9,7 @@ use crate::trim::trim::{LabelSide, trim_matches};
 use colored::*;
 use tempfile::NamedTempFile;
 
-pub fn demux_rapid_barcodes(
+pub fn demux_native_barcodes(
     fastq_file: &str,
     threads: usize,
     output_folder: &str,
@@ -23,7 +23,7 @@ pub fn demux_rapid_barcodes(
     // Create temp file for string content
     let mut tmp_query_file = NamedTempFile::new().expect("Failed to create temporary file");
     tmp_query_file
-        .write_all(crate::RAPID_BARS_CONTENT.as_bytes())
+        .write_all(crate::NATIVE_BARS_CONTENT.as_bytes())
         .expect("Failed to write to temporary file");
     tmp_query_file
         .flush()
@@ -51,11 +51,11 @@ pub fn demux_rapid_barcodes(
     .expect("Annotation failed");
 
     // // After annotating we show inspect
-    println!("\n{}", "Top 10 most common patterns".purple().bold());
+    println!("\n{}", "Top 15 most common patterns".purple().bold());
     let pattern_per_read_out = format!("{output_folder}/pattern_per_read.tsv");
     inspect(
         format!("{output_folder}/annotation.tsv").as_str(),
-        10,
+        15,
         Some(pattern_per_read_out),
     )
     .expect("Inspect failed");
@@ -65,24 +65,53 @@ pub fn demux_rapid_barcodes(
 
     // The "safe" patterns
     // ideal - single barcode on the left side
-    let pattern1 = pattern_from_str!("Ftag[fw, *, @left(0..250), >>]");
-    // still good, two barcodes on the left side with the SAME label (?1 wildcard)
-    let pattern2 =
-        pattern_from_str!("Ftag[fw, ?1, @left(0..250)]__Ftag[fw, ?1, @prev_left(0..250), >>]");
 
-    // Much more risky patterns to maximize assignment
+    // Barcode on just the left side (fw)
+    let pattern1 = pattern_from_str!("Ftag[fw, *, @left(0..250), >>]");
+
+    // Barcode on just the right side (rc)
+    let pattern2 = pattern_from_str!("Ftag[<<, rc, *, @right(0..250)]");
+
+    // Barcode on both sides, with same label (?1 wildcard)
     let pattern3 =
+        pattern_from_str!("Ftag[fw, ?1, @left(0..250), >>]__Ftag[<<, rc, ?1, @right(0..250)]");
+
+    // The less safe patterns
+
+    // Two barcodes on the left, where inner left and right side have the same label (?1 wildcard)
+    let pattern4 = pattern_from_str!(
+        "Ftag[fw, *, @left(0..250)]__Ftag[fw, ?1, @prev_left(0..250), >>]__Ftag[<<, rc, ?1, @right(0..250)]"
+    );
+
+    // Barcode on the left, missing right
+    let pattern5 =
+        pattern_from_str!("Ftag[fw, *, @left(0..250), >>]__Fflank[<<, rc, *, @right(0..250)]");
+
+    // Barcode on the right, missing left
+    let pattern7 =
+        pattern_from_str!("Fflank[fw, *, @left(0..250), >>]__Ftag[<<, rc, *, @right(0..250)]");
+
+    // Two barcodes on the left side
+    let pattern6 =
         pattern_from_str!("Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @prev_left(0..250), >>]");
-    let pattern4 =
-        pattern_from_str!("Ftag[fw, *, @left(0..250), >>]__Ftag[<<, fw, *, @right(0..250)]");
-    let pattern5 = pattern_from_str!(
-        "Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @prev_left(0..250), >>]__Ftag[<<, fw, *, @right(0..250)]"
+
+    // Two barcodes on the right side, cut inner
+    let pattern8 = pattern_from_str!(
+        "Ftag[<<, fw, ?1, @left(0..250), >>]__Ftag[<<, fw, ?1, @right(0..250)]__Ftag[rc, *, @right(0..250)]"
+    );
+
+    // Three barcodes left side, one on the right should be the same as inner left
+    let pattern9 = pattern_from_str!(
+        "Ftag[fw, *, @left(0..250)]__Ftag[rc, *, @prev_left(0..250)]__Ftag[fw, ?1, @prev_left(0..250), >>]__Ftag[<<, rc, ?1, @right(0..250)]"
     );
 
     let patterns = if maximize {
-        vec![pattern1, pattern3, pattern4, pattern5]
+        vec![pattern1, pattern2, pattern3]
     } else {
-        vec![pattern1, pattern2]
+        vec![
+            pattern1, pattern2, pattern3, pattern4, pattern5, pattern6, pattern7, pattern8,
+            pattern9,
+        ]
     };
 
     filter(
