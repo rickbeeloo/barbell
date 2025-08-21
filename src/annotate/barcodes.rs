@@ -86,7 +86,6 @@ impl BarcodeGroup {
         let prefix_len = prefix.as_ref().unwrap_or(&Vec::new()).len();
         let suffix_len = suffix.as_ref().unwrap_or(&Vec::new()).len();
         let mask_size = query_seqs[0].len() - prefix_len - suffix_len;
-        assert_eq!(mask_size, 24);
 
         // Add prefix if present
         if let Some(p) = &prefix {
@@ -146,8 +145,13 @@ impl BarcodeGroup {
             // We have "padding" which we remove before printing
             let (pad_start, pad_end) = self.pad_region;
             let (bar_start, bar_end) = self.bar_region;
-            let start_pos = bar_start - pad_start;
-            let end_pos = (barcode.seq.len() - (pad_end - bar_end) + 1).min(barcode.seq.len());
+            let len = barcode.seq.len();
+            let start_pos = bar_start.saturating_sub(pad_start).min(len);
+            //fixme: better logic here although in practice it should never happen
+            let mut end_pos = (bar_end + 1).saturating_sub(pad_start).min(len);
+            if end_pos < start_pos {
+                end_pos = start_pos;
+            }
 
             let just_bar_slice = &barcode.seq[start_pos..end_pos];
 
@@ -338,8 +342,10 @@ mod tests {
         assert_eq!(barcode_group.flank, b"AAANNNGGG".to_vec());
         assert_eq!(barcode_group.bar_region, (3, 5));
         assert_eq!(barcode_group.barcodes.len(), 2);
-        assert_eq!(barcode_group.barcodes[0].seq, b"TTT".to_vec());
-        assert_eq!(barcode_group.barcodes[1].seq, b"CCC".to_vec());
+        // We add a 10bp padding on each side of the mask, but since we don't have 10 chars
+        // here it just maxes out and takes full flanks
+        assert_eq!(barcode_group.barcodes[0].seq, b"AAATTTGGG".to_vec());
+        assert_eq!(barcode_group.barcodes[1].seq, b"AAACCCGGG".to_vec());
     }
 
     #[test]
@@ -379,7 +385,7 @@ mod tests {
         assert_eq!(&flank[16..=39], b"NNNNNNNNNNNNNNNNNNNNNNNN");
         assert_eq!(barcode_group.barcodes.len(), 96);
         assert_eq!(
-            barcode_group.barcodes[0].seq,
+            &barcode_group.barcodes[0].seq[10..10 + 24],
             b"AAGAAAGTTGTCGGTGTCTTTGTG".to_vec() // NB01 fwd
         );
     }
