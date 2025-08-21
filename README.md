@@ -1,6 +1,16 @@
 # Barbell - a new perspective on demultiplexing
 
-### What is barbell?
+### Why barbell?
+- More accurate barcode scoring scheme, around **5x less 
+barcode bleeding** than Dorado
+- Over **100x less trimming errors** compared to Dorado
+- Equivalent, or **better assemblies**
+- **Contamination free** assemblie by removing artefact reads
+- Easily applicable to **custom experiments**
+- Still **very fast**
+
+
+### The steps of a barbell workflow?
 Barbell is a read demultiplexer and trimmer that focuses on detecting experimental errors. A general workflow follows four steps:
 1. **Annotate**, which finds barcodes and their flanks in the reads. It uses [edit distance](https://www.biorxiv.org/content/10.1101/2025.07.22.666207v1) to locate the flanks and a new scoring scheme based on [Lodhi et al.](https://www.jmlr.org/papers/v2/lodhi02a.html) to score barcodes
 2. **Inspect**, based on the annotate results Barbell can "print" all the reads patterns showing where barcodes are, if they are concatenated, etc. 
@@ -17,12 +27,25 @@ Check if you have Rust installed, run `rustc --version`, if no output you should
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-### Clone and build
+### Important note
+**Note**: requires **AVX2 and BMI2** as these are used
+in [sassy](https://github.com/RagnarGrootKoerkamp/sassy). It is therefore unlikely to work on Apple Silicon or ARM-based systems, and may also fail on older CPUs. <u>Most modern x86_64 Ubuntu systems should work, depending on the CPU</u>.
+
+### From releases (when public)
+see [releases](https://github.com/rickbeeloo/barbell/releases), for example:
+```bash
+wget https://github.com/rickbeeloo/barbell-sg/releases/download/v0.1.8/barbell-sassy-rewrite-x86_64-unknown-linux-gnu.tar.xz
+
+```
+
+### From source
 ```bash
 git clone https://github.com/rickbeeloo/barbell-sg
 cd barbell-sg
 cargo build --release
 ```
+
+
 The `barbell` executable is now in `/target/release` 
 
 ## Annotate
