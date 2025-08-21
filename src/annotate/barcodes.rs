@@ -143,7 +143,7 @@ impl BarcodeGroup {
         let left_flank_len = self.flank_prefix.len();
         for barcode in self.barcodes.iter().take(5) {
             // We have "padding" which we remove before printing
-            let (pad_start, pad_end) = self.pad_region;
+            let (pad_start, _pad_end) = self.pad_region;
             let (bar_start, bar_end) = self.bar_region;
             let len = barcode.seq.len();
             let start_pos = bar_start.saturating_sub(pad_start).min(len);

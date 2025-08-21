@@ -51,11 +51,11 @@ pub fn demux_native_barcodes(
     .expect("Annotation failed");
 
     // // After annotating we show inspect
-    println!("\n{}", "Top 15 most common patterns".purple().bold());
+    println!("\n{}", "Top 10 most common patterns".purple().bold());
     let pattern_per_read_out = format!("{output_folder}/pattern_per_read.tsv");
     inspect(
         format!("{output_folder}/annotation.tsv").as_str(),
-        15,
+        10,
         Some(pattern_per_read_out),
     )
     .expect("Inspect failed");
@@ -106,12 +106,12 @@ pub fn demux_native_barcodes(
     );
 
     let patterns = if maximize {
-        vec![pattern1, pattern2, pattern3]
-    } else {
         vec![
             pattern1, pattern2, pattern3, pattern4, pattern5, pattern6, pattern7, pattern8,
             pattern9,
         ]
+    } else {
+        vec![pattern1, pattern2, pattern3]
     };
 
     filter(
