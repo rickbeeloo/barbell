@@ -16,10 +16,21 @@ with open("rapid_queries.fasta", "w") as q:
 native_left = "ATTGCTAAGGTTAA"
 native_right = "CAGCACCT"
  
+def reverse_complement(seq):
+    # use make trans atgc 
+    trans_table = {
+        "A": "T",
+        "T": "A",
+        "C": "G",
+        "G": "C"
+    }
+    return "".join(trans_table[base] for base in seq[::-1])
+
 with open("native_queries.fasta", "w") as q:
     for record in fastapy.parse("native_bars.txt"):
         barcode_name = record.id
         barcode_seq = record.seq
+        barcode_seq = reverse_complement(barcode_seq)
         # Create query
         query = native_left + barcode_seq + native_right
         # Create record
