@@ -185,7 +185,7 @@ impl BarcodeGroup {
         // Collect all records first
         while let Some(record) = reader.next() {
             let seqrec = record.expect("invalid record");
-            let norm_seq = seqrec.normalize(false); // Makes all uppercase, important for set_perc threshold
+            let norm_seq = seqrec.normalize(true); // Makes all uppercase, important for set_perc threshold
             labels.push(std::str::from_utf8(seqrec.id()).unwrap().to_string());
             bar_seqs.push(norm_seq.into_owned());
         }
