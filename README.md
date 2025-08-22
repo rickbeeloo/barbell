@@ -9,14 +9,6 @@ barcode bleeding** than Dorado
 - Easily applicable to **custom experiments**
 - Still **very fast**
 
-
-### The steps of a barbell workflow?
-Barbell is a read demultiplexer and trimmer that focuses on detecting experimental errors. A general workflow follows four steps:
-1. **Annotate**, which finds barcodes and their flanks in the reads. It uses [edit distance](https://www.biorxiv.org/content/10.1101/2025.07.22.666207v1) to locate the flanks and a new scoring scheme based on [Lodhi et al.](https://www.jmlr.org/papers/v2/lodhi02a.html) to score barcodes
-2. **Inspect**, based on the annotate results Barbell can "print" all the reads patterns showing where barcodes are, if they are concatenated, etc. 
-3. **Filter**, you specify what *patterns* are valid in your opinion and where to cut reads
-4. **Trim** takes the filtered output and the original reads, trims them, and splits them based on the barcodes
-
 ## Installing Barbell
 Barbell is written in Rust
 
@@ -48,80 +40,46 @@ cargo build --release
 
 The `barbell` executable is now in `/target/release` 
 
-## Annotate
+
+## Quickstart
+Most Nanopore kits (except those for RNA and Twist) were added to the `kit` command and can be ran without 
+much manual interference: (if you have a custom kit [jump here[(#)]). 
+While these "presets" help you to quickly analyze data and get a feel of barbell we highly recommend 
+going through the "Understanding Barbell" section as you will likely get much more from your reads 
+by understand them. 
+
 ```bash
-Usage: barbell annotate [OPTIONS] --input <INPUT> --queries <QUERIES>
-
-Options:
-  -i, --input <INPUT>
-          Input FASTQ file
-  -t, --threads <THREADS>
-          Number of threads [default: 10]
-  -o, --output <OUTPUT>
-          Output file path [default: output.tsv]
-  -q, --queries <QUERIES>
-          Query files (comma-separated paths)
-  -b, --barcode-types <BARCODE_TYPES>
-          Barcode types (comma-separated: Fbar,Rbar,Fflank,Rflank) matching your query file (-q) [default: Fbar]
-      --flank-max-errors <INT>
-          Flank maximum erors in flank, ONLY set manually when you know what you are doing
-      --verbose
-          Enable verbose output for debugging
-      --min-score <MIN_SCORE>
-          Barcode: fraction compared to 'perfect' match score for top candidate [default: 0.5]
-      --min-score-diff <MIN_SCORE_DIFF>
-          Barcode: fraction difference between top 2 candidates [default: 0.05]
-  -h, --help
-          Print help
+barbell kit -k <kit-name> -i <reads.fastq> -o <output_folder> --maximize
 ```
+The `--maximize` option is generally recommended (e.g. for assembly) unless you really want the near perfect barcode configuration. 
 
-### Simple
-The basic input for `annotate` is:
-```bash 
-barbell annotate -i reads.fastq -q queries.fasta
-```
-
-- `--input`, having your reads in fastq
-- `--queries`, the sequences you are looking for (in fasta), this *should* have the flanks as well for example if you are demultiplexing a rapid barcoding kit you create a file like [this](examples/rapid_bars.fasta) where we have
-`<left_flank><barcode><right_flank>` for Dorado these are mostly on their chemistry webpage of which most are also in [examples](examples/). 
-
-
-In case you have mutliple queries, for example for dual end you can do:
-```bash 
-barbell -i reads.fastq -q query1.fasta,query2.fasta -b Fbar,Rbar
-```
-The `-b` options tells barbell that `query1.fasta` has forward barcodes, and `query2.fasta` reverse barcodes. This does not change the algorithm it just makes filtering easier.
-For native barcoding the left and right sequences are the same so you could just run:
+### Native barcoding example (SQK-NBD114-96)
 ```bash
-barbell -i reads.fastq -q query1.fasta -b Fbar
+barbell kit -k SQK-NBD114-96 -i <reads.fastq> -o <output_folder> --maximize
 ```
-and just in the filtering step allow it to match in `rc` on the right side. 
+This use our lower bound edit distance formula to set a cut-off for the sequences flanking the barocde. 
+This is generally quite strict but works well for good sequence quality. If you notice a lot of reads are missed during the annotate step you could try to lower it to for example `--flank-max-errors 6`, but make sure you again check the inspect output to see if you are not creating too many "Fflank" matches which likely indicate random matches. 
 
-### Extra options
-It's often useful to control how "strict" barbell is find barcodes, this is determined by:
-1. `--min-score <X>`, to be very safe you could use `0.6`, for assembly where it matters less around `0.4`, on average around `0.5`
-2. `--min_score_diff <X>`, generally between `0.05-0.07` seems fine. 
-
-
-### Advanced 
-If your flanks are short for example in case of native barcoding the fitted edit distance formula will allow up to 2 edits in the flanks.
-If you have too little reads you could try to up this using `--flank-max-errors 3` which overrides the automatic edit cut off.
-
-
-
-
-### What are patterns?
-At  the core of Barbell are its *patterns* that describe a read:
-They always have the following format:
+### Rapid barcoding example (SQK-RBK114-96)
+```bash
+barbell kit -k SQK-RBK114-96 -i <reads.fastq> -o <output_folder> --maximize
 ```
-Tag[<orientation>, <label>, <rel_pos>, <cut>]
-```
-Where:
-- Tag: `Ftag` or `Rtag`
-- orientation: `fw` or `rc`, relative to your query input file
-- label: 
-     - `*` match any label from input fasta 
-     - `?1`, wildcard, for example in dual barcoding you can use `Ftag[fw, ?1, @left(0,250)]__Ftag[rc, ?1, @right(0,250)]`. Can use as many wildcards as you want, `?2`, `?3`, etc.
-     - `~g1`, substring, 
+The currently supported kits can be found [here[(data/supported_kits.txt)]
+
+
+## Understanding Barbell
+While presets are ideal for a quick analysis, going through each of the invidiual steps of barbell can show valuable insights in your experimental setup, where
+things went wrong, how to get more reads, are things glued together? etc. 
+First we go over the basic steps of barbell:
+1. **Annotate**: Finding barcodes and their flanks in the reads. With "flanks" we mean sequencing flanking the barcodes are specified in the [Nanopore chemistry doc](https://nanoporetech.com/document/chemistry-technical-document#barcode-sequences). The scoring is mainly based on two falues:
+- `--flank-max-errors`: maximum number of edits allowed in the (combined) flanking sequences, so excluding the barocde. This is automatically, but conservertialy. determined based on the flank length. If you want to increase the number of reads look at the auto threshold and slightly increase this. 
+`--min-score` and `--min-score-diff`, these by default are `0.5` and `0.05` respectively which are generally fine. We use a custom scoring here (see paper) that focus on tighly packed "match" streaks instead of just edits alone. To be "strict" you would be around 0.5 and 0.6, to get more reads at the risk of making mistakes would be around 0.2-0.4. For the `--min-score-diff` you would generally not change that. 
+
+
+
+
+
+
+
 
 

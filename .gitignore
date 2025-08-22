@@ -6,7 +6,7 @@ filter.txt
 *.fastq
 /benchmarks/*.ipynb
 *.ipynb
-*.txt
+/*.txt
 *.tsv
 *.py
 /*.fasta
