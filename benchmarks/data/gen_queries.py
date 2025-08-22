@@ -31,7 +31,7 @@ with open("native_queries.fasta", "w") as q1, open("../../examples/native_bars.f
     for record in fastapy.parse("native_bars.txt"):
         barcode_name = record.id
         barcode_seq = record.seq
-      #  barcode_seq = reverse_complement(barcode_seq)
+        barcode_seq = reverse_complement(barcode_seq)
         # Create query
         query = native_left + barcode_seq + native_right
         # Create record

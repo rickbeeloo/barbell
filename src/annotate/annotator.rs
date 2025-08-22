@@ -50,7 +50,8 @@ fn create_progress_bar() -> (ProgressBar, ProgressBar, ProgressBar) {
     (total_bar, found_bar, missed_bar)
 }
 
-pub fn annotate(
+// used by custom experiments (direct annotate call)
+pub fn annotate_with_files(
     read_file: &str,
     query_files: Vec<&str>,
     query_types: Vec<BarcodeType>,
@@ -62,14 +63,6 @@ pub fn annotate(
     min_score: f64,
     min_score_diff: f64,
 ) -> anyhow::Result<()> {
-    let reader = Reader::from_path(read_file).unwrap();
-    let writer = Arc::new(Mutex::new(
-        csv::WriterBuilder::new()
-            .delimiter(b'\t')
-            .from_path(out_file)
-            .unwrap(),
-    ));
-
     // Get query groups
     let mut query_groups = Vec::new();
     for (query_file, query_type) in query_files.iter().zip(query_types.iter()) {
@@ -84,10 +77,81 @@ pub fn annotate(
         }
         query_groups.push(query_group);
     }
+    annotate(
+        read_file,
+        out_file,
+        query_groups,
+        alpha,
+        n_threads,
+        verbose,
+        min_score,
+        min_score_diff,
+    )
+}
+
+// used by kit
+pub fn annotate_with_groups(
+    read_file: &str,
+    out_file: &str,
+    query_groups: Vec<BarcodeGroup>,
+    max_flank_errors: Option<usize>,
+    alpha: f32,
+    n_threads: u32,
+    verbose: bool,
+    min_score: f64,
+    min_score_diff: f64,
+) -> anyhow::Result<()> {
+    // Hmm not sure: fixme: think about where flank error should be set
+    // Cannot mutate query_groups because it's not mutable (Vec<BarcodeGroup> is not mutable when passed by value and iterated by reference).
+    // Instead, create a new Vec with updated groups.
+    let query_groups: Vec<BarcodeGroup> = query_groups
+        .into_iter()
+        .map(|mut query_group| {
+            if let Some(max_flank_errors) = max_flank_errors {
+                query_group.set_flank_threshold(max_flank_errors);
+            } else {
+                // Determine based on formula
+                let edit_cut_off = get_edit_cut_off(query_group.get_effective_len());
+                println!("Auto edit flank cut off: {edit_cut_off}");
+                query_group.set_flank_threshold(edit_cut_off);
+            }
+            query_group
+        })
+        .collect();
+    annotate(
+        read_file,
+        out_file,
+        query_groups,
+        alpha,
+        n_threads,
+        verbose,
+        min_score,
+        min_score_diff,
+    )
+}
+
+pub fn annotate(
+    read_file: &str,
+    out_file: &str,
+    query_groups: Vec<BarcodeGroup>,
+    alpha: f32,
+    n_threads: u32,
+    verbose: bool,
+    min_score: f64,
+    min_score_diff: f64,
+) -> anyhow::Result<()> {
+    let reader = Reader::from_path(read_file).unwrap();
+    let writer = Arc::new(Mutex::new(
+        csv::WriterBuilder::new()
+            .delimiter(b'\t')
+            .from_path(out_file)
+            .unwrap(),
+    ));
+
     // Dispaly to user
     for (i, query_group) in query_groups.iter().enumerate() {
         println!("{}: {}", query_group.barcode_type.as_str(), i);
-        query_group.display();
+        query_group.display(5);
     }
 
     // Create progress bars

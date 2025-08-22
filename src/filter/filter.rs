@@ -51,7 +51,7 @@ pub fn filter(
     annotated_file: &str,
     output_file: &str,
     dropped_out_file: Option<&str>,
-    filters: Vec<Pattern>,
+    filters: &[Pattern],
 ) -> Result<(), Box<dyn Error>> {
     // Setup progress bar
     let (total_bar, kept_bar, dropped_bar) = create_progress_bar();
@@ -90,7 +90,7 @@ pub fn filter(
             if read_id != &record.read_id {
                 total_bar.inc(1);
                 // Process previous group
-                if check_filter_pass(&mut current_group, &filters) {
+                if check_filter_pass(&mut current_group, filters) {
                     kept_bar.inc(1);
                     for annotation in &current_group {
                         writer.serialize(annotation)?;
@@ -116,7 +116,7 @@ pub fn filter(
     // Process the last group
     if !current_group.is_empty() {
         total_bar.inc(1);
-        if check_filter_pass(&mut current_group, &filters) {
+        if check_filter_pass(&mut current_group, filters) {
             kept_bar.inc(1);
             for annotation in &current_group {
                 writer.serialize(annotation)?;
@@ -158,7 +158,7 @@ pub fn filter_from_pattern_str(
 ) -> Result<(), Box<dyn Error>> {
     // use pattern macro to convert pattern_str to pattern
     let pattern = pattern_from_str!(pattern_str);
-    filter(annotated_file, output_file, dropped_out_file, vec![pattern])
+    filter(annotated_file, output_file, dropped_out_file, &[pattern])
 }
 
 pub fn filter_from_text_file(
@@ -177,7 +177,7 @@ pub fn filter_from_text_file(
         .iter()
         .map(|s| pattern_from_str!(s))
         .collect::<Vec<Pattern>>();
-    filter(annotated_file, output_file, dropped_out_file, patterns)
+    filter(annotated_file, output_file, dropped_out_file, &patterns)
 }
 
 fn check_filter_pass(annotations: &mut [BarbellMatch], patterns: &[Pattern]) -> bool {

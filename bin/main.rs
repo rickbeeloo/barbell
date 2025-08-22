@@ -2,8 +2,7 @@ use barbell::annotate::annotator::*;
 use barbell::annotate::barcodes::BarcodeType;
 use barbell::filter::filter::filter_from_text_file;
 use barbell::inspect::inspect;
-use barbell::preset::presets::PresetName;
-use barbell::preset::presets::use_preset;
+use barbell::kits::use_kit::demux_using_kit;
 use barbell::trim::trim::{LabelSide, trim_matches};
 use clap::{Parser, Subcommand};
 use colored::*;
@@ -129,10 +128,10 @@ enum Commands {
     },
 
     /// Run a preset
-    Preset {
-        /// Preset to use
-        #[arg(short = 'p', long)]
-        preset: PresetName,
+    Kit {
+        /// Kit to use (e.g. SQK-RBK114-24)
+        #[arg(short = 'k', long)]
+        kit: String,
 
         /// Input FASTQ file
         #[arg(short = 'i', long)]
@@ -209,7 +208,7 @@ fn main() {
                 })
                 .collect();
 
-            match annotate(
+            match annotate_with_files(
                 input,
                 query_files_refs,
                 barcode_types_vec,
@@ -279,8 +278,8 @@ fn main() {
             }
         }
 
-        Commands::Preset {
-            preset,
+        Commands::Kit {
+            kit,
             input,
             threads,
             output,
@@ -291,8 +290,8 @@ fn main() {
             flank_max_errors,
             failed_out,
         } => {
-            use_preset(
-                preset.clone(),
+            demux_using_kit(
+                kit.as_str(),
                 input,
                 *threads,
                 output,

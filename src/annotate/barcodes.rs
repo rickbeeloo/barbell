@@ -1,3 +1,4 @@
+use crate::kits::kits::*;
 use colored::Colorize;
 use needletail::{Sequence, parse_fastx_file};
 use sassy::profiles::{Iupac, Profile};
@@ -127,7 +128,7 @@ impl BarcodeGroup {
         }
     }
 
-    pub fn display(&self) {
+    pub fn display(&self, n: usize) {
         // This will show with padding, if we get the bar region
         let (mask_start, mask_end) = self.bar_region;
 
@@ -141,7 +142,7 @@ impl BarcodeGroup {
         println!("{left_flank_str}{mask_str}{right_flank_str}");
 
         let left_flank_len = self.flank_prefix.len();
-        for barcode in self.barcodes.iter().take(5) {
+        for barcode in self.barcodes.iter().take(n) {
             // We have "padding" which we remove before printing
             let (pad_start, _pad_end) = self.pad_region;
             let (bar_start, bar_end) = self.bar_region;
@@ -175,6 +176,62 @@ impl BarcodeGroup {
         if self.barcodes.len() > 2 {
             println!("...+{} more", self.barcodes.len() - 2);
         }
+    }
+
+    pub fn new_from_kit(kit: &str) -> Vec<Self> {
+        // Get all kit info
+        let kit_config = get_kit_info(kit);
+
+        // We have to build all the queries, either one or two groups
+        let mut groups = Vec::new();
+
+        // Check if we have left flank
+        if let Some(left_prefix) = kit_config.left_prefix {
+            let mut query_seqs = Vec::new();
+            let mut query_labels = Vec::new();
+            let prefix = left_prefix.to_string();
+            let suffix = kit_config.left_suffix.unwrap_or_default().to_string();
+            let barcode_list = get_barcodes(kit_config.barcodes.from, kit_config.barcodes.to);
+            for barcode_name in barcode_list {
+                let barcode_seq = lookup_barcode_seq(&barcode_name)
+                    .expect("Barcode not found - odd - raise issue");
+                let left_flank_query = format!("{prefix}{barcode_seq}{suffix}");
+                query_seqs.push(left_flank_query.as_bytes().to_vec());
+                query_labels.push(barcode_name);
+            }
+            groups.push(BarcodeGroup::new(
+                query_seqs,
+                query_labels,
+                BarcodeType::Ftag,
+            ));
+        }
+
+        // Check if we have right flank
+        if let Some(right_prefix) = kit_config.right_prefix {
+            let mut query_seqs = Vec::new();
+            let mut query_labels = Vec::new();
+            let prefix = right_prefix.to_string();
+            let suffix = kit_config.right_suffix.unwrap_or_default().to_string();
+            let barcode_list = get_barcodes(
+                kit_config.barcodes2.unwrap().from,
+                kit_config.barcodes2.unwrap().to,
+            );
+            for barcode_name in barcode_list {
+                let barcode_seq = lookup_barcode_seq(&barcode_name)
+                    .expect("Barcode not found - odd - raise issue");
+                let right_flank_query = format!("{prefix}{barcode_seq}{suffix}");
+                query_seqs.push(right_flank_query.as_bytes().to_vec());
+                query_labels.push(barcode_name);
+            }
+            groups.push(BarcodeGroup::new(
+                query_seqs,
+                query_labels,
+                BarcodeType::Rtag,
+            ));
+        }
+
+        // Collect all records first
+        groups
     }
 
     pub fn new_from_fasta(fasta_file: &str, bar_type: BarcodeType) -> Self {
@@ -304,7 +361,7 @@ mod tests {
             labels,
             barcode_type,
         );
-        barcode_group.display();
+        barcode_group.display(5);
     }
 
     #[test]
@@ -388,5 +445,13 @@ mod tests {
             &barcode_group.barcodes[0].seq[10..10 + 24],
             b"AAGAAAGTTGTCGGTGTCTTTGTG".to_vec() // NB01 fwd
         );
+    }
+
+    #[test]
+    fn new_from_kit_rapid_barcodes() {
+        let groups = BarcodeGroup::new_from_kit("SQK-NBD114-96");
+        for group in groups {
+            group.display(10);
+        }
     }
 }

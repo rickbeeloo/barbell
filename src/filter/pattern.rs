@@ -381,10 +381,13 @@ macro_rules! pattern_from_str {
         }
 
         // Split on __ and parse each element
-        let elements: Vec<PatternElement> = $pattern
-            .split("__")
-            .filter_map(|s| parse_element(s.trim()))
-            .collect();
+        let elements: Vec<PatternElement> = {
+            let pattern_str: &str = $pattern;
+            pattern_str
+                .split("__")
+                .filter_map(|s| parse_element(s.trim()))
+                .collect()
+        };
 
         Pattern { elements }
     }};

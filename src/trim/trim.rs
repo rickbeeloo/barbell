@@ -20,11 +20,11 @@ pub enum LabelSide {
 }
 
 pub struct LabelConfig {
-    include_label: bool,
-    include_orientation: bool,
-    include_flank: bool,
-    sort_labels: bool,
-    only_side: Option<LabelSide>,
+    pub include_label: bool,
+    pub include_orientation: bool,
+    pub include_flank: bool,
+    pub sort_labels: bool,
+    pub only_side: Option<LabelSide>,
 }
 
 impl LabelConfig {
