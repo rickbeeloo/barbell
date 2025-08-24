@@ -552,7 +552,16 @@ pub fn get_kit_info(kit: &str) -> KitConfig {
         "VSK-VMK001" => KIT_VMK,
         // VMK4
         "VSK-VMK004" => KIT_VMK4,
-        _ => panic!("Unknown or unsupported kit: {kit}, please raise an issue"),
+        // if name contains "." try to replace it and run again
+        _ => {
+            if kit.contains(".") {
+                println!("Your kit name used '.' instead of '-' replaced it and trying again");
+                let new_kit = kit.replace(".", "-");
+                get_kit_info(&new_kit)
+            } else {
+                panic!("Unknown or unsupported kit: {kit}, please raise an issue")
+            }
+        }
     }
 }
 
