@@ -173,7 +173,7 @@ impl Tool for Barbell {
         let failed_out = format!("{output_folder}/failed_trimmed.txt");
 
         let cmd = format!(
-            "{0} preset -p rapid -i {fastq_file} -o {output_folder} -t {threads} --failed-out {failed_out} --maximize",
+            "{0} kit -k \"SQK-RBK114-96\" -i {fastq_file} -o {output_folder} -t {threads} --failed-out {failed_out} --maximize",
             self.exec_path
         );
         let result: std::process::Output = Command::new("bash").arg("-c").arg(cmd).output()?;
