@@ -53,6 +53,7 @@ pub fn demux_using_kit(
         format!("{output_folder}/annotation.tsv").as_str(),
         20,
         Some(pattern_per_read_out),
+        250,
     )
     .expect("Inspect failed");
 
