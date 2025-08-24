@@ -125,6 +125,10 @@ enum Commands {
         /// Write pattern for each read to this file (optional)
         #[arg(short = 'o', long)]
         read_pattern_out: Option<String>,
+
+        /// To summarize results we uses "buckets", such that matches 100 and 103 from the start end up in the same bucket
+        #[arg(short = 's', long = "bucket-size", default_value_t = 250)]
+        bucket_size: usize,
     },
 
     /// Run a preset
@@ -269,10 +273,11 @@ fn main() {
             input,
             top_n,
             read_pattern_out,
+            bucket_size,
         } => {
             println!("{}", "Inspecting...".green());
 
-            match inspect::inspect(input, *top_n, read_pattern_out.clone()) {
+            match inspect::inspect(input, *top_n, read_pattern_out.clone(), *bucket_size) {
                 Ok(_) => println!("{}", "Inspection complete!".green()),
                 Err(e) => println!("{} {}", "Inspection failed:".red(), e),
             }

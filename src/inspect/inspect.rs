@@ -6,17 +6,15 @@ use std::error::Error;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
-const BUCKET_SIZE: usize = 250;
-
 // Helper function to bucket positions into ranges
 // For example: 0-50 -> (0 to 50), 51-100 -> (50 to 100), etc.
-fn bucket_position(pos: usize) -> usize {
+fn bucket_position(pos: usize, bucket_size: usize) -> usize {
     // Inclusive bucket: positions 0..=249 → 0, 250..=499 → 250, etc.
     // For pos=0 we keep 0, otherwise subtract 1 before division to treat upper bound inclusively.
-    (pos.saturating_sub(1) / BUCKET_SIZE) * BUCKET_SIZE
+    (pos.saturating_sub(1) / bucket_size) * bucket_size
 }
 
-pub fn get_group_structure(group: &[BarbellMatch]) -> String {
+pub fn get_group_structure(group: &[BarbellMatch], bucket_size: usize) -> String {
     if group.is_empty() {
         return String::new();
     }
@@ -46,26 +44,28 @@ pub fn get_group_structure(group: &[BarbellMatch]) -> String {
             let distance_to_right = annotation.read_len.saturating_sub(end);
             if distance_to_prev <= distance_to_right {
                 // Prefer prev_left
-                let gap_start_bucket = bucket_position(distance_to_prev);
-                let gap_end_bucket = gap_start_bucket + BUCKET_SIZE;
+                let gap_start_bucket = bucket_position(distance_to_prev, bucket_size);
+                let gap_end_bucket = gap_start_bucket + bucket_size;
                 format!("@prev_left({gap_start_bucket}..{gap_end_bucket})")
             } else {
                 // Closer to right end
-                let right_start = bucket_position(annotation.read_len.saturating_sub(end));
+                let right_start =
+                    bucket_position(annotation.read_len.saturating_sub(end), bucket_size);
                 let right_end =
-                    bucket_position(annotation.read_len.saturating_sub(start)) + BUCKET_SIZE;
+                    bucket_position(annotation.read_len.saturating_sub(start), bucket_size)
+                        + bucket_size;
                 format!("@right({right_start}..{right_end})")
             }
         } else if annotation.rel_dist_to_end > 0 {
             // No previous element and on the left half – tag as left
-            let start_bucket = bucket_position(start);
-            let end_bucket = start_bucket + BUCKET_SIZE;
+            let start_bucket = bucket_position(start, bucket_size);
+            let end_bucket = start_bucket + bucket_size;
             format!("@left({start_bucket}..{end_bucket})")
         } else {
             // No previous element, right side
-            let right_start = bucket_position(annotation.read_len.saturating_sub(end));
-            let right_end =
-                bucket_position(annotation.read_len.saturating_sub(start)) + BUCKET_SIZE;
+            let right_start = bucket_position(annotation.read_len.saturating_sub(end), bucket_size);
+            let right_end = bucket_position(annotation.read_len.saturating_sub(start), bucket_size)
+                + bucket_size;
             format!("@right({right_start}..{right_end})")
         };
 
@@ -141,6 +141,7 @@ pub fn inspect(
     annotated_file: &str,
     top_n: usize,
     read_pattern_out: Option<String>,
+    bucket_size: usize,
 ) -> Result<(), Box<dyn Error>> {
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(b'\t')
@@ -168,7 +169,7 @@ pub fn inspect(
         if let Some(read_id) = &current_read_id {
             if *read_id != record.read_id.clone() {
                 // Process previous group
-                let label = get_group_structure(&current_group);
+                let label = get_group_structure(&current_group, bucket_size);
                 let prev_read_id = current_read_id.unwrap();
                 if let Some(read_pattern_out_handle) = &mut read_pattern_out_handle {
                     writeln!(read_pattern_out_handle, "{prev_read_id}\t{label}")
@@ -187,7 +188,7 @@ pub fn inspect(
 
     // Process the last group
     if !current_group.is_empty() {
-        let label = get_group_structure(&current_group);
+        let label = get_group_structure(&current_group, bucket_size);
         let prev_read_id = current_read_id.unwrap();
         if let Some(read_pattern_out_handle) = &mut read_pattern_out_handle {
             writeln!(read_pattern_out_handle, "{prev_read_id}\t{label}")

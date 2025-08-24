@@ -55,6 +55,8 @@ impl LabelConfig {
                 let label = m.label.clone();
 
                 // Skip if it's a flank and we don't want flanks
+                // this also prevents having a flank come before label when
+                // selecting only left or only right
                 if !self.include_flank && label.contains("flank") {
                     return None;
                 }
