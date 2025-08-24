@@ -40,7 +40,7 @@ pub fn demux_using_kit(
         max_flank_errros,
         0.5,
         threads as u32,
-        false,
+        verbose,
         min_score,
         min_score_diff,
     )
