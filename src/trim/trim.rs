@@ -413,6 +413,12 @@ pub fn trim_matches(
                     .expect("Failed to write quality");
             }
         }
+
+        // Live update messages with current counts
+        total_bar.set_message(total_bar.position().to_string());
+        trimmed_bar.set_message(trimmed_bar.position().to_string());
+        trimmed_split_bar.set_message(trimmed_split_bar.position().to_string());
+        failed_bar.set_message(failed_bar.position().to_string());
     }
 
     // Flush all writers
@@ -425,6 +431,12 @@ pub fn trim_matches(
     let trimmed_count = trimmed_bar.position();
     let trimmed_split_count = trimmed_split_bar.position();
     let failed_count = failed_bar.position();
+
+    // Final live update before finishing
+    total_bar.set_message(total_count.to_string());
+    trimmed_bar.set_message(trimmed_count.to_string());
+    trimmed_split_bar.set_message(trimmed_split_count.to_string());
+    failed_bar.set_message(failed_count.to_string());
 
     total_bar.finish_with_message(format!("{total_count} reads"));
     trimmed_bar.finish_with_message(format!("{trimmed_count} reads"));

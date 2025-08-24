@@ -158,11 +158,11 @@ enum Commands {
         verbose: bool,
 
         /// Fraction compared to 'perfect' match score for top candidate
-        #[arg(long = "min-score", default_value_t = 0.2)]
+        #[arg(long = "min-score", default_value_t = 0.5)]
         min_score: f64,
 
         /// Fraction difference between top 2 candidates
-        #[arg(long = "min-score-diff", default_value_t = 0.1)]
+        #[arg(long = "min-score-diff", default_value_t = 0.05)]
         min_score_diff: f64,
 
         /// Flank maximum erors in flank, ONLY set manually when you know what you are doing

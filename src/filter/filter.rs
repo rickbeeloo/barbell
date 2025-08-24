@@ -105,6 +105,11 @@ pub fn filter(
                 }
                 current_group.clear();
                 current_read_id = Some(record.read_id.clone());
+
+                // Update messages with current counts
+                total_bar.set_message(total_bar.position().to_string());
+                kept_bar.set_message(kept_bar.position().to_string());
+                dropped_bar.set_message(dropped_bar.position().to_string());
             }
         } else {
             current_read_id = Some(record.read_id.clone());
@@ -129,6 +134,11 @@ pub fn filter(
                 }
             }
         }
+
+        // Final live update before finishing
+        total_bar.set_message(total_bar.position().to_string());
+        kept_bar.set_message(kept_bar.position().to_string());
+        dropped_bar.set_message(dropped_bar.position().to_string());
     }
 
     writer.flush()?;
