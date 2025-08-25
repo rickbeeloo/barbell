@@ -94,15 +94,8 @@ impl fmt::Display for Cut {
 }
 
 fn check_match_type_and_label(m: &BarbellMatch, pattern_element: &PatternElement) -> bool {
-    // println!("Checking match type: {:?} against pattern type: {:?}",
-    //     m.match_str.match_type, pattern_element.match_type);
-
     // First check if match types are exactly equal
     if m.match_type != pattern_element.match_type {
-        // println!(
-        //     "Match type mismatch: {:?} != {:?}",
-        //     m.match_str.match_type, pattern_element.match_type
-        // );
         return false;
     }
 
@@ -113,24 +106,14 @@ fn check_match_type_and_label(m: &BarbellMatch, pattern_element: &PatternElement
         BarcodeType::Ftag | BarcodeType::Rtag => {
             if let Some(ref expected_label) = pattern_element.label {
                 // Labels are not the same
-                //if let Some(ref m_label) = m.label {
                 if expected_label.starts_with("~") {
                     // we do substring check
                     if let Some(substring) = expected_label.strip_prefix('~')
                         && !m.label.contains(substring)
                     {
-                        // println!(
-                        //     "Substring label mismatch: {:?} not in {:?}",
-                        //     expected_label, &m.label
-                        // );
                         return false;
                     }
                 } else if expected_label != &m.label {
-                    // println!("no substring prefix");
-                    // println!(
-                    //     "Explicit label mismatch: {:?} != {:?}",
-                    //     expected_label, &m.label
-                    // );
                     return false;
                 }
             }
@@ -150,10 +133,6 @@ fn check_placeholder(
         if let Some(stored_label) = matched_labels.get(&placeholder_key) {
             // Check against stored label
             if &m.label != stored_label {
-                // println!(
-                //     "Placeholder label mismatch: current {:?} != stored {:?}",
-                //     &m.label, stored_label
-                // );
                 return false;
             }
         } else {
@@ -181,10 +160,6 @@ fn check_relative_position(
             RelativePosition::Left => {
                 let (left_bound, right_bound) = pattern_element.range;
                 if m_start < left_bound || m_start > right_bound {
-                    // println!(
-                    //     "Relative Left mismatch: m.start {} not in [{}, {}]",
-                    //     m_start, left_bound, right_bound
-                    // );
                     return false;
                 }
             }
@@ -310,7 +285,6 @@ macro_rules! pattern_from_str {
         }
 
         fn parse_element(element_str: &str) -> Option<PatternElement> {
-            // println!("element_str: {:?}", element_str);
             // First split the string into type and parameters
             let parts: Vec<&str> = element_str.splitn(2, '[').collect();
             if parts.len() != 2 {
