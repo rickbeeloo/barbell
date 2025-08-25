@@ -89,6 +89,32 @@ pub fn annotate_with_files(
     )
 }
 
+// we could maybe just discard annotate_with_groups and only have kit or fasta
+pub fn annotate_with_kit(
+    read_file: &str,
+    out_file: &str,
+    kit: &str,
+    max_flank_errors: Option<usize>,
+    alpha: f32,
+    n_threads: u32,
+    verbose: bool,
+    min_score: f64,
+    min_score_diff: f64,
+) -> anyhow::Result<()> {
+    let query_groups: Vec<BarcodeGroup> = BarcodeGroup::new_from_kit(kit);
+    annotate_with_groups(
+        read_file,
+        out_file,
+        query_groups,
+        max_flank_errors,
+        alpha,
+        n_threads,
+        verbose,
+        min_score,
+        min_score_diff,
+    )
+}
+
 // used by kit
 pub fn annotate_with_groups(
     read_file: &str,

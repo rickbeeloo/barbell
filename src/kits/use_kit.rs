@@ -2,7 +2,7 @@ use crate::kits::kits::*;
 use std::io::Write;
 use std::path::Path;
 
-use crate::annotate::annotator::annotate_with_groups;
+use crate::annotate::annotator::annotate_with_kit;
 use crate::annotate::barcodes::BarcodeGroup;
 use crate::annotate::{annotator::annotate, barcodes::BarcodeType};
 use crate::filter::filter::filter;
@@ -29,7 +29,6 @@ pub fn demux_using_kit(
     }
 
     let kit_info = get_kit_info(kit_name);
-    let query_groups = BarcodeGroup::new_from_kit(kit_name);
 
     // Print some kit info
     println!("\n{}", "Kit info".purple().bold());
@@ -42,10 +41,10 @@ pub fn demux_using_kit(
 
     // If the default values are
     println!("\n{}", "Annotating reads...".purple().bold());
-    annotate_with_groups(
+    annotate_with_kit(
         fastq_file,
         format!("{output_folder}/annotation.tsv").as_str(),
-        query_groups,
+        kit_name,
         max_flank_errros,
         0.5,
         threads as u32,

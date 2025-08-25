@@ -31,12 +31,16 @@ enum Commands {
         output: String,
 
         /// Query files (comma-separated paths)
-        #[arg(short = 'q', long)]
-        queries: String,
+        #[arg(short = 'q', long, required_unless_present = "kit")]
+        queries: Option<String>,
 
         /// Barcode types (comma-separated: Ftag,Rtag) matching your query file (-q)
         #[arg(short = 'b', long, default_value = "Ftag")]
         barcode_types: String,
+
+        /// Kit name (e.g. SQK-RBK114-24). Conflicts with --queries/--barcode-types
+        #[arg(long, conflicts_with = "queries", conflicts_with = "barcode_types")]
+        kit: Option<String>,
 
         /// Flank maximum erors in flank, ONLY set manually when you know what you are doing
         #[arg(long = "flank-max-errors", value_name = "INT")]
@@ -187,6 +191,7 @@ fn main() {
             output,
             queries,
             barcode_types,
+            kit,
             flank_max_errors,
             verbose,
             min_score,
@@ -194,9 +199,32 @@ fn main() {
         } => {
             println!("{}", "Starting annotation...".green());
 
+            if let Some(kit_name) = kit.as_ref() {
+                match annotate_with_kit(
+                    input,
+                    output,
+                    kit_name.as_str(),
+                    *flank_max_errors,
+                    0.5,
+                    *threads as u32,
+                    *verbose,
+                    *min_score,
+                    *min_score_diff,
+                ) {
+                    Ok(_) => println!("{}", "Annotation complete!".green()),
+                    Err(e) => println!("{} {}", "Error during processing:".red(), e),
+                }
+                return;
+            }
+
             // Split comma-separated query paths into Vec<String>
-            let query_files: Vec<String> =
-                queries.split(',').map(|s| s.trim().to_string()).collect();
+            let queries_value = queries
+                .as_ref()
+                .expect("--queries is required unless --kit is provided");
+            let query_files: Vec<String> = queries_value
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect();
 
             let query_files_refs: Vec<&str> = query_files.iter().map(|s| s.as_str()).collect();
 

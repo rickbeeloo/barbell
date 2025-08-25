@@ -68,7 +68,6 @@ barbell kit -k SQK-RBK114-96 -i <reads.fastq> -o <output_folder> --maximize
 The currently supported kits can be found [here[(data/supported_kits.txt)]
 
 
-## Understanding Barbell
 
 
 
