@@ -229,6 +229,7 @@ impl Demuxer {
         self.lodhi.compute(&perfect)
     }
 
+    //fixme: would beneift from some more clean up
     /// Demultiplex read
     pub fn demux(&mut self, read_id: &str, read: &[u8]) -> Vec<BarbellMatch> {
         let mut results: Vec<BarbellMatch> = Vec::new();
@@ -360,24 +361,17 @@ impl Demuxer {
                     }
                 }
 
-                let first_barcode_cost = scored[0].2.cost;
-                let second_barcode_cost = if scored.len() > 1 {
-                    scored[1].2.cost
-                } else {
-                    1000
-                };
-
                 if self.verbose {
                     for _ in 0..10 {
                         println!("Best label: {}", scored[0].3.label);
                         println!("Best match: {}", scored[0].2.cigar.to_string());
                         println!("Best score: {} (norm {})", scored[0].1, scored[0].0);
-                        println!("Best cost: {}", first_barcode_cost);
+                        println!("Best cost: {}", scored[0].2.cost);
 
                         if scored.len() > 1 {
                             println!("Second score: {} (norm {})", scored[1].1, scored[1].0);
                             println!("Second label: {}", scored[1].3.label);
-                            println!("Second cost: {}", second_barcode_cost);
+                            println!("Second cost: {}", scored[1].2.cost);
                             println!("Second cigar: {}", scored[1].2.cigar.to_string());
                         } else {
                             println!("No second match");
@@ -397,7 +391,7 @@ impl Demuxer {
                         bar_end - barcode_group.flank_prefix.len(),
                         scored[0].3.match_type.clone(),
                         flank_match.cost,
-                        first_barcode_cost as Cost,
+                        scored[0].2.cost as Cost,
                         scored[0].3.label.clone(),
                         scored[0].2.strand,
                         read.len(),
@@ -415,7 +409,7 @@ impl Demuxer {
                         0,
                         barcode_group.barcodes[0].match_type.as_flank().clone(),
                         flank_match.cost,
-                        first_barcode_cost as Cost,
+                        scored[0].2.cost as Cost,
                         "flank".to_string(),
                         flank_match.strand,
                         read.len(),
