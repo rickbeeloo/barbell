@@ -397,10 +397,10 @@ Multiple elements are combined with `__` (double underscore):
 ```
 
 Fields:
-- `tag`: `Ftag`, `Fflank`, `Rtag`, `Rflank`.
+- `tag`: `Ftag`, `Fflank`, `Rtag`, `Rflank`, whether a sequence is `Ftag` or `Rtag` is user specified (or within the kit), see [custom experiment](#custom-experiment), the `Fflank,Rflank` are the "incomplete" forms where the barcode was undetectable.
 - `orientation`: `fwd` or `rc`.
-- `label`: exact label (e.g. `NB01`), `*` for any label, or `~substring` to match headers containing `substring`.
-- `relative position`: e.g. `@left(0..250)`, `@right(0..250)`, `@prev_left(0..250)` (relative to the previous element).
+- `label`: exact label (e.g. `NB01`), `*` for any label, or `~substring` to match headers containing `substring` (for an example see [custom exp. mixing](#custom-experiment-with-mixed-sequences)).
+- `relative position`: e.g. `@left(0..250)`: to left side of read, `@right(0..250)`: to right side of read, `@prev_left(0..250)`: relative to the <u>previous</u> element.
 - `cut specifier` (optional): `>>` (cut after this element) or `<<` (cut before this element).
 
 Examples:
@@ -418,7 +418,7 @@ These let you express typical cases such as single-barcode-left, left-and-right 
 ## Notes & tips
 
 - Keep an eye on `Fflank` matches — these are often lower-confidence and may indicate reads with poor barcode sequence quality.
-- Start with conservative filters to see how many reads match expected patterns, then relax thresholds if necessary.
+- Start with conservative filters to see how many reads match expected patterns, then relax thresholds if necessary. 
 - When experimenting with custom FASTAs, keep queries clean (shared flanks, differing barcode region only).
 
 ---
