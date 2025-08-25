@@ -338,7 +338,7 @@ Multiple elements are combined with `__` (double underscore):
 Fields:
 - `tag`: `Ftag`, `Fflank`, `Rtag`, `Rflank`.
 - `orientation`: `fwd` or `rc`.
-- `label`: exact label (e.g. `NB01`), `*` for any label, or `~prefix` to match headers containing `prefix`.
+- `label`: exact label (e.g. `NB01`), `*` for any label, or `~substring` to match headers containing `substring`.
 - `relative position`: e.g. `@left(0..250)`, `@right(0..250)`, `@prev_left(0..250)` (relative to the previous element).
 - `cut specifier` (optional): `>>` (cut after this element) or `<<` (cut before this element).
 
@@ -347,7 +347,7 @@ Examples:
 ```
 Ftag[fwd, *, @left(0..250), >>]
 Ftag[fwd, *, @left(0..250), >>]__Ftag[<<, fwd, *, @right(0..250)]
-Ftag[fwd, NB01, @left(0..100), >>]__Ftag[<<, fwd, ~group1, @prev_left(1500..1700)]
+Ftag[fwd, *, @left(0..100), >>]__Rtag[<<, fwd, *, @prev_left(1500..1700)]
 ```
 
 These let you express typical cases such as single-barcode-left, left-and-right barcodes, or expected amplicon sizes via `@prev_left`.
