@@ -4,3 +4,5 @@ pub mod inspect;
 pub mod kits;
 // pub mod preset;
 pub mod trim;
+
+const PADDING: usize = 10;

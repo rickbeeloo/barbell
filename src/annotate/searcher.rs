@@ -8,17 +8,7 @@ use pa_types::{CigarOp, Cost};
 use sassy::profiles::Iupac;
 use sassy::{Match, Searcher, Strand};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::thread_local;
 
-thread_local! {
-    static OVERHANG_SEARCHER: std::cell::RefCell<Option<Searcher<Iupac>>> = const { std::cell::RefCell::new(None) };
-    static REGULAR_SEARCHER: std::cell::RefCell<Option<Searcher<Iupac>>> = const { std::cell::RefCell::new(None) };
-
-}
-
-// tod what if barcodes get the same lowest edits?
-
-#[derive(Clone)]
 pub struct Demuxer {
     alpha: f32,
     queries: Vec<BarcodeGroup>,
@@ -27,8 +17,10 @@ pub struct Demuxer {
     min_score_frac: f64,
     min_score_diff_frac: f64,
     // Lodhi parameters used throughout
-    lodhi_k: usize,
-    lodhi_lambda: f64,
+    lodhi: Lodhi,
+    perfect_scores: Vec<f64>, // query idx > perfect score
+    overhang_searcher: Searcher<Iupac>,
+    regular_searcher: Searcher<Iupac>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -182,6 +174,7 @@ impl BarbellMatch {
     }
 }
 
+/// Relative distance to read end
 fn rel_dist_to_end(pos: isize, read_len: usize) -> isize {
     // If already negative, for a match starting before the read we can return 1
     if pos < 0 {
@@ -208,47 +201,47 @@ impl Demuxer {
             verbose,
             min_score_frac,
             min_score_diff_frac,
-            lodhi_k: 3,
-            lodhi_lambda: 0.5,
+            perfect_scores: Vec::new(),
+            lodhi: Lodhi::new(3, 0.5),
+            overhang_searcher: Searcher::<Iupac>::new_rc_with_overhang(alpha),
+            regular_searcher: Searcher::<Iupac>::new_rc(),
         }
     }
 
+    /// Add query group to demuxer
     pub fn add_query_group(&mut self, query_group: BarcodeGroup) -> &mut Self {
+        // Get perfect score for this group and store it
+        let perfect_score = self.get_perfect_match_score(&query_group);
         self.queries.push(query_group);
+        self.perfect_scores.push(perfect_score);
         self
     }
 
+    /// Get perfect score for barcodegroup based on lodhi
+    fn get_perfect_match_score(&mut self, barcode_group: &BarcodeGroup) -> f64 {
+        let l_bar = barcode_group.pad_region.1 - barcode_group.pad_region.0;
+        let perfect = Cigar {
+            ops: vec![CigarElem {
+                op: CigarOp::Match,
+                cnt: l_bar as i32,
+            }],
+        };
+        self.lodhi.compute(&perfect)
+    }
+
+    /// Demultiplex read
     pub fn demux(&mut self, read_id: &str, read: &[u8]) -> Vec<BarbellMatch> {
         let mut results: Vec<BarbellMatch> = Vec::new();
 
-        // Initialize thread-local searcher if not already done
-        OVERHANG_SEARCHER.with(|cell| {
-            if cell.borrow().is_none() {
-                *cell.borrow_mut() = Some(Searcher::<Iupac>::new_rc_with_overhang(self.alpha));
-            }
-        });
-
-        REGULAR_SEARCHER.with(|cell| {
-            if cell.borrow().is_none() {
-                *cell.borrow_mut() = Some(Searcher::<Iupac>::new_rc());
-            }
-        });
-
-        for barcode_group in self.queries.iter() {
+        for (group_i, barcode_group) in self.queries.iter().enumerate() {
             let flank = &barcode_group.flank;
             let flank_k = barcode_group.k_cutoff.unwrap_or(0);
-            let flank_matches = OVERHANG_SEARCHER.with(|cell| {
-                if let Some(ref mut searcher) = *cell.borrow_mut() {
-                    searcher.search(flank, &read, flank_k)
-                } else {
-                    unreachable!();
-                }
-            });
+            let perfect_bar_score = self.perfect_scores[group_i];
 
-            let verbose = self.verbose;
+            let flank_matches = self.overhang_searcher.search(flank, &read, flank_k);
 
             for (i, flank_match) in flank_matches.iter().enumerate() {
-                if verbose {
+                if self.verbose {
                     println!(
                         "Flank {i}: {}-{}",
                         flank_match.text_start, flank_match.text_end
@@ -265,14 +258,15 @@ impl Demuxer {
                     continue; // no room for barcode?
                 };
 
-                let barcode_region_start =
-                    (flank_match.text_start + barcode_region_start).saturating_sub(10 + 5);
+                let barcode_region_start = (flank_match.text_start + barcode_region_start)
+                    .saturating_sub(crate::PADDING + 5);
                 let barcode_region_end =
-                    (flank_match.text_start + barcode_region_end + 10 + 5).min(read.len());
+                    (flank_match.text_start + barcode_region_end + crate::PADDING + 5)
+                        .min(read.len());
 
                 let barcode_region = &read[barcode_region_start..barcode_region_end];
 
-                if verbose {
+                if self.verbose {
                     for _ in 0..10 {
                         println!(
                             "Barcode region: {}",
@@ -284,17 +278,12 @@ impl Demuxer {
                 let mut candidates: Vec<(Match, &Barcode)> = Vec::new();
 
                 for barcode_and_flank in barcode_group.barcodes.iter() {
-                    let fwd_best_hit = REGULAR_SEARCHER.with(|cell| {
-                        if let Some(ref mut searcher) = *cell.borrow_mut() {
-                            searcher
-                                .search(&barcode_and_flank.seq, &barcode_region, 20)
-                                .into_iter()
-                                .filter(|m| m.strand == flank_match.strand)
-                                .min_by_key(|m| m.cost)
-                        } else {
-                            None
-                        }
-                    });
+                    let fwd_best_hit = self
+                        .regular_searcher
+                        .search(&barcode_and_flank.seq, &barcode_region, 20)
+                        .into_iter()
+                        .filter(|m| m.strand == flank_match.strand)
+                        .min_by_key(|m| m.cost);
 
                     if let Some(fwd_hit) = fwd_best_hit {
                         candidates.push((fwd_hit, barcode_and_flank));
@@ -324,36 +313,28 @@ impl Demuxer {
                 }
 
                 // Score using Lodhi
-                let mut lodhi = Lodhi::new(self.lodhi_k, self.lodhi_lambda);
                 let mut scored: Vec<(f64, f64, Match, &Barcode)> =
                     Vec::with_capacity(candidates.len());
-                // Use group-level pad-region length; compute Smax once per group
-                let l_bar = barcode_group.pad_region.1 - barcode_group.pad_region.0;
-                // println!("l bar size: {}", l_bar);
-                let mut lodhi_smax = Lodhi::new(self.lodhi_k, self.lodhi_lambda);
-                let perfect = Cigar {
-                    ops: vec![CigarElem {
-                        op: CigarOp::Match,
-                        cnt: l_bar as i32,
-                    }],
-                };
-                let smax = lodhi_smax.compute(&perfect);
 
                 for (m, b) in candidates.into_iter() {
-                    let s = lodhi.compute(&m.cigar);
-                    let s_norm = if smax > 0.0 { s / smax } else { 0.0 };
+                    let s = self.lodhi.compute(&m.cigar);
+                    let s_norm = if perfect_bar_score > 0.0 {
+                        s / perfect_bar_score
+                    } else {
+                        0.0
+                    };
                     scored.push((s_norm, s, m, b));
                 }
 
                 // sort by normalized score high to low
                 scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-                if verbose {
+                if self.verbose {
                     for (s_norm, s, m, _b) in scored.iter().take(5) {
                         println!("Cost: {:?}", m.cost);
                         println!("Strand: {:?}", m.strand);
                         println!("Cigar: {}", m.cigar.to_string());
-                        println!("Score: {} (norm: {})", s, s_norm);
+                        println!("Score: {s} (norm: {s_norm})");
                         println!("--------------------------------");
                     }
                 }
@@ -370,7 +351,7 @@ impl Demuxer {
                 if scored.len() > 1 {
                     is_valid_barcode_match = is_valid_barcode_match
                         && (top_norm - scored[1].0) >= self.min_score_diff_frac;
-                    if verbose {
+                    if self.verbose {
                         println!(
                             "Top norm: {} min score diff: {}",
                             top_norm,
@@ -386,7 +367,7 @@ impl Demuxer {
                     1000
                 };
 
-                if verbose {
+                if self.verbose {
                     for _ in 0..10 {
                         println!("Best label: {}", scored[0].3.label);
                         println!("Best match: {}", scored[0].2.cigar.to_string());
@@ -448,26 +429,3 @@ impl Demuxer {
         collapse_overlapping_matches(&results, 0.8)
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use pa_types::Cigar;
-//
-//     use super::*;
-//     use crate::annotate::interval::collapse_overlapping_matches;
-//
-//     /// Helper function to check if a value is within wiggle room of expected
-//     fn assert_within_wiggle_room(actual: usize, expected: usize, wiggle_room: usize) {
-//         let min = expected.saturating_sub(wiggle_room);
-//         let max = expected + wiggle_room;
-//         assert!(
-//             actual >= min && actual <= max,
-//             "Expected {actual} to be within [{min}, {max}] of expected {expected}"
-//         );
-//     }
-// }
-
-/*
-5D6=4D4=2D
-X3=5D5=3D2=3D
-*/

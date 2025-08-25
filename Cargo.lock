@@ -184,7 +184,7 @@ checksum = "9555578bc9e57714c812a1f84e4fc5b4d21fcb063490c624de019f7464c91268"
 [[package]]
 name = "cigar-lodhi-rs"
 version = "0.1.0"
-source = "git+https://github.com/rickbeeloo/cigar-lodhi-rs.git#2d25f299e8286c3bb48f37a2f86080e81c2eebb4"
+source = "git+https://github.com/rickbeeloo/cigar-lodhi-rs.git#afccb05fd3e60b7ce43e3babea164c312e7b335a"
 dependencies = [
  "pa-types",
 ]

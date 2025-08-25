@@ -113,7 +113,11 @@ impl BarcodeGroup {
         let mut barcodes = Vec::new();
 
         // Our barcode padding is 10bp on the left and 10bp on the right (IF possible)
-        let (pad_start, pad_end) = (prefix_len.saturating_sub(10), prefix_len + mask_size + 10);
+        let (pad_start, pad_end) = (
+            prefix_len.saturating_sub(crate::PADDING),
+            prefix_len + mask_size + crate::PADDING,
+        );
+
         for (i, seq) in query_seqs.iter().enumerate() {
             let start = pad_start;
             let end: usize = pad_end.min(seq.len());
@@ -240,8 +244,6 @@ impl BarcodeGroup {
                 BarcodeType::Rtag,
             ));
         }
-
-        // Collect all records first
         groups
     }
 

@@ -14,7 +14,6 @@ name = "barbell"
 path = "bin/main.rs"
 
 [dependencies]
-# sassy = { path = "/home/solprof/PhD/beam_search_paths/sassy"}
 sassy = "0.1.2"
 pa-types = "1.0.0"
 seq_io = "0.3.4"
