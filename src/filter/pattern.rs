@@ -303,6 +303,12 @@ macro_rules! pattern_from_str {
             Some((position, range))
         }
 
+        fn basic_verify(pattern: &[PatternElement], patter_str: &str) -> bool {
+            //Fixme: more complex verification would be nice
+            let user_elems = patter_str.matches("__").count() + 1;
+            user_elems == pattern.len()
+        }
+
         fn parse_element(element_str: &str) -> Option<PatternElement> {
             // println!("element_str: {:?}", element_str);
             // First split the string into type and parameters
@@ -388,6 +394,15 @@ macro_rules! pattern_from_str {
                 .filter_map(|s| parse_element(s.trim()))
                 .collect()
         };
+
+        // Do basic verification
+        if !basic_verify(&elements, $pattern) {
+            eprintln!("Seems we could not convert all your pattern elements to Barbell patterns, please compare your string to:");
+            for (i, el) in elements.iter().enumerate() {
+                eprintln!("  Element {}: {:#?}", i, el);
+            }
+            panic!("Pattern parse error for: {:?}", $pattern);
+        }
 
         Pattern { elements }
     }};
