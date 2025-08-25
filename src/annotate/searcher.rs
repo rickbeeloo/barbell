@@ -10,7 +10,6 @@ use sassy::{Match, Searcher, Strand};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub struct Demuxer {
-    alpha: f32,
     queries: Vec<BarcodeGroup>,
     verbose: bool,
     // Fractional thresholds 0..1
@@ -196,7 +195,6 @@ fn rel_dist_to_end(pos: isize, read_len: usize) -> isize {
 impl Demuxer {
     pub fn new(alpha: f32, verbose: bool, min_score_frac: f64, min_score_diff_frac: f64) -> Self {
         Self {
-            alpha,
             queries: Vec::new(),
             verbose,
             min_score_frac,

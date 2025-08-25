@@ -1,15 +1,10 @@
-use crate::kits::kits::*;
-use std::io::Write;
-use std::path::Path;
-
 use crate::annotate::annotator::annotate_with_kit;
-use crate::annotate::barcodes::BarcodeGroup;
-use crate::annotate::{annotator::annotate, barcodes::BarcodeType};
 use crate::filter::filter::filter;
 use crate::inspect::inspect::inspect;
-use crate::pattern_from_str;
+use crate::kits::kits::*;
 use crate::trim::trim::{LabelSide, trim_matches};
 use colored::*;
+use std::path::Path;
 
 pub fn demux_using_kit(
     kit_name: &str,

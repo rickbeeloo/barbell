@@ -3,14 +3,13 @@ use crate::{
     pattern_from_str,
     trim::trim::{LabelConfig, LabelSide},
 };
-use std::collections::HashMap;
 use std::sync::LazyLock;
 
 //From https://github.com/nanoporetech/dorado/blob/e72f14925cd435fff823ebf244ce2195b135a863/dorado/utils/barcode_kits.cpp
-const RAB_1st_FRONT: &str = "CCGTGAC";
-const RAB_1st_REAR: &str = "AGAGTTTGATCATGGCTCAG";
-const RAB_2nd_FRONT: &str = "CCGTGAC";
-const RAB_2nd_REAR: &str = "CGGTTACCTTGTTACGACTT";
+const RAB_1ST_FRONT: &str = "CCGTGAC";
+const RAB_1ST_REAR: &str = "AGAGTTTGATCATGGCTCAG";
+const RAB_2ND_FRONT: &str = "CCGTGAC";
+const RAB_2ND_REAR: &str = "CGGTTACCTTGTTACGACTT";
 
 const RBK_FRONT: &str = "TATTGCT";
 const RBK_REAR: &str = "GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
@@ -18,29 +17,31 @@ const RBK_REAR: &str = "GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
 const RBK4_FRONT: &str = "GCTTGGGTGTTTAACC";
 const RBK4_REAR: &str = "GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
 
-const RBK4_kit14_FRONT: &str = "GCTTGGGTGTTTAACC";
-const RBK4_kit14_REAR: &str = "GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
+const RBK4_KIT14_FRONT: &str = "GCTTGGGTGTTTAACC";
+const RBK4_KIT14_REAR: &str = "GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
 
 const RLB_FRONT: &str = "CCGTGAC";
 const RLB_REAR: &str = "CGTTTTTCGTGCGCCGCTTC";
 
-const BC_1st_FRONT: &str = "GGTGCTG";
-const BC_1st_REAR: &str = "TTAACCTTTCTGTTGGTGCTGATATTGC";
-const BC_2nd_FRONT: &str = "GGTGCTG";
-const BC_2nd_REAR: &str = "TTAACCTACTTGCCTGTCGCTCTATCTTC";
+const BC_1ST_FRONT: &str = "GGTGCTG";
+const BC_1ST_REAR: &str = "TTAACCTTTCTGTTGGTGCTGATATTGC";
+const BC_2ND_FRONT: &str = "GGTGCTG";
+const BC_2ND_REAR: &str = "TTAACCTACTTGCCTGTCGCTCTATCTTC";
 
-const NB_1st_FRONT: &str = "ATTGCTAAGGTTAA";
-const NB_1st_REAR: &str = "CAGCACCT";
-const NB_2nd_FRONT: &str = "ATTGCTAAGGTTAA";
-const NB_2nd_REAR: &str = "CAGCACCT";
+const NB_1ST_FRONT: &str = "ATTGCTAAGGTTAA";
+const NB_1ST_REAR: &str = "CAGCACCT";
 
-const LWB_1st_FRONT: &str = "CCGTGAC";
-const LWB_1st_REAR: &str = "ACTTGCCTGTCGCTCTATCTTC";
-const LWB_2nd_FRONT: &str = "CCGTGAC";
-const LWB_2nd_REAR: &str = "TTTCTGTTGGTGCTGATATTGC";
+// one nt difference with front, doubt it's worth extra searching for
+// const NB_2ND_FRONT: &str = "ATTGCTAAGGTTAA";
+// const NB_2ND_REAR: &str = "CAGCACCT";
 
-const MAB_FRONT: &str = "GCTTGGGTGTTTAACC";
-const MAB_REAR: &str = "CCATATCCGTGTCGCCCTT";
+const LWB_1ST_FRONT: &str = "CCGTGAC";
+const LWB_1ST_REAR: &str = "ACTTGCCTGTCGCTCTATCTTC";
+const LWB_2ND_FRONT: &str = "CCGTGAC";
+const LWB_2ND_REAR: &str = "TTTCTGTTGGTGCTGATATTGC";
+
+// const MAB_FRONT: &str = "GCTTGGGTGTTTAACC";
+// const MAB_REAR: &str = "CCATATCCGTGTCGCCCTT";
 
 // Storing all options like dorado takes up too much of the binary so
 // we just create views as subsets of the full list
@@ -106,18 +107,6 @@ impl KitConfig {
             label_config,
             safe_patterns,
             maximize_patterns,
-        }
-    }
-
-    fn barcodes(&self) -> Vec<String> {
-        get_barcodes(self.barcodes.from, self.barcodes.to)
-    }
-
-    fn barcodes2(&self) -> Vec<String> {
-        if let Some(r) = self.barcodes2 {
-            get_barcodes(r.from, r.to)
-        } else {
-            Vec::new()
         }
     }
 }
@@ -236,10 +225,10 @@ fn double_label_patterns_maximize() -> &'static [Pattern] {
 
 const KIT_16S: KitConfig = KitConfig::new(
     "16S",
-    Some(RAB_1st_FRONT),
-    Some(RAB_1st_REAR),
-    Some(RAB_2nd_FRONT),
-    Some(RAB_2nd_REAR),
+    Some(RAB_1ST_FRONT),
+    Some(RAB_1ST_REAR),
+    Some(RAB_2ND_FRONT),
+    Some(RAB_2ND_REAR),
     LabelRange::new("BC01", "BC24"),
     Some(LabelRange::new("BC01", "BC24")),
     DOUBLE_LABEL_CONFIG_KEEP_SINGLE,
@@ -249,10 +238,10 @@ const KIT_16S: KitConfig = KitConfig::new(
 
 const KIT_LWB: KitConfig = KitConfig::new(
     "LWB",
-    Some(LWB_1st_FRONT),
-    Some(LWB_1st_REAR),
-    Some(LWB_2nd_FRONT),
-    Some(LWB_2nd_REAR),
+    Some(LWB_1ST_FRONT),
+    Some(LWB_1ST_REAR),
+    Some(LWB_2ND_FRONT),
+    Some(LWB_2ND_REAR),
     LabelRange::new("BC01", "BC12"),
     Some(LabelRange::new("BC01", "BC12")),
     DOUBLE_LABEL_CONFIG_KEEP_SINGLE,
@@ -262,10 +251,10 @@ const KIT_LWB: KitConfig = KitConfig::new(
 
 const KIT_LWB24: KitConfig = KitConfig::new(
     "LWB24",
-    Some(LWB_1st_FRONT),
-    Some(LWB_1st_REAR),
-    Some(LWB_2nd_FRONT),
-    Some(LWB_2nd_REAR),
+    Some(LWB_1ST_FRONT),
+    Some(LWB_1ST_REAR),
+    Some(LWB_2ND_FRONT),
+    Some(LWB_2ND_REAR),
     LabelRange::new("BC01", "BC24"),
     Some(LabelRange::new("BC01", "BC24")),
     DOUBLE_LABEL_CONFIG_KEEP_SINGLE,
@@ -275,8 +264,8 @@ const KIT_LWB24: KitConfig = KitConfig::new(
 
 const KIT_NB12: KitConfig = KitConfig::new(
     "NB12",
-    Some(NB_1st_FRONT),
-    Some(NB_1st_REAR),
+    Some(NB_1ST_FRONT),
+    Some(NB_1ST_REAR),
     None,
     None,
     LabelRange::new("NB01", "NB12"),
@@ -288,8 +277,8 @@ const KIT_NB12: KitConfig = KitConfig::new(
 
 const KIT_NB24: KitConfig = KitConfig::new(
     "NB24",
-    Some(NB_1st_FRONT),
-    Some(NB_1st_REAR),
+    Some(NB_1ST_FRONT),
+    Some(NB_1ST_REAR),
     None,
     None,
     LabelRange::new("NB01", "NB24"),
@@ -301,8 +290,8 @@ const KIT_NB24: KitConfig = KitConfig::new(
 
 const KIT_NB96: KitConfig = KitConfig::new(
     "NB96",
-    Some(NB_1st_FRONT),
-    Some(NB_1st_REAR),
+    Some(NB_1ST_FRONT),
+    Some(NB_1ST_REAR),
     None,
     None,
     LabelRange::new("NB01", "NB96"),
@@ -314,10 +303,10 @@ const KIT_NB96: KitConfig = KitConfig::new(
 
 const KIT_RAB: KitConfig = KitConfig::new(
     "RAB",
-    Some(RAB_1st_FRONT),
-    Some(RAB_1st_REAR),
-    Some(RAB_2nd_FRONT),
-    Some(RAB_2nd_REAR),
+    Some(RAB_1ST_FRONT),
+    Some(RAB_1ST_REAR),
+    Some(RAB_2ND_FRONT),
+    Some(RAB_2ND_REAR),
     LabelRange::new("BC01", "BC12"),
     Some(LabelRange::new("BC01", "BC12")),
     DOUBLE_LABEL_CONFIG_KEEP_SINGLE,
@@ -366,8 +355,8 @@ const KIT_RLB: KitConfig = KitConfig::new(
 
 const KIT_NB13_24: KitConfig = KitConfig::new(
     "NB13-24",
-    Some(NB_1st_FRONT),
-    Some(NB_1st_REAR),
+    Some(NB_1ST_FRONT),
+    Some(NB_1ST_REAR),
     None,
     None,
     LabelRange::new("NB13", "NB24"),
@@ -379,10 +368,10 @@ const KIT_NB13_24: KitConfig = KitConfig::new(
 
 const KIT_PCR12: KitConfig = KitConfig::new(
     "PCR12",
-    Some(BC_1st_FRONT),
-    Some(BC_1st_REAR),
-    Some(BC_2nd_FRONT),
-    Some(BC_2nd_REAR),
+    Some(BC_1ST_FRONT),
+    Some(BC_1ST_REAR),
+    Some(BC_2ND_FRONT),
+    Some(BC_2ND_REAR),
     LabelRange::new("BC01", "BC12"),
     Some(LabelRange::new("BC01", "BC12")),
     DOUBLE_LABEL_CONFIG_KEEP_SINGLE,
@@ -393,10 +382,10 @@ const KIT_PCR12: KitConfig = KitConfig::new(
 // Unique kits
 const KIT_PCR96: KitConfig = KitConfig::new(
     "PCR96",
-    Some(BC_1st_FRONT),
-    Some(BC_1st_REAR),
-    Some(BC_2nd_FRONT),
-    Some(BC_2nd_REAR),
+    Some(BC_1ST_FRONT),
+    Some(BC_1ST_REAR),
+    Some(BC_2ND_FRONT),
+    Some(BC_2ND_REAR),
     LabelRange::new("BC01", "BC96"),
     Some(LabelRange::new("BC01", "BC96")),
     DOUBLE_LABEL_CONFIG_KEEP_SINGLE,
@@ -430,10 +419,10 @@ const KIT_RBK24: KitConfig = KitConfig::new(
     single_label_patterns_maximize,
 );
 
-const KIT_RBK96_kit14: KitConfig = KitConfig::new(
+const KIT_RBK96_KIT14: KitConfig = KitConfig::new(
     "RBK096_kit14",
-    Some(RBK4_kit14_FRONT),
-    Some(RBK4_kit14_REAR),
+    Some(RBK4_KIT14_FRONT),
+    Some(RBK4_KIT14_REAR),
     None,
     None,
     LabelRange::new("RBK01", "RBK96"),
@@ -443,10 +432,10 @@ const KIT_RBK96_kit14: KitConfig = KitConfig::new(
     single_label_patterns_maximize,
 );
 
-const KIT_RBK24_kit14: KitConfig = KitConfig::new(
+const KIT_RBK24_KIT14: KitConfig = KitConfig::new(
     "RBK24_kit14",
-    Some(RBK4_kit14_FRONT),
-    Some(RBK4_kit14_REAR),
+    Some(RBK4_KIT14_FRONT),
+    Some(RBK4_KIT14_REAR),
     None,
     None,
     LabelRange::new("RBK01", "RBK24"),
@@ -456,7 +445,7 @@ const KIT_RBK24_kit14: KitConfig = KitConfig::new(
     single_label_patterns_maximize,
 );
 
-const KIT_RPB24_kit14: KitConfig = KitConfig::new(
+const KIT_RPB24_KIT14: KitConfig = KitConfig::new(
     "RPB24-Kit14",
     Some(RLB_FRONT),
     Some(RLB_REAR),
@@ -535,10 +524,10 @@ pub fn get_kit_info(kit: &str) -> KitConfig {
         "SQK-RBK110-96" => KIT_RBK96,
         "SQK-RBK111-96" => KIT_RBK96,
         // RBK096_kit14
-        "SQK-RBK114-96" => KIT_RBK96_kit14,
+        "SQK-RBK114-96" => KIT_RBK96_KIT14,
         "SQK-RBK111-24" => KIT_RBK24,
         // RBK24_kit14
-        "SQK-RBK114-24" => KIT_RBK24_kit14,
+        "SQK-RBK114-24" => KIT_RBK24_KIT14,
         //  RBK4
         "SQK-RBK004" => KIT_RBK4,
         "VSK-PTC001" => KIT_RBK4,
@@ -547,7 +536,7 @@ pub fn get_kit_info(kit: &str) -> KitConfig {
         "SQK-RPB004" => KIT_RLB,
         "SQK-RLB001" => KIT_RLB,
         //
-        "SQK-RPB114-24" => KIT_RPB24_kit14,
+        "SQK-RPB114-24" => KIT_RPB24_KIT14,
         // VMK
         "VSK-VMK001" => KIT_VMK,
         // VMK4
