@@ -500,4 +500,101 @@ mod tests {
         assert_eq!(trimmed_qual, b"IIII");
         assert_eq!(group_label, "Fbar_fw__Rbar_fw");
     }
+
+    #[test]
+    fn test_two_cut_groups_produce_two_slices() {
+        // seq indices: 0..8 C, 8..20 A, 20..26 C, 26..28 G, 28..30 C
+        let seq = b"CCCCCCCCAAAAAAAAAAAACCCCCCGGCC";
+        let qual = b"________IIIIIIIIIIII______II__";
+
+        let read_len = seq.len();
+
+        let annotations = vec![
+            // Group 1: start at After(end_flank=8), end at Before(start_flank=20) -> slice 8..20
+            BarbellMatch::new(
+                4, // read_start_bar
+                8, // read_end_bar
+                4, // read_start_flank
+                8, // read_end_flank
+                0, // bar_start
+                4, // bar_end
+                BarcodeType::Ftag,
+                0, // flank_cost
+                0, // barcode_cost
+                "F1".to_string(),
+                Strand::Fwd,
+                read_len,
+                "read1".to_string(),
+                0,
+                Some(vec![(Cut::new(1, CutDirection::After), 8)]),
+            ),
+            BarbellMatch::new(
+                20, // read_start_bar
+                24, // read_end_bar
+                20, // read_start_flank
+                24, // read_end_flank
+                0,
+                4,
+                BarcodeType::Rtag,
+                0,
+                0,
+                "R1".to_string(),
+                Strand::Fwd,
+                read_len,
+                "read1".to_string(),
+                0,
+                Some(vec![(Cut::new(1, CutDirection::Before), 20)]),
+            ),
+            // Group 2: start at After(end_flank=26), end at Before(start_flank=28) -> slice 26..28
+            BarbellMatch::new(
+                24,
+                26,
+                24,
+                26,
+                0,
+                2,
+                BarcodeType::Ftag,
+                0,
+                0,
+                "F2".to_string(),
+                Strand::Fwd,
+                read_len,
+                "read1".to_string(),
+                0,
+                Some(vec![(Cut::new(2, CutDirection::After), 26)]),
+            ),
+            BarbellMatch::new(
+                28,
+                30,
+                28,
+                30,
+                0,
+                2,
+                BarcodeType::Rtag,
+                0,
+                0,
+                "R2".to_string(),
+                Strand::Fwd,
+                read_len,
+                "read1".to_string(),
+                0,
+                Some(vec![(Cut::new(2, CutDirection::Before), 28)]),
+            ),
+        ];
+
+        let label_config = LabelConfig::new(true, true, true, true, None);
+        let results = process_read_and_anno(seq, qual, &annotations, &label_config);
+
+        assert_eq!(results.len(), 2);
+
+        let (trimmed_seq1, trimmed_qual1, label1, _) = &results[0];
+        assert_eq!(trimmed_seq1, b"AAAAAAAAAAAA");
+        assert_eq!(trimmed_qual1, b"IIIIIIIIIIII");
+        assert_eq!(label1, "F1_fw__R1_fw");
+
+        let (trimmed_seq2, trimmed_qual2, label2, _) = &results[1];
+        assert_eq!(trimmed_seq2, b"GG");
+        assert_eq!(trimmed_qual2, b"II");
+        assert_eq!(label2, "F2_fw__R2_fw");
+    }
 }

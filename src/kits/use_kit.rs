@@ -31,8 +31,17 @@ pub fn demux_using_kit(
     let kit_info = get_kit_info(kit_name);
     let query_groups = BarcodeGroup::new_from_kit(kit_name);
 
+    // Print some kit info
+    println!("\n{}", "Kit info".purple().bold());
+    println!("Kit name: {}", kit_info.name);
+    println!("Kit type: {}", if maximize { "Maximize" } else { "Safe" });
+    println!(
+        "Barcodes: {} - {}",
+        kit_info.barcodes.from, kit_info.barcodes.to
+    );
+
     // If the default values are
-    println!("\n{}", "Running annotation".purple().bold());
+    println!("\n{}", "Annotating reads...".purple().bold());
     annotate_with_groups(
         fastq_file,
         format!("{output_folder}/annotation.tsv").as_str(),
@@ -47,18 +56,21 @@ pub fn demux_using_kit(
     .expect("Annotation failed");
 
     // // After annotating we show inspect
-    println!("\n{}", "Top 20 most common patterns".purple().bold());
+    println!("\n{}", "Top 10 most common patterns".purple().bold());
     let pattern_per_read_out = format!("{output_folder}/pattern_per_read.tsv");
     inspect(
         format!("{output_folder}/annotation.tsv").as_str(),
-        20,
+        10,
         Some(pattern_per_read_out),
         250,
     )
     .expect("Inspect failed");
+    println!(
+        "Want to see more patterns? Run: `barbell inspect {output_folder}/annotation.tsv -n 100`"
+    );
 
     // Filter
-    println!("\n{}", "Running annotation filter".purple().bold());
+    println!("\n{}", "Filtering reads...".purple().bold());
 
     let patterns = if maximize {
         (kit_info.maximize_patterns)()
@@ -75,7 +87,7 @@ pub fn demux_using_kit(
     .expect("Filter failed");
 
     // Trimming
-    println!("\n{}", "Running trimming".purple().bold());
+    println!("\n{}", "Trimming reads...".purple().bold());
     trim_matches(
         format!("{output_folder}/filtered.tsv").as_str(),
         fastq_file,
@@ -87,4 +99,6 @@ pub fn demux_using_kit(
         Some(LabelSide::Left),
         failed_out,
     );
+
+    println!("\n{}", "Done!".green().bold());
 }

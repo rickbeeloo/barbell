@@ -1,11 +1,11 @@
 # Barbell - a new perspective on demultiplexing
 
 ### Why barbell?
-- More accurate barcode scoring scheme, around **5x less 
+- More accurate barcode scoring scheme, around **2-5x less 
 barcode bleeding** than Dorado
 - Over **100x less trimming errors** compared to Dorado
 - Equivalent, or **better assemblies**
-- **Contamination free** assemblie by removing artefact reads
+- **Contamination free** assembly by removing artefact reads
 - Easily applicable to **custom experiments**
 - Still **very fast**
 

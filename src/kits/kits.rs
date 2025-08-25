@@ -555,8 +555,10 @@ pub fn get_kit_info(kit: &str) -> KitConfig {
         // if name contains "." try to replace it and run again
         _ => {
             if kit.contains(".") {
-                println!("Your kit name used '.' instead of '-' replaced it and trying again");
                 let new_kit = kit.replace(".", "-");
+                println!(
+                    "Your kit name used '.' ({kit}) instead of '-' replaced it with {new_kit} and trying again"
+                );
                 get_kit_info(&new_kit)
             } else {
                 panic!("Unknown or unsupported kit: {kit}, please raise an issue")
