@@ -292,7 +292,7 @@ barbell annotate -q left.fasta,right.fasta -b Ftag,Rtag -i reads.fastq -o anno.t
 
 Note: there must be **no spaces** between the comma-separated file list and the tag list: `-q left.fasta,right.fasta -b Ftag,Rtag`.
 
-After that you can follow the same `inspect → filter → trim` steps described above.
+After that you can follow the same `inspect → filter → trim` [steps described above](#inspect).
 
 ---
 
