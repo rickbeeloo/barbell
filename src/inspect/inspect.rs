@@ -6,8 +6,6 @@ use std::error::Error;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
-// Helper function to bucket positions into ranges
-// For example: 0-50 -> (0 to 50), 51-100 -> (50 to 100), etc.
 fn bucket_position(pos: usize, bucket_size: usize) -> usize {
     // Inclusive bucket: positions 0..=249 → 0, 250..=499 → 250, etc.
     // For pos=0 we keep 0, otherwise subtract 1 before division to treat upper bound inclusively.
@@ -33,11 +31,12 @@ pub fn get_group_structure(group: &[BarbellMatch], bucket_size: usize) -> String
         let start = annotation.read_start_bar;
         let end = annotation.read_end_bar;
 
-        // By default we use @left if the annotation is closer to the
-        // left end of the read ( annotation.rel_dist_to_end > 0 ).
-        // Otherwise we decide between @right and @prev_left.  If both
-        // are possible we prefer @prev_left when the annotation is
-        // closer to the previous element than to the right end.
+        /*  By default we use @left if the annotation is closer to the
+        left end of the read ( annotation.rel_dist_to_end > 0 ).
+         Otherwise we decide between @right and @prev_left.  If both
+         are possible we prefer @prev_left when the annotation is
+         closer to the previous element than to the right end.
+        */
         let position_tag = if let Some(prev_end) = prev_end_pos {
             // We have a previous element – choose between prev_left and right
             let distance_to_prev = start.saturating_sub(prev_end);
@@ -69,11 +68,6 @@ pub fn get_group_structure(group: &[BarbellMatch], bucket_size: usize) -> String
             format!("@right({right_start}..{right_end})")
         };
 
-        // let label = annotation.label.clone();
-        // if !label.contains("Flank") {
-        //     *label_map.entry(label.to_string()).or_insert(0) += 1;
-        // }
-
         let cut = if let Some(cuts) = &annotation.cuts {
             if !cuts.is_empty() {
                 match annotation.strand {
@@ -88,7 +82,6 @@ pub fn get_group_structure(group: &[BarbellMatch], bucket_size: usize) -> String
             "".to_string()
         };
 
-        // ----- Match type plain text -----
         let match_type = annotation.match_type.as_str();
 
         // Build element string and push
