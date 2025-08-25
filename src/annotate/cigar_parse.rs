@@ -12,13 +12,9 @@ pub fn map_pat_to_text(
     let mut start_pair: Option<Pos> = None;
     let mut end_pair: Option<Pos> = None;
 
-    // println!("P start: {}, end: {}", p_start, p_end);
-
     for Pos(i, j) in m.to_path().iter() {
-        //  println!("i: {}, j: {}", *i, *j);
         if *i >= p_start && *i < p_end {
             if start_pair.is_none() {
-                // println!("Setting start_pair");
                 start_pair = Some(Pos(*i, *j));
             }
             end_pair = Some(Pos(*i, *j));
@@ -37,6 +33,7 @@ pub fn map_pat_to_text(
     }
 }
 
+/// Get matching region for a given match and start/end positions
 pub fn get_matching_region(m: &Match, start: usize, end: usize) -> Option<(usize, usize)> {
     let path = m.to_path();
     let (start, end) = (start as i32, end as i32);
@@ -48,48 +45,6 @@ pub fn get_matching_region(m: &Match, start: usize, end: usize) -> Option<(usize
     let end = sub_path.last()?.0 as usize;
 
     Some((start, end))
-}
-
-#[cfg(test)]
-mod subcigar_tests {
-    use super::*;
-
-    // #[test]
-    // fn test_subcigar_trim_match_and_sub() {
-    //     use pa_types::CigarOp::*;
-    //     let ops = [
-    //         CigarElem { op: Match, cnt: 3 }, // q:0..3
-    //         CigarElem { op: Sub, cnt: 2 },   // q:3..5
-    //         CigarElem { op: Ins, cnt: 1 },   // q:5..6
-    //         CigarElem { op: Match, cnt: 4 }, // q:6..10
-    //     ];
-    //     let sub = subcigar(&ops, 2, 4); // overlaps last base of M3 and first of Sub2
-    //     assert_eq!(
-    //         sub,
-    //         vec![
-    //             CigarElem { op: Match, cnt: 1 },
-    //             CigarElem { op: Sub, cnt: 1 },
-    //         ]
-    //     );
-    // }
-
-    // #[test]
-    // fn test_subcigar_includes_deletion_if_anchored_in_window() {
-    //     use pa_types::CigarOp::*;
-    //     let ops = [
-    //         CigarElem { op: Match, cnt: 3 }, // q:0..3
-    //         CigarElem { op: Del, cnt: 2 },   // anchored at q:3
-    //         CigarElem { op: Match, cnt: 2 }, // q:3..5
-    //     ];
-    //     let sub = subcigar(&ops, 3, 5); // window starts at q_pos 3 (deletion anchor)
-    //     assert_eq!(
-    //         sub,
-    //         vec![
-    //             CigarElem { op: Del, cnt: 2 },
-    //             CigarElem { op: Match, cnt: 2 },
-    //         ]
-    //     );
-    // }
 }
 
 #[cfg(test)]
