@@ -302,6 +302,8 @@ Often we combine multiple samples together which share the same flanks, for exam
 But we could also combine completely different experiments, with different primers for example.
 How do we demux that?
 
+First go through "[custom experiment](#custom-experiment)" setup, then continue reading here how we adjust the query files.
+
 That's quite simple. We create fasta files for all possible groups. 
 Lets say we have:
 
