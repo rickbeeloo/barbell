@@ -4,7 +4,7 @@ use sassy::profiles::Iupac;
 use sassy::*;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 use std::process::Command;
 use std::time::Instant;

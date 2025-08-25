@@ -70,7 +70,6 @@ impl LabelConfig {
                     };
                     result = format!("{result}_{ori}");
                 }
-
                 Some(result)
             })
             .collect();
@@ -224,7 +223,6 @@ fn preprocess_cuts(annotations: &[BarbellMatch], seq_len: usize) -> Vec<Complete
             }
         }
     }
-
     slices
 }
 

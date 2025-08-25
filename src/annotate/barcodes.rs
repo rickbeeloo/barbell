@@ -56,15 +56,16 @@ impl Barcode {
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
 pub struct BarcodeGroup {
     pub flank: Vec<u8>,
+    // Auto extract the prefix and suffix in code below
     pub flank_prefix: Vec<u8>,
     pub flank_suffix: Vec<u8>,
+    // Where the barcode is in the sequence
     pub bar_region: (usize, usize),
-    pub pad_region: (usize, usize), // barcode + padding
+    // Where the barcode + padding is in the sequence
+    pub pad_region: (usize, usize),
     pub barcodes: Vec<Barcode>,
     pub k_cutoff: Option<usize>,
     pub barcode_type: BarcodeType,
-    pub prefix_k: Option<usize>,
-    pub suffix_k: Option<usize>,
 }
 
 impl BarcodeGroup {
@@ -88,6 +89,15 @@ impl BarcodeGroup {
         let suffix_len = suffix.as_ref().unwrap_or(&Vec::new()).len();
         let mask_size = query_seqs[0].len() - prefix_len - suffix_len;
 
+        if prefix_len == 0 && suffix_len == 0 {
+            panic!("No prefix or suffix found, we can't search without having 'anchors'");
+        }
+        if prefix_len == 0 || suffix_len == 0 {
+            eprintln!(
+                "Your input only has a flank on one side, that works but we can better anchor your barcodes with a left and right flank"
+            );
+        }
+
         // Add prefix if present
         if let Some(p) = &prefix {
             flank.extend_from_slice(p);
@@ -101,14 +111,14 @@ impl BarcodeGroup {
 
         // Slice out all the masked region sequences
         let mut barcodes = Vec::new();
+
+        // Our barcode padding is 10bp on the left and 10bp on the right (IF possible)
         let (pad_start, pad_end) = (prefix_len.saturating_sub(10), prefix_len + mask_size + 10);
         for (i, seq) in query_seqs.iter().enumerate() {
             let start = pad_start;
             let end: usize = pad_end.min(seq.len());
-
-            //assert_eq!(*&seq[start..end].len(), 24 + 20);
             barcodes.push(Barcode::new(
-                &seq[start..end], // trying the whole sequence
+                &seq[start..end],
                 &query_labels[i],
                 barcode_type.clone(),
             ));
@@ -123,8 +133,6 @@ impl BarcodeGroup {
             barcodes,
             k_cutoff: None,
             barcode_type,
-            prefix_k: None,
-            suffix_k: None,
         }
     }
 
@@ -148,6 +156,7 @@ impl BarcodeGroup {
             let (bar_start, bar_end) = self.bar_region;
             let len = barcode.seq.len();
             let start_pos = bar_start.saturating_sub(pad_start).min(len);
+
             //fixme: better logic here although in practice it should never happen
             let mut end_pos = (bar_end + 1).saturating_sub(pad_start).min(len);
             if end_pos < start_pos {
@@ -178,6 +187,7 @@ impl BarcodeGroup {
         }
     }
 
+    /// Create Barcodegroup based on Nanopore kitname
     pub fn new_from_kit(kit: &str) -> Vec<Self> {
         // Get all kit info
         let kit_config = get_kit_info(kit);
@@ -207,6 +217,7 @@ impl BarcodeGroup {
         }
 
         // Check if we have right flank
+        // FIXME: we have to add patterns to the kits for these cases
         if let Some(right_prefix) = kit_config.right_prefix {
             let mut query_seqs = Vec::new();
             let mut query_labels = Vec::new();
@@ -234,6 +245,7 @@ impl BarcodeGroup {
         groups
     }
 
+    /// Create Barcodegroup based on fasta file
     pub fn new_from_fasta(fasta_file: &str, bar_type: BarcodeType) -> Self {
         let mut reader = parse_fastx_file(fasta_file).expect("Query file not found");
         let mut bar_seqs: Vec<Vec<u8>> = Vec::new();
@@ -249,32 +261,13 @@ impl BarcodeGroup {
         Self::new(bar_seqs, labels, bar_type)
     }
 
-    pub fn set_perc_threshold(&mut self, perc: f32) {
-        // The flank has an N mask so we should not count these in the perc as
-        // they always match. Also the user can supply N so we just count N instead then
-        let n_count: usize = self.flank.iter().filter(|&c| *c == b'N').count();
-        let informative_flank = self.flank.len() - n_count;
-        self.k_cutoff = Some((informative_flank as f32 * perc).ceil() as usize);
-        // Also set k for each barcode
-        for barcode in self.barcodes.iter_mut() {
-            barcode.k_cutoff = Some((barcode.seq.len() as f32 * perc) as usize);
-        }
-        // Do the same for the suffixes
-        self.prefix_k = Some((self.flank_prefix.len() as f32 * perc).ceil() as usize);
-        self.suffix_k = Some((self.flank_suffix.len() as f32 * perc).ceil() as usize);
-    }
-
+    /// Number of edits allowed in flanking sequences (combined)
     pub fn set_flank_threshold(&mut self, flank_threshold: usize) {
         self.k_cutoff = Some(flank_threshold);
     }
 
-    pub fn set_barcode_threshold(&mut self, barcode_threshold: usize) {
-        for barcode in self.barcodes.iter_mut() {
-            barcode.k_cutoff = Some(barcode_threshold);
-        }
-    }
-
-    pub fn get_flanks(seqs: &[&[u8]]) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
+    /// Get shared prefix and suffix for input sequences
+    fn get_flanks(seqs: &[&[u8]]) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
         // This does not make sense if the sequences are not equally long
         assert!(
             !seqs.iter().any(|s| s.len() != seqs[0].len()),
@@ -287,7 +280,8 @@ impl BarcodeGroup {
         (prefix, suffix)
     }
 
-    pub fn longest_common_prefix(seqs: &[&[u8]]) -> Option<Vec<u8>> {
+    /// Get longest common prefix for input sequences
+    fn longest_common_prefix(seqs: &[&[u8]]) -> Option<Vec<u8>> {
         if seqs.is_empty() {
             return None;
         }
@@ -311,7 +305,8 @@ impl BarcodeGroup {
         Some(first[..common_len].to_vec())
     }
 
-    pub fn longest_common_suffix(seqs: &[&[u8]]) -> Option<Vec<u8>> {
+    /// Get longest common suffix for input sequences
+    fn longest_common_suffix(seqs: &[&[u8]]) -> Option<Vec<u8>> {
         if seqs.is_empty() {
             return None;
         }
@@ -336,6 +331,7 @@ impl BarcodeGroup {
         Some(first[first.len() - common_len..].to_vec())
     }
 
+    /// Get combined length of the flanking sequences
     pub fn get_effective_len(&self) -> usize {
         // Simply length of prefix + suffix
         self.flank_prefix.len() + self.flank_suffix.len()

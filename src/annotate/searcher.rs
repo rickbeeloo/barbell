@@ -187,7 +187,6 @@ fn rel_dist_to_end(pos: isize, read_len: usize) -> isize {
     if pos < 0 {
         return 1;
     }
-
     if pos <= (read_len / 2) as isize {
         if pos == 0 {
             1 // Left end
