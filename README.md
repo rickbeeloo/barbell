@@ -17,7 +17,8 @@
 - Workflow examples
   - [Quickstart using Nanopore kit](#quickstart)
   - [In-depth workflow for Nanopore kits](#in-depth-inspection-of-nanopore-kit-results)
-  - [Custom experiment](#custom-experiment)
+  - [Custom experiment (simple)](#custom-experiment)
+  - [Custom experiment (multi protocol)](#custom-experiment-with-mixed-sequences)
 - [Understanding barbell](#understanding-barbell)
   - [What are barbell patterns?](#patterns)
   - [Output column descriptions (annotate & filter)](#output-columns-annotate--filter)
@@ -198,13 +199,13 @@ The resulting `filtered.tsv` contains only reads that match the specified patter
 
 #### Cutting / trimming metadata
 
-Barbell needs to know *where* to cut reads for trimming. You mark cut positions by adding `>>` (cut **after** this element) or `<<` (cut **before** this element) inside the tag's bracket list.
+Barbell needs to know *where* to cut reads for trimming. You mark cut positions by adding `>>` (cut **after** this element) or `<<` (cut **before** this element) inside the tag's bracket list. Where within the brackets does not matter.
 
 Examples (note the comma-separated fields inside the brackets):
 
 ```text
 Ftag[fwd, *, @left(0..250), >>]
-Ftag[fwd, *, @left(0..250), >>]__Ftag[fwd, *, @right(0..250), <<]
+Ftag[fwd, *, @left(0..250), >>]__Ftag[<<. fwd, *, @right(0..250)]
 Ftag[fwd, *, @left(0..250)]__Ftag[fwd, *, @prev_left(0..250), >>]
 ```
 
@@ -252,8 +253,8 @@ BC01.trimmed.fastq  BC11.trimmed.fastq ...
 
 ## Custom experiment
 
-If you have your own barcodes/primers/adapters, create FASTA files containing the full expected sequence. 
-Note that each FASTA contains all sequences that share the same prefix/suffix.
+If you have your own barcodes/primers/adapters, create FASTA files containing the full expected sequences. 
+Note that each FASTA contains all sequences that <u>share the same prefix/suffix</u>.
 
 The Fasta format should be as follows:
 ```text
@@ -295,6 +296,64 @@ After that you can follow the same `inspect → filter → trim` steps described
 
 ---
 
+
+## Custom experiment with mixed sequences
+Often we combine multiple samples together which share the same flanks, for example all rapid barcoding. 
+But we could also combine completely different experiments, with different primers for example.
+How do we demux that?
+
+That's quite simple. We create fasta files for all possible groups. 
+Lets say we have:
+
+**group1**
+- group1_left.fasta: adapter1-barcode-primer1
+- group1_right.fasta: primer1-barcode-adapter1
+
+**group2**:
+- group2_left.fasta: adapter2-barcode-primer2
+- group2_right.fasta: primer2-barcode-adapter2
+
+Then we <u>make sure our labels in the fasta have some unique substring</u>, like `group1` and `group2`:
+for example:
+
+`group1_left.fasta`:
+```
+>group1_bar1
+AACGACA...
+```
+`group2_left.fasta`:
+```
+>group2_bar1
+AGGGCAC...
+```
+
+Then in the filtering step we can create filtered files for each group:
+(just check `inspect` first to see your patterns)
+
+
+`group1_filters.txt`:
+```
+Ftag[fwd, ~group1, @left(0..250), >>]__Rtag[<<, rc, ~group1, @right(0..250)]
+```
+
+`group2_filters.txt`:
+```
+Ftag[fwd, ~group2, @left(0..250), >>]__Rtag[<<, rc, ~group2, @right(0..250)]
+```
+
+And pull them out!
+```
+barbell filter -i anno.tsv -f group1_filters.txt -o group1_reads.tsv
+barbell filter -i anno.tsv -f group2_filters.txt -o group2_reads.tsv
+```
+and then we can just trim them so seperate files:
+
+```
+barbell trim -i group1_reads.tsv -r reads.fastq -f group1_filters.txt -o group1_trimmed
+barbell trim -i group2_reads.tsv -r reads.fastq -f group2_filters.txt -o group2_trimmed
+```
+---
+
 ## Output columns (annotate & filter)
 
 - `read_id`: read identifier as in the provided FASTQ
@@ -320,6 +379,8 @@ After that you can follow the same `inspect → filter → trim` steps described
 - `cuts`: empty after `annotate`; populated after `filter` to inform `trim` where to cut
 
 ---
+
+
 
 ## Patterns
 
