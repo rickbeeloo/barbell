@@ -346,7 +346,7 @@ And pull them out!
 barbell filter -i anno.tsv -f group1_filters.txt -o group1_reads.tsv
 barbell filter -i anno.tsv -f group2_filters.txt -o group2_reads.tsv
 ```
-and then we can just trim them so seperate files:
+and then we can just trim them to seperate files:
 
 ```
 barbell trim -i group1_reads.tsv -r reads.fastq -f group1_filters.txt -o group1_trimmed
