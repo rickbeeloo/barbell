@@ -68,7 +68,7 @@ impl Tool for Dorado {
         }
 
         let cmd = format!(
-            "{0} demux --kit-name SQK-RBK114-96 -o {output_folder} --emit-fastq {fastq_file} -t {threads}",
+            "{0} demux --kit-name SQK-RBK114-96 -o {output_folder} --emit-fastq {fastq_file} -t {threads} --min-score 0.2 --min-score-diff 0.1",
             self.exec_path
         );
         let result = Command::new("bash").arg("-c").arg(cmd).output()?;
