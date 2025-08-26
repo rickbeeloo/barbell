@@ -359,7 +359,7 @@ barbell trim -i group2_reads.tsv -r reads.fastq -f group2_filters.txt -o group2_
 ```
 ---
 
-
+**Note**: While you could run annotate separately for each query file, it’s generally better to combine all into a single annotate run (as mentioned here). This way, they are competing with one another.
 
 
 ## Output columns (annotate & filter)
