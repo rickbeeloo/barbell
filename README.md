@@ -21,6 +21,7 @@
   - [Custom experiment (multi protocol)](#custom-experiment-with-mixed-sequences)
 - [Understanding barbell](#understanding-barbell)
   - [What are barbell patterns?](#patterns)
+  - [How to cut concat reads]((#how-to-handle-concat-reads))
   - [Output column descriptions (annotate & filter)](#output-columns-annotate--filter)
 
 ---
@@ -39,18 +40,6 @@ If not installed, run the official installer:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-### Important note about CPU features
-Barbell (via the `sassy` library) requires **AVX2** and **BMI2** instructions. These are available on most modern x86_64 CPUs but **not** on Apple Silicon (ARM) or some older processors. If your machine lacks these features, builds or binaries may fail.
-
-### From releases (when public)
-See the releases page for prebuilt binaries: https://github.com/rickbeeloo/barbell/releases
-
-Example:
-
-```bash
-wget https://github.com/rickbeeloo/barbell-sg/releases/download/v0.1.8/barbell-sassy-rewrite-x86_64-unknown-linux-gnu.tar.xz
 ```
 
 ### From source
@@ -293,8 +282,10 @@ barbell annotate -q left.fasta,right.fasta -b Ftag,Rtag -i reads.fastq -o anno.t
 Note: there must be **no spaces** between the comma-separated file list and the tag list: `-q left.fasta,right.fasta -b Ftag,Rtag`.
 
 After that you can follow the same `inspect → filter → trim` [steps described above](#inspect).
+In case you have concatenated reads in your `inspect` also see [concat reads](#how-to-handle-concat-reads)
 
 ---
+
 
 
 ## Custom experiment with mixed sequences
@@ -356,6 +347,9 @@ barbell trim -i group2_reads.tsv -r reads.fastq -f group2_filters.txt -o group2_
 ```
 ---
 
+
+
+
 ## Output columns (annotate & filter)
 
 - `read_id`: read identifier as in the provided FASTQ
@@ -409,11 +403,41 @@ Examples:
 
 ```
 Ftag[fwd, *, @left(0..250), >>]
-Ftag[fwd, *, @left(0..250), >>]__Ftag[<<, fwd, *, @right(0..250)]
+Ftag[fwd, *, @left(0..250), >>]__Ftag[<<, rc, *, @right(0..250)]
 Ftag[fwd, *, @left(0..100), >>]__Rtag[<<, fwd, *, @prev_left(1500..1700)]
 ```
+(for examples of concat reads see [concat reads](#how-to-handle-concat-reads) section)
 
 These let you express typical cases such as single-barcode-left, left-and-right barcodes, or expected amplicon sizes via `@prev_left`.
+
+---
+
+
+### How to handle concat reads 
+It is possible that you have concat reads like:
+
+```
+Ftag[fwd, *, @left(0..250), >>]__Ftag[<<, rc, *, @pev_left(1500..1750)]__Ftag[fwd, *, @prev_left(0..250), >>]__Ftag[<<, rc, *, @right(0..250)]
+```
+We always read the pattern from <u> left to right </u>, then we can deduce the read matches looked like this:
+```
+[Fbar,fw]---------[Fbar,rc][Ftag, fwd]---------[Ftag, rc]
+```
+If we want to cut more than once we have to use **cut group identifiers**, we do this by placing a number <u> after </u> the `<<` or `>>`:
+
+```
+Ftag[fwd, *, @left(0..250), >>1]__Ftag[<<1, rc, *, @pev_left(1500..1750)]__Ftag[fwd, *, @prev_left(0..250), >>2]__Ftag[<<2, rc, *, @right(0..250)]
+```
+Note the `>>1, <<1, >>2, <<2`, now barbell knows exactly where you want the reads to be cut.
+
+If the labels were: `NB01---NB01-NB02----NB02`, barbell will write the first read to the `NB01` folder and the second to `NB02`. 
+
+#### Doing it *faster*
+
+
+
+
+
 
 ---
 
@@ -424,4 +448,3 @@ These let you express typical cases such as single-barcode-left, left-and-right 
 - When experimenting with custom FASTAs, keep queries clean (shared flanks, differing barcode region only).
 
 ---
-
