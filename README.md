@@ -21,7 +21,7 @@
   - [Custom experiment (multi protocol)](#custom-experiment-with-mixed-sequences)
 - [Understanding barbell](#understanding-barbell)
   - [What are barbell patterns?](#patterns)
-  - [How to cut concat reads]((#how-to-handle-concat-reads))
+  - [How to cut concat reads](#how-to-handle-concat-reads)
   - [Output column descriptions (annotate & filter)](#output-columns-annotate--filter)
 
 ---
