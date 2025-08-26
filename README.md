@@ -45,7 +45,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ### From source
 
 ```bash
-git clone https://github.com/rickbeeloo/barbell-sg
+git clone git@github.com:rickbeeloo/barbell.git
 cd barbell-sg
 cargo build --release
 ```
