@@ -19,6 +19,7 @@
   - [In-depth workflow for Nanopore kits](#in-depth-inspection-of-nanopore-kit-results)
   - [Custom experiment (simple)](#custom-experiment)
   - [Custom experiment (multi protocol)](#custom-experiment-with-mixed-sequences)
+  - [I want the group the original reads (e.g. for Medaka)](#group-raw-reads)
 - [Understanding barbell](#understanding-barbell)
   - [What are barbell patterns?](#patterns)
   - [How to cut concat reads](#how-to-handle-concat-reads)
@@ -459,6 +460,27 @@ If concats are a big part of your read set (ideally they are not) their patterns
 probably be enough. If you really want *all* the concat reads out you could use the `-o` in `inspect` to write the patterns
 per read. Then, get all unique patterns from there and use a regex or a python script to insert the `>>1` and `<<1`, you can just dump all of them 
 to `filters.txt` and use that in `barbell filter`. 
+
+
+---
+
+### Group raw reads 
+When polishing assemblies, you often need the **raw Nanopore reads**, since these are aligned with the signal move table.  
+For example, polishing with [Medaka](https://github.com/nanoporetech/medaka) requires this information.
+
+To extract such reads, you can use the `pull` command in **`barbell utils`**.  
+It works similarly to `trim`, but instead of trimming sequences, it stores the **read ID plus the full description**.
+
+For example:
+```
+@a7eef112-e6a2-4e2f-a13b-62a2605feb35 runid=72514d18b61df576788f8d63b778664af68c9be1 sample_id= flow_cell_id=FAY96110 protocol_group_id=20250304_RPB_projectLieke_Marta_LvIJ_MB ch=165 start_time=2025-03-06T09:41:25Z basecall_model_version_id=dna_r10.4.1_e8.2_400bps_sup@v4.3.0 parent_read_id=1c1d015a-3cf1-402b-857b-f45c98614cbb basecall_gpu=NVIDIA_GeForce_RTX_4070_Ti_SUPER
+```
+
+You can run this just like tirm:
+
+```
+barbell utils pull -i filtered.tsv -r reads.fastq -o untrimmed_reads --only-side left
+```
 
 
 ---

@@ -44,7 +44,7 @@ impl LabelConfig {
         }
     }
 
-    fn create_label(&self, annotations: &[BarbellMatch]) -> String {
+    pub fn create_label(&self, annotations: &[BarbellMatch]) -> String {
         if !self.include_label {
             return "none".to_string();
         }

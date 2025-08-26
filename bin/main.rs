@@ -4,6 +4,7 @@ use barbell::filter::filter::filter_from_text_file;
 use barbell::inspect::inspect;
 use barbell::kits::use_kit::demux_using_kit;
 use barbell::trim::trim::{LabelSide, trim_matches};
+use barbell::utils::pull::pull_reads_without_trimming;
 use clap::{Parser, Subcommand};
 use colored::*;
 
@@ -12,6 +13,48 @@ use colored::*;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+}
+
+#[derive(Subcommand)]
+enum UtilsCommands {
+    /// Group raw reads by label without trimming
+    Pull {
+        /// Input filtered annotation file
+        #[arg(short = 'i', long)]
+        input: String,
+
+        /// Read FASTQ file
+        #[arg(short = 'r', long)]
+        reads: String,
+
+        /// Output folder path for grouped reads
+        #[arg(short = 'o', long)]
+        output: String,
+
+        /// Disable label in output filenames
+        #[arg(long, default_value_t = false)]
+        no_label: bool,
+
+        /// Disable orientation in output filenames
+        #[arg(long, default_value_t = false)]
+        no_orientation: bool,
+
+        /// Disable flank in output filenames
+        #[arg(long, default_value_t = false)]
+        no_flanks: bool,
+
+        /// Sort barcode labels in output filenames
+        #[arg(long, default_value_t = false)]
+        sort_labels: bool,
+
+        /// Only keep left or right label in output filenames
+        #[arg(long, conflicts_with = "sort_labels")]
+        only_side: Option<LabelSide>,
+
+        /// Write ids of reads with no annotations to this file
+        #[arg(long)]
+        failed_out: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -77,6 +120,12 @@ enum Commands {
         dropped: Option<String>,
     },
 
+    /// Utility subcommands
+    Utils {
+        #[command(subcommand)]
+        command: UtilsCommands,
+    },
+
     /// Trim and sort reads based on filtered annotations
     Trim {
         /// Input filtered annotation file
@@ -112,6 +161,45 @@ enum Commands {
         only_side: Option<LabelSide>,
 
         /// Write ids of failed trimmed reads to this file
+        #[arg(long)]
+        failed_out: Option<String>,
+    },
+
+    /// Group raw reads by label without trimming
+    Pull {
+        /// Input filtered annotation file
+        #[arg(short = 'i', long)]
+        input: String,
+
+        /// Read FASTQ file
+        #[arg(short = 'r', long)]
+        reads: String,
+
+        /// Output folder path for grouped reads
+        #[arg(short = 'o', long)]
+        output: String,
+
+        /// Disable label in output filenames
+        #[arg(long, default_value_t = false)]
+        no_label: bool,
+
+        /// Disable orientation in output filenames
+        #[arg(long, default_value_t = false)]
+        no_orientation: bool,
+
+        /// Disable flank in output filenames
+        #[arg(long, default_value_t = false)]
+        no_flanks: bool,
+
+        /// Sort barcode labels in output filenames
+        #[arg(long, default_value_t = false)]
+        sort_labels: bool,
+
+        /// Only keep left or right label in output filenames
+        #[arg(long, conflicts_with = "sort_labels")]
+        only_side: Option<LabelSide>,
+
+        /// Write ids of reads with no annotations to this file
         #[arg(long)]
         failed_out: Option<String>,
     },
@@ -258,6 +346,33 @@ fn main() {
             }
         }
 
+        Commands::Utils { command } => match command {
+            UtilsCommands::Pull {
+                input,
+                reads,
+                output,
+                no_label,
+                no_orientation,
+                no_flanks,
+                sort_labels,
+                only_side,
+                failed_out,
+            } => {
+                println!("{}", "Starting utils pull...".green());
+                pull_reads_without_trimming(
+                    input,
+                    reads,
+                    output,
+                    !no_label,
+                    !no_orientation,
+                    !no_flanks,
+                    *sort_labels,
+                    *only_side,
+                    failed_out.clone(),
+                );
+            }
+        },
+
         Commands::Filter {
             input,
             output,
@@ -285,6 +400,31 @@ fn main() {
         } => {
             println!("{}", "Starting trimming...".green());
             trim_matches(
+                input,
+                reads,
+                output,
+                !no_label,
+                !no_orientation,
+                !no_flanks,
+                *sort_labels,
+                *only_side,
+                failed_out.clone(),
+            );
+        }
+
+        Commands::Pull {
+            input,
+            reads,
+            output,
+            no_label,
+            no_orientation,
+            no_flanks,
+            sort_labels,
+            only_side,
+            failed_out,
+        } => {
+            println!("{}", "Starting pull...".green());
+            pull_reads_without_trimming(
                 input,
                 reads,
                 output,
