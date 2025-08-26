@@ -432,11 +432,12 @@ Note the `>>1, <<1, >>2, <<2`, now barbell knows exactly where you want the read
 
 If the labels were: `NB01---NB01-NB02----NB02`, barbell will write the first read to the `NB01` folder and the second to `NB02`. 
 
-#### Doing it *faster*
+#### Getting *all* concats
 
-
-
-
+If concats are a big part of your read set (ideally they are not) their patterns will show up high in `inspect` anyway, and copying just those will 
+probably be enough. If you really want *all* the concat reads out you could use the `-o` in `inspect` to write the patterns
+per read. Then, get all unique patterns from there and use a regex or a python script to insert the `>>1` and `<<1`, you can just dump all of them 
+to `filters.txt` and use that in `barbell filter`. 
 
 
 ---
