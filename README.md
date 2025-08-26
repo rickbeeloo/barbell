@@ -19,7 +19,6 @@
   - [In-depth workflow for Nanopore kits](#in-depth-inspection-of-nanopore-kit-results)
   - [Custom experiment (simple)](#custom-experiment)
   - [Custom experiment (multi protocol)](#custom-experiment-with-mixed-sequences)
-  - [I need full headers for Medaka](#trim-with-full-header)
 - [Understanding barbell](#understanding-barbell)
   - [What are barbell patterns?](#patterns)
   - [How to cut concat reads](#how-to-handle-concat-reads)
