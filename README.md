@@ -433,7 +433,7 @@ Ftag[fwd, *, @left(0..250), >>]__Ftag[<<, rc, *, @pev_left(1500..1750)]__Ftag[fw
 ```
 We always read the pattern from <u> left to right </u>, then we can deduce the read matches looked like this:
 ```
-[Fbar,fw]---------[Fbar,rc][Ftag, fwd]---------[Ftag, rc]
+[Ftag,fw]---------[Ftag,rc][Ftag, fwd]---------[Ftag, rc]
 ```
 If we want to cut more than once we have to use **cut group identifiers**, we do this by placing a number <u> after </u> the `<<` or `>>`:
 
