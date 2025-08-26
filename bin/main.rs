@@ -409,6 +409,7 @@ fn main() {
                 *sort_labels,
                 *only_side,
                 failed_out.clone(),
+                true, // Maybe make this optional but dont see a reason why you would not want this
             );
         }
 

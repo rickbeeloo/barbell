@@ -323,6 +323,7 @@ pub fn trim_matches(
     sort_labels: bool,
     only_side: Option<LabelSide>,
     failed_trimmed_writer: Option<String>, // if provided we write ids of failed trimmed reads to this file, like empty reads
+    write_full_header: bool,
 ) {
     // Create output folder if it doesn't exist
     if !Path::new(output_folder).exists() {
@@ -370,7 +371,10 @@ pub fn trim_matches(
 
     while let Some(record) = reader.next() {
         let record = record.expect("Error reading record");
-        let read_id = clean_read_id(record.id().unwrap()).to_string();
+        let (read_id, desc) = record.id_desc().unwrap();
+        let read_id = read_id.to_string();
+        let desc: &str = desc.unwrap_or_default();
+        let full_header = format!("{read_id} {desc}");
         total_bar.inc(1);
 
         // Check if this read has annotations
@@ -403,7 +407,11 @@ pub fn trim_matches(
                     });
 
                 // Write FASTQ format
-                writeln!(writer, "@{read_id}").expect("Failed to write header");
+                if write_full_header {
+                    writeln!(writer, "@{}", full_header).expect("Failed to write header");
+                } else {
+                    writeln!(writer, "@{read_id}").expect("Failed to write header");
+                }
                 writeln!(writer, "{}", String::from_utf8_lossy(&trimmed_seq))
                     .expect("Failed to write sequence");
                 writeln!(writer, "+").expect("Failed to write separator");

@@ -92,6 +92,7 @@ pub fn demux_using_kit(
         false,
         Some(LabelSide::Left),
         failed_out,
+        true,
     );
 
     println!("\n{}", "Done!".green().bold());
