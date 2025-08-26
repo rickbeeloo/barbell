@@ -332,6 +332,15 @@ AACGACA...
 AGGGCAC...
 ```
 
+We then run annotate like:
+
+```
+barbell annotate -q group1_left.fasta,group1_right.fasta,group2_left.fasta,group2_right.fasta -b Ftag,Rtag,Ftag,Rtag -i reads.fastq -o anno.tsv -t 10
+```
+
+**Note**: While you could run annotate separately for each query file, it’s generally better to combine all into a single annotate run (as mentioned here). This way, they are competing with one another.
+
+
 Then in the filtering step we can create filtered files for each group:
 (just check `inspect` first to see your patterns)
 
@@ -359,7 +368,6 @@ barbell trim -i group2_reads.tsv -r reads.fastq -f group2_filters.txt -o group2_
 ```
 
 
-**Note**: While you could run annotate separately for each query file, it’s generally better to combine all into a single annotate run (as mentioned here). This way, they are competing with one another.
 
 ---
 
