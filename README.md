@@ -241,7 +241,11 @@ BC01.trimmed.fastq  BC11.trimmed.fastq ...
 
 
 ## Custom experiment
+We first create a Fasta, or multiple Fastas containing your queries depending on whether 
+you have a single-end or dual-end experiment.
 
+
+### Creating a query Fasta
 If you have your own barcodes/primers/adapters, create FASTA files containing the full expected sequences. 
 Note that each FASTA contains all sequences that <u>share the same prefix/suffix</u>.
 
@@ -271,17 +275,25 @@ TCGTTCAGTTACGTATTGCT CACAAAGACACCGACAACTTTCTT AGRGTTYGATYATGGCTCAG
 
 Barbell extracts the shared prefix (adapter) and shared suffix (primer) as flanks — only the barcode region should differ between FASTA entries.
 
-**IMPORTANT:** Do not mix queries with different flanks in the same FASTA. If different queries have different flanks, create separate FASTA files.
 
-Run `annotate` with your query FASTA files and tags (e.g. `Ftag` and `Rtag`):
+### Single end
+See above to create a fasta file, say `left.fasta` for single-end then we can run `annotate`:
+
+```bash
+barbell annotate -q left.fasta -b Ftag -i reads.fastq -o anno.tsv -t 10
+```
+After that you can follow the same `inspect → filter → trim` [steps described above](#inspect).
+
+
+### Dual end
+For dual-end, we create two FASTAs, `left.fasta` and `right.fasta` for example, then we run:
 
 ```bash
 barbell annotate -q left.fasta,right.fasta -b Ftag,Rtag -i reads.fastq -o anno.tsv -t 10
 ```
-
 Note: there must be **no spaces** between the comma-separated file list and the tag list: `-q left.fasta,right.fasta -b Ftag,Rtag`.
 
-After that you can follow the same `inspect → filter → trim` [steps described above](#inspect).
+
 In case you have concatenated reads in your `inspect` also see [concat reads](#how-to-handle-concat-reads)
 
 ---
