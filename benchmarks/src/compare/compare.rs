@@ -35,9 +35,14 @@ fn load_bars(bar_file: &str) -> Vec<Vec<u8>> {
     let file = File::open(bar_file).expect("Failed to open bar file");
     let reader = BufReader::new(file);
     for line in reader.lines() {
+        // If line starts with ">" skip line
         let line = line.expect("Failed to read line from bar file");
+        if line.starts_with('>') {
+            continue;
+        }
         bars.push(line.as_bytes().to_vec());
     }
+    assert_eq!(bars.len(), 96);
     bars
 }
 
