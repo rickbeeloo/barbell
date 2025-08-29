@@ -1,5 +1,6 @@
 use glob::glob;
 use needletail::{Sequence, parse_fastx_file};
+use once_cell::sync::Lazy;
 use sassy::profiles::Iupac;
 use sassy::*;
 use std::collections::HashMap;
@@ -10,7 +11,10 @@ use std::process::Command;
 use std::time::Instant;
 
 const MAX_FLANK_EDITS: usize = 15;
-const FLANK_SEQ: &[u8] = b"GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
+const MAX_BAR_EDITS: usize = 4;
+
+const FLANK_SEQ: &[u8] =
+    b"GCTTGGGTGTTTAACCNNNNNNNNNNNNNNNNNNNNNNNNGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
 
 pub struct Dorado {
     pub exec_path: String,
@@ -22,6 +26,64 @@ pub struct Barbell {
 
 pub struct Flexiplex {
     pub exec_path: String,
+}
+
+// benchmarks/data/rapid_bars.txt
+fn load_bars(bar_file: &str) -> Vec<Vec<u8>> {
+    // Read each line of bar_file and collect barcodes in vector
+    let mut bars = Vec::new();
+    let file = File::open(bar_file).expect("Failed to open bar file");
+    let reader = BufReader::new(file);
+    for line in reader.lines() {
+        let line = line.expect("Failed to read line from bar file");
+        bars.push(line.as_bytes().to_vec());
+    }
+    bars
+}
+
+static BARS: Lazy<Vec<Vec<u8>>> = Lazy::new(|| load_bars("benchmarks/data/rapid_bars.txt"));
+
+fn check_flanks_and_bars(seq: &[u8]) -> usize {
+    // First we look for the flank sequence
+    let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.5);
+    let flank_matches = searcher.search(FLANK_SEQ, &seq, MAX_FLANK_EDITS);
+
+    let mut flank_match_count = 0;
+    for m in flank_matches.iter() {
+        // We now should find a matching barcode in the same orientation
+        for b in &*BARS {
+            let window: &[u8] = &seq[m.text_start..m.text_end];
+            let mut bar_matches = searcher.search::<&[u8]>(b.as_slice(), &window, MAX_BAR_EDITS);
+            bar_matches.retain(|bm| bm.strand == m.strand);
+            if !bar_matches.is_empty() {
+                flank_match_count += 1;
+                break; // We found a match, move to the next flank
+            }
+        }
+    }
+    flank_match_count
+}
+
+fn write_anno_and_trim<W1: Write, W2: Write>(
+    writer: &mut W1,
+    trimmed_writer: &mut W2,
+    read_id: &str,
+    barcode_id: &str,
+    norm_seq: &[u8],
+) {
+    let seq = String::from_utf8_lossy(norm_seq);
+    let n_flank_matches = check_flanks_and_bars(norm_seq);
+    let seq_len = norm_seq.len();
+    let anno_line = format!("{read_id}\t{barcode_id}\t{seq_len}\t{n_flank_matches}\n");
+    let seq_line = format!(">{read_id}\n{seq}\n");
+
+    writer
+        .write_all(anno_line.as_bytes())
+        .expect("Failed to write annotation");
+
+    trimmed_writer
+        .write_all(seq_line.as_bytes())
+        .expect("Failed to write trimmed sequence");
 }
 
 trait Tool {
@@ -88,12 +150,12 @@ impl Tool for Dorado {
         output_folder: &str,
         anno_out_file: &str,
         trimmed_out_file: &str,
-        extra_file: Option<String>,
+        _extra_file: Option<String>,
     ) {
         // We have to go over each fastq file in the output folder,
         // and read it using needletail, extracting barcode id from file name
         // and then storing read_id > barcode_id
-        let mut searcher = Searcher::<Iupac>::new_rc();
+        // let mut searcher = Searcher::<Iupac>::new_rc();
 
         let output_file_handle = File::create(anno_out_file).expect("Failed to create output file");
         let mut writer = BufWriter::new(output_file_handle);
@@ -127,21 +189,15 @@ impl Tool for Dorado {
             while let Some(record) = reader.next() {
                 let record = record.unwrap();
                 let norm_seq = record.seq().normalize(false).to_vec();
-                let seq = String::from_utf8_lossy(&norm_seq);
                 let read_id = String::from_utf8_lossy(record.id());
-                let seq_len = record.seq().len();
-                let flank_matches = searcher.search(FLANK_SEQ, &norm_seq, MAX_FLANK_EDITS);
-                let n_flank_matches = flank_matches.len();
-                let anno_line = format!("{read_id}\t{barcode_id}\t{seq_len}\t{n_flank_matches}\n");
-                let seq_line = format!(">{read_id}\n{seq}\n");
 
-                writer
-                    .write_all(anno_line.as_bytes())
-                    .expect("Failed to write annotation");
-
-                trimmed_writer
-                    .write_all(seq_line.as_bytes())
-                    .expect("Failed to write annotation");
+                write_anno_and_trim(
+                    &mut writer,
+                    &mut trimmed_writer,
+                    &read_id,
+                    barcode_id,
+                    &norm_seq,
+                );
             }
         }
     }
@@ -193,12 +249,12 @@ impl Tool for Barbell {
         output_folder: &str,
         anno_out_file: &str,
         trimmed_out_file: &str,
-        extra_file: Option<String>,
+        _extra_file: Option<String>,
     ) {
         // We have to go over each fastq file in the output folder,
         // and read it using needletail, extracting barcode id from file name
         // and then storing read_id > barcode_id
-        let mut searcher = Searcher::<Iupac>::new_rc();
+        // let mut searcher = Searcher::<Iupac>::new_rc();
 
         let output_file_handle = File::create(anno_out_file).expect("Failed to create output file");
         let mut writer = BufWriter::new(output_file_handle);
@@ -225,21 +281,15 @@ impl Tool for Barbell {
             while let Some(record) = reader.next() {
                 let record = record.unwrap();
                 let norm_seq = record.seq().normalize(false).to_vec();
-                let seq = String::from_utf8_lossy(&norm_seq);
                 let read_id = String::from_utf8_lossy(record.id());
-                let flank_matches = searcher.search(FLANK_SEQ, &norm_seq, MAX_FLANK_EDITS);
-                let n_flank_matches = flank_matches.len();
-                let seq_len = record.seq().len();
-                let anno_line = format!("{read_id}\t{barcode_id}\t{seq_len}\t{n_flank_matches}\n");
-                let seq_line = format!(">{read_id}\n{seq}\n");
 
-                writer
-                    .write_all(anno_line.as_bytes())
-                    .expect("Failed to write annotation");
-
-                trimmed_writer
-                    .write_all(seq_line.as_bytes())
-                    .expect("Failed to write annotation");
+                write_anno_and_trim(
+                    &mut writer,
+                    &mut trimmed_writer,
+                    &read_id,
+                    barcode_id,
+                    &norm_seq,
+                );
             }
         }
     }
@@ -297,7 +347,7 @@ impl Tool for Flexiplex {
         trimmed_out_file: &str,
         extra_file: Option<String>,
     ) {
-        let mut searcher = Searcher::<Iupac>::new_rc();
+        // let mut searcher = Searcher::<Iupac>::new_rc();
 
         // Flexiplex outputs to a single file: {output_folder}/classified_reads.fastq
         let flexiplex_output = format!("{output_folder}/classified_reads.fastq");
@@ -337,41 +387,27 @@ impl Tool for Flexiplex {
         while let Some(record) = reader.next() {
             let record = record.unwrap();
             let norm_seq = record.seq().normalize(false).to_vec();
-            let seq = String::from_utf8_lossy(&norm_seq);
-            let read_id = String::from_utf8_lossy(record.id());
-            // println!("Read id: {}", read_id);
+            let read_id_cow = String::from_utf8_lossy(record.id());
 
             // Parse it
-            let barcode_seq = read_id
-                // .strip_prefix("@")
-                // .unwrap()
-                .split("_")
-                .next()
-                .unwrap();
+            let barcode_seq = read_id_cow.split("_").next().unwrap();
             let barcode_id = barcode_map.get(barcode_seq).unwrap();
             // CTTTCGTTGTTGACTCGACGGTAG_#2b86d04f-daf8-48a2-a083-b0b50b1138d6_-1of1
-            let read_id = read_id
+            let read_id = read_id_cow
                 .split("#")
                 .nth(1)
                 .unwrap()
                 .split("_")
                 .next()
                 .unwrap();
-            // TODO: we could use the 1 of 1 for double split cases to make the ids unique
-            // but will make joining later more complex
-            let flank_matches = searcher.search(FLANK_SEQ, &norm_seq, MAX_FLANK_EDITS);
-            let n_flank_matches = flank_matches.len();
-            let seq_len = record.seq().len();
-            let anno_line = format!("{read_id}\t{barcode_id}\t{seq_len}\t{n_flank_matches}\n");
-            let seq_line = format!(">{read_id}\n{seq}\n");
 
-            writer
-                .write_all(anno_line.as_bytes())
-                .expect("Failed to write annotation");
-
-            trimmed_writer
-                .write_all(seq_line.as_bytes())
-                .expect("Failed to write trimmed sequence");
+            write_anno_and_trim(
+                &mut writer,
+                &mut trimmed_writer,
+                read_id,
+                barcode_id,
+                &norm_seq,
+            );
         }
     }
 }

@@ -113,6 +113,7 @@ dependencies = [
  "clap",
  "glob",
  "needletail",
+ "once_cell",
  "rand 0.9.1",
  "sassy 0.1.2 (git+https://github.com/RagnarGrootKoerkamp/sassy.git?branch=master)",
 ]
