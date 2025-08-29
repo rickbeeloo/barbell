@@ -40,6 +40,7 @@ fn main() {
             run_all_tools(
                 &args.fastq_file,
                 &args.output_dir,
+                &args.bar_file,
                 args.threads,
                 Some(args.extra_file),
                 &args.dorado_exec_path,

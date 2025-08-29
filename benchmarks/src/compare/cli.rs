@@ -8,6 +8,9 @@ pub struct CompareArgs {
     #[arg(short = 'r', long, default_value = "data/rapid_bars.txt")]
     pub fastq_file: String,
 
+    #[arg(long = "bar-file", default_value = "benchmarks/data/rapid_bars.txt")]
+    pub bar_file: String,
+
     #[arg(short = 't', long, default_value = "1")]
     pub threads: usize,
 

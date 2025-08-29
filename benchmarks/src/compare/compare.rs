@@ -1,6 +1,6 @@
 use glob::glob;
 use needletail::{Sequence, parse_fastx_file};
-use once_cell::sync::Lazy;
+use once_cell::sync::OnceCell;
 use sassy::profiles::Iupac;
 use sassy::*;
 use std::collections::HashMap;
@@ -41,7 +41,7 @@ fn load_bars(bar_file: &str) -> Vec<Vec<u8>> {
     bars
 }
 
-static BARS: Lazy<Vec<Vec<u8>>> = Lazy::new(|| load_bars("benchmarks/data/rapid_bars.txt"));
+static BARS: OnceCell<Vec<Vec<u8>>> = OnceCell::new();
 
 fn check_flanks_and_bars(seq: &[u8]) -> usize {
     // First we look for the flank sequence
@@ -49,9 +49,12 @@ fn check_flanks_and_bars(seq: &[u8]) -> usize {
     let flank_matches = searcher.search(FLANK_SEQ, &seq, MAX_FLANK_EDITS);
 
     let mut flank_match_count = 0;
+    let bars: &Vec<Vec<u8>> = BARS
+        .get()
+        .expect("Barcode list not initialized. Set with --bar-file.");
     for m in flank_matches.iter() {
         // We now should find a matching barcode in the same orientation
-        for b in &*BARS {
+        for b in bars.iter() {
             let window: &[u8] = &seq[m.text_start..m.text_end];
             let mut bar_matches = searcher.search::<&[u8]>(b.as_slice(), &window, MAX_BAR_EDITS);
             bar_matches.retain(|bm| bm.strand == m.strand);
@@ -415,12 +418,16 @@ impl Tool for Flexiplex {
 pub fn run_all_tools(
     fastq_file: &str,
     output_folder: &str,
+    bar_file: &str,
     threads: usize,
     extra_file: Option<String>,
     dorado_exec_path: &str,
     barbell_exec_path: &str,
     flexiplex_exec_path: &str,
 ) {
+    // Initialize barcode sequences from provided file path
+    let _ = BARS.set(load_bars(bar_file));
+
     // We create additional output folders for each of the tools
     let output_folder = format!("{output_folder}/all_tools");
     let dorado_output_folder = format!("{output_folder}/dorado");
