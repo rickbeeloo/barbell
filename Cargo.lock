@@ -89,14 +89,14 @@ dependencies = [
  "colored",
  "csv",
  "indicatif",
- "itertools 0.10.5",
+ "itertools",
  "needletail",
  "once_cell",
  "pa-types",
  "plotpy",
  "rand 0.8.5",
  "rayon",
- "sassy 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sassy 0.1.4",
  "seq_io",
  "serde",
  "serde_json",
@@ -115,7 +115,7 @@ dependencies = [
  "needletail",
  "once_cell",
  "rand 0.9.1",
- "sassy 0.1.2 (git+https://github.com/RagnarGrootKoerkamp/sassy.git?branch=master)",
+ "sassy 0.1.2",
 ]
 
 [[package]]
@@ -463,15 +463,6 @@ checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
 name = "itertools"
-version = "0.10.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
@@ -653,7 +644,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2238da32f8c1be89b6ff016c65f4d2dd183afd317ec3f0e3402f8d75b7bcb4ab"
 dependencies = [
  "derive_more",
- "itertools 0.14.0",
+ "itertools",
  "serde",
 ]
 
@@ -856,8 +847,7 @@ checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
 [[package]]
 name = "sassy"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3bce5ce8b19e9c6043f4c1639f0b9017b8f4e2a60a8b7b31ccc6751808c9a6b"
+source = "git+https://github.com/RagnarGrootKoerkamp/sassy.git?branch=master#63936e8e2c5324b125a40b75f844db9cab3db80d"
 dependencies = [
  "clap",
  "env_logger",
@@ -870,8 +860,9 @@ dependencies = [
 
 [[package]]
 name = "sassy"
-version = "0.1.2"
-source = "git+https://github.com/RagnarGrootKoerkamp/sassy.git?branch=master#63936e8e2c5324b125a40b75f844db9cab3db80d"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca1516a513a6984d4680d43b7a36a0348df861f6f01b290d3f8f74c6e437938e"
 dependencies = [
  "clap",
  "env_logger",
