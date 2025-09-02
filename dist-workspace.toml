@@ -10,10 +10,14 @@ ci = "github"
 # The installers to generate for each app
 installers = []
 # Target platforms to build apps for (Rust target-triple syntax)
-targets = ["x86_64-unknown-linux-gnu"]
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "x86_64-unknown-linux-musl",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+]
 # Compress the binary
 compress = "gz"
-
 
 
 [dist.github-custom-runners]
