@@ -23,6 +23,7 @@
   - [What are barbell patterns?](#patterns)
   - [How to cut concat reads](#how-to-handle-concat-reads)
   - [Output column descriptions (annotate & filter)](#output-columns-annotate--filter)
+- [Notes & tips](#notes--tips)
 
 ---
 
@@ -87,6 +88,17 @@ barbell kit -k SQK-RBK114-96 -i reads.fastq -o output_folder --maximize
 ```
 
 For a list of supported kits (see `data/supported_kits.txt`). Note that we thoroughly tested the rapid and native kits but not others, if you experience any issues please report them.
+
+### General Pointers
+
+- **Too few annotated reads (many missed):**  
+  Slightly increase `--flank-max-errors` (the automatically derived cutoff is reported).  
+
+- **Too many `Fflank` matches:**  
+  1. Check `annotation.tsv` to see if matches occur at unexpected locations (not near read ends).  
+     - **Random locations:** Lower `--flank-max-errors`.  
+     - **Non-random locations:** Adjust `--min-score-diff`.  
+       > This is usually unnecessary as defaults are lenient; report an issue if it occurs.
 
 ---
 
