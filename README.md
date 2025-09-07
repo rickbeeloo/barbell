@@ -100,6 +100,10 @@ For a list of supported kits (see `data/supported_kits.txt`). Note that we thoro
      - **Non-random locations:** Adjust `--min-score-diff`.  
        > This is usually unnecessary as defaults are lenient; report an issue if it occurs.
 
+- **Using a kit other than native or rapid** and observing unexpected annotations: Please report an issue.
+
+
+
 ---
 
 ## In-depth inspection of Nanopore kit results
