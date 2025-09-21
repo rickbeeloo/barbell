@@ -192,57 +192,52 @@ impl BarcodeGroup {
     }
 
     /// Create Barcodegroup based on Nanopore kitname
-    pub fn new_from_kit(kit: &str) -> Vec<Self> {
+    pub fn new_from_kit(kit: &str, also_use_extended: bool) -> Vec<Self> {
         // Get all kit info
         let kit_config = get_kit_info(kit);
 
-        // We have to build all the queries, either one or two groups
+        // Always expand templates into groups
         let mut groups = Vec::new();
-
-        // Check if we have left flank
-        if let Some(left_prefix) = kit_config.left_prefix {
+        for tmpl in kit_config.templates {
+            // Only add extended templates if users allowed it
+            if tmpl.template_type == TemplateType::Extended && !also_use_extended {
+                println!("Skipping extended template {}", kit);
+                continue;
+            }
+            let label_range = tmpl.barcodes;
+            let labels = get_barcodes(label_range.from, label_range.to);
             let mut query_seqs = Vec::new();
             let mut query_labels = Vec::new();
-            let prefix = left_prefix.to_string();
-            let suffix = kit_config.left_suffix.unwrap_or_default().to_string();
-            let barcode_list = get_barcodes(kit_config.barcodes.from, kit_config.barcodes.to);
-            for barcode_name in barcode_list {
-                let barcode_seq = lookup_barcode_seq(&barcode_name)
-                    .expect("Barcode not found - odd - raise issue");
-                let left_flank_query = format!("{prefix}{barcode_seq}{suffix}");
-                query_seqs.push(left_flank_query.as_bytes().to_vec());
-                query_labels.push(barcode_name);
-            }
-            groups.push(BarcodeGroup::new(
-                query_seqs,
-                query_labels,
-                BarcodeType::Ftag,
-            ));
-        }
 
-        // Check if we have right flank
-        // FIXME: we have to add patterns to the kits for these cases
-        if let Some(right_prefix) = kit_config.right_prefix {
-            let mut query_seqs = Vec::new();
-            let mut query_labels = Vec::new();
-            let prefix = right_prefix.to_string();
-            let suffix = kit_config.right_suffix.unwrap_or_default().to_string();
-            let barcode_list = get_barcodes(
-                kit_config.barcodes2.unwrap().from,
-                kit_config.barcodes2.unwrap().to,
-            );
-            for barcode_name in barcode_list {
+            for barcode_name in labels {
                 let barcode_seq = lookup_barcode_seq(&barcode_name)
                     .expect("Barcode not found - odd - raise issue");
-                let right_flank_query = format!("{prefix}{barcode_seq}{suffix}");
-                query_seqs.push(right_flank_query.as_bytes().to_vec());
+
+                // Build sequence from parts: insert barcode at {BAR} or ** tokens
+                let mut expanded = String::new();
+                for part in tmpl.parts {
+                    if *part == "{BAR}" || *part == "**" {
+                        expanded.push_str(barcode_seq);
+                    } else {
+                        expanded.push_str(part);
+                    }
+                }
+
+                let seq_bytes = expanded.as_bytes().to_vec();
+                if !Iupac::valid_seq(seq_bytes.as_slice()) {
+                    panic!("Expanded template contained non-IUPAC characters after cleanup");
+                }
+
+                query_seqs.push(seq_bytes);
                 query_labels.push(barcode_name);
             }
-            groups.push(BarcodeGroup::new(
-                query_seqs,
-                query_labels,
-                BarcodeType::Rtag,
-            ));
+
+            let btype = match tmpl.barcode_type {
+                TemplateBarcodeType::Left => BarcodeType::Ftag,
+                TemplateBarcodeType::Right => BarcodeType::Rtag,
+            };
+
+            groups.push(BarcodeGroup::new(query_seqs, query_labels, btype));
         }
         groups
     }
@@ -447,7 +442,7 @@ mod tests {
 
     #[test]
     fn new_from_kit_rapid_barcodes() {
-        let groups = BarcodeGroup::new_from_kit("SQK-NBD114-96");
+        let groups = BarcodeGroup::new_from_kit("SQK-NBD114-96", false);
         for group in groups {
             group.display(10);
         }

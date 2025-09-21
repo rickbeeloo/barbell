@@ -88,6 +88,7 @@ dependencies = [
  "clap",
  "colored",
  "csv",
+ "glob",
  "indicatif",
  "itertools",
  "needletail",

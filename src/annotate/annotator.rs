@@ -100,8 +100,9 @@ pub fn annotate_with_kit(
     verbose: bool,
     min_score: f64,
     min_score_diff: f64,
+    use_extended: bool,
 ) -> anyhow::Result<()> {
-    let query_groups: Vec<BarcodeGroup> = BarcodeGroup::new_from_kit(kit);
+    let query_groups: Vec<BarcodeGroup> = BarcodeGroup::new_from_kit(kit, use_extended);
     annotate_with_groups(
         read_file,
         out_file,

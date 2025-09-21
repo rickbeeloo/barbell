@@ -16,6 +16,8 @@ const RBK_REAR: &str = "GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
 
 const RBK4_FRONT: &str = "GCTTGGGTGTTTAACC";
 const RBK4_REAR: &str = "GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
+// This is the suffix of the RBK4 template in case direct concat as discussed in paper
+const RKB4_FRONT_FUSION: &str = "TTCGTGCGCCGCTTCA";
 
 const RBK4_KIT14_FRONT: &str = "GCTTGGGTGTTTAACC";
 const RBK4_KIT14_REAR: &str = "GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
@@ -70,44 +72,55 @@ impl LabelRange {
     }
 }
 
+// Template support for arbitrary multi-part patterns
+#[derive(Copy, Clone)]
+pub enum TemplateBarcodeType {
+    Left,
+    Right,
+}
+
+#[derive(Copy, Clone, PartialEq)]
+pub enum TemplateType {
+    Default,
+    Extended, // Including fusion, shorter templates, etc. - losing reads but better quality
+}
+
+#[derive(Copy, Clone)]
+pub struct TemplateSpec {
+    pub parts: &'static [&'static str],
+    pub barcodes: LabelRange,
+    pub barcode_type: TemplateBarcodeType,
+    pub template_type: TemplateType,
+}
+
 pub struct KitConfig {
     pub name: &'static str,
-    pub left_prefix: Option<&'static str>,
-    pub left_suffix: Option<&'static str>,
-    pub right_prefix: Option<&'static str>,
-    pub right_suffix: Option<&'static str>,
-    pub barcodes: LabelRange,
-    pub barcodes2: Option<LabelRange>,
     pub label_config: LabelConfig,
     pub safe_patterns: fn() -> &'static [Pattern],
     pub maximize_patterns: fn() -> &'static [Pattern],
+    pub templates: &'static [TemplateSpec],
 }
 
 impl KitConfig {
     const fn new(
         name: &'static str,
-        left_prefix: Option<&'static str>,
-        left_suffix: Option<&'static str>,
-        right_prefix: Option<&'static str>,
-        right_suffix: Option<&'static str>,
-        barcodes: LabelRange,
-        barcodes2: Option<LabelRange>,
         label_config: LabelConfig,
         safe_patterns: fn() -> &'static [Pattern],
         maximize_patterns: fn() -> &'static [Pattern],
+        templates: &'static [TemplateSpec],
     ) -> Self {
         Self {
             name,
-            left_prefix,
-            left_suffix,
-            right_prefix,
-            right_suffix,
-            barcodes,
-            barcodes2,
             label_config,
             safe_patterns,
             maximize_patterns,
+            templates,
         }
+    }
+
+    const fn with_templates(mut self, templates: &'static [TemplateSpec]) -> Self {
+        self.templates = templates;
+        self
     }
 }
 
@@ -223,265 +236,372 @@ fn double_label_patterns_maximize() -> &'static [Pattern] {
     &DOUBLE_LABEL_PATTERNS_MAXIMIZE
 }
 
+// Template arrays per kit
+static TEMPLATES_16S: &[TemplateSpec] = &[
+    TemplateSpec {
+        parts: &[RAB_1ST_FRONT, "{BAR}", RAB_1ST_REAR],
+        barcodes: LabelRange::new("BC01", "BC24"),
+        barcode_type: TemplateBarcodeType::Left,
+        template_type: TemplateType::Default,
+    },
+    TemplateSpec {
+        parts: &[RAB_2ND_FRONT, "{BAR}", RAB_2ND_REAR],
+        barcodes: LabelRange::new("BC01", "BC24"),
+        barcode_type: TemplateBarcodeType::Right,
+        template_type: TemplateType::Default,
+    },
+];
+
+static TEMPLATES_LWB: &[TemplateSpec] = &[
+    TemplateSpec {
+        parts: &[LWB_1ST_FRONT, "{BAR}", LWB_1ST_REAR],
+        barcodes: LabelRange::new("BC01", "BC12"),
+        barcode_type: TemplateBarcodeType::Left,
+        template_type: TemplateType::Default,
+    },
+    TemplateSpec {
+        parts: &[LWB_2ND_FRONT, "{BAR}", LWB_2ND_REAR],
+        barcodes: LabelRange::new("BC01", "BC12"),
+        barcode_type: TemplateBarcodeType::Right,
+        template_type: TemplateType::Default,
+    },
+];
+
+static TEMPLATES_LWB24: &[TemplateSpec] = &[
+    TemplateSpec {
+        parts: &[LWB_1ST_FRONT, "{BAR}", LWB_1ST_REAR],
+        barcodes: LabelRange::new("BC01", "BC24"),
+        barcode_type: TemplateBarcodeType::Left,
+        template_type: TemplateType::Default,
+    },
+    TemplateSpec {
+        parts: &[LWB_2ND_FRONT, "{BAR}", LWB_2ND_REAR],
+        barcodes: LabelRange::new("BC01", "BC24"),
+        barcode_type: TemplateBarcodeType::Right,
+        template_type: TemplateType::Default,
+    },
+];
+
+static TEMPLATES_NB12: &[TemplateSpec] = &[TemplateSpec {
+    parts: &[NB_1ST_FRONT, "{BAR}", NB_1ST_REAR],
+    barcodes: LabelRange::new("NB01", "NB12"),
+    barcode_type: TemplateBarcodeType::Left,
+    template_type: TemplateType::Default,
+}];
+
+static TEMPLATES_NB24: &[TemplateSpec] = &[TemplateSpec {
+    parts: &[NB_1ST_FRONT, "{BAR}", NB_1ST_REAR],
+    barcodes: LabelRange::new("NB01", "NB24"),
+    barcode_type: TemplateBarcodeType::Left,
+    template_type: TemplateType::Default,
+}];
+
+static TEMPLATES_NB96: &[TemplateSpec] = &[TemplateSpec {
+    parts: &[NB_1ST_FRONT, "{BAR}", NB_1ST_REAR],
+    barcodes: LabelRange::new("NB01", "NB96"),
+    barcode_type: TemplateBarcodeType::Left,
+    template_type: TemplateType::Default,
+}];
+
+static TEMPLATES_RAB: &[TemplateSpec] = &[
+    TemplateSpec {
+        parts: &[RAB_1ST_FRONT, "{BAR}", RAB_1ST_REAR],
+        barcodes: LabelRange::new("BC01", "BC12"),
+        barcode_type: TemplateBarcodeType::Left,
+        template_type: TemplateType::Default,
+    },
+    TemplateSpec {
+        parts: &[RAB_2ND_FRONT, "{BAR}", RAB_2ND_REAR],
+        barcodes: LabelRange::new("BC01", "BC12"),
+        barcode_type: TemplateBarcodeType::Right,
+        template_type: TemplateType::Default,
+    },
+];
+
+static TEMPLATES_RBK96: &[TemplateSpec] = &[TemplateSpec {
+    parts: &[RBK4_FRONT, "{BAR}", RBK4_REAR],
+    barcodes: LabelRange::new("RBK01", "RBK96"),
+    barcode_type: TemplateBarcodeType::Left,
+    template_type: TemplateType::Default,
+}];
+
+static TEMPLATES_RBK4: &[TemplateSpec] = &[TemplateSpec {
+    parts: &[RBK4_FRONT, "{BAR}", RBK4_REAR],
+    barcodes: LabelRange::new("BC01", "BC12"),
+    barcode_type: TemplateBarcodeType::Left,
+    template_type: TemplateType::Default,
+}];
+
+static TEMPLATES_RLB: &[TemplateSpec] = &[TemplateSpec {
+    parts: &[RLB_FRONT, "{BAR}", RLB_REAR],
+    barcodes: LabelRange::new("BC01", "BC12A"),
+    barcode_type: TemplateBarcodeType::Left,
+    template_type: TemplateType::Default,
+}];
+
+static TEMPLATES_NB13_24: &[TemplateSpec] = &[TemplateSpec {
+    parts: &[NB_1ST_FRONT, "{BAR}", NB_1ST_REAR],
+    barcodes: LabelRange::new("NB13", "NB24"),
+    barcode_type: TemplateBarcodeType::Left,
+    template_type: TemplateType::Default,
+}];
+
+static TEMPLATES_PCR12: &[TemplateSpec] = &[
+    TemplateSpec {
+        parts: &[BC_1ST_FRONT, "{BAR}", BC_1ST_REAR],
+        barcodes: LabelRange::new("BC01", "BC12"),
+        barcode_type: TemplateBarcodeType::Left,
+        template_type: TemplateType::Default,
+    },
+    TemplateSpec {
+        parts: &[BC_2ND_FRONT, "{BAR}", BC_2ND_REAR],
+        barcodes: LabelRange::new("BC01", "BC12"),
+        barcode_type: TemplateBarcodeType::Right,
+        template_type: TemplateType::Default,
+    },
+];
+
+static TEMPLATES_PCR96: &[TemplateSpec] = &[
+    TemplateSpec {
+        parts: &[BC_1ST_FRONT, "{BAR}", BC_1ST_REAR],
+        barcodes: LabelRange::new("BC01", "BC96"),
+        barcode_type: TemplateBarcodeType::Left,
+        template_type: TemplateType::Default,
+    },
+    TemplateSpec {
+        parts: &[BC_2ND_FRONT, "{BAR}", BC_2ND_REAR],
+        barcodes: LabelRange::new("BC01", "BC96"),
+        barcode_type: TemplateBarcodeType::Right,
+        template_type: TemplateType::Default,
+    },
+];
+
+static TEMPLATES_RBK12: &[TemplateSpec] = &[TemplateSpec {
+    parts: &[RBK_FRONT, "{BAR}", RBK_REAR],
+    barcodes: LabelRange::new("BC01", "BC12"),
+    barcode_type: TemplateBarcodeType::Left,
+    template_type: TemplateType::Default,
+}];
+
+static TEMPLATES_RBK24: &[TemplateSpec] = &[TemplateSpec {
+    parts: &[RBK4_FRONT, "{BAR}", RBK4_REAR],
+    barcodes: LabelRange::new("RBK01", "RBK24"),
+    barcode_type: TemplateBarcodeType::Left,
+    template_type: TemplateType::Default,
+}];
+
+static TEMPLATES_RBK96_KIT14: &[TemplateSpec] = &[
+    TemplateSpec {
+        parts: &[RBK4_KIT14_FRONT, "{BAR}", RBK4_KIT14_REAR],
+        barcodes: LabelRange::new("RBK01", "RBK96"),
+        barcode_type: TemplateBarcodeType::Left,
+        template_type: TemplateType::Default,
+    },
+    // In case of fusions we can have rear, bar, rear match
+    // we should prevent 50% overlap though
+    TemplateSpec {
+        parts: &[RKB4_FRONT_FUSION, "{BAR}", RBK4_REAR],
+        barcodes: LabelRange::new("RBK01", "RBK96"),
+        barcode_type: TemplateBarcodeType::Left,
+        template_type: TemplateType::Extended,
+    },
+    // Recognition sides in RBK are long enough so we can also
+    // add a 'short' version for odd concatenations we observed
+    TemplateSpec {
+        parts: &[RBK4_KIT14_FRONT, "{BAR}", RKB4_FRONT_FUSION],
+        barcodes: LabelRange::new("RBK01", "RBK96"),
+        barcode_type: TemplateBarcodeType::Left,
+        template_type: TemplateType::Extended,
+    },
+];
+
+static TEMPLATES_RBK24_KIT14: &[TemplateSpec] = &[TemplateSpec {
+    parts: &[RBK4_KIT14_FRONT, "{BAR}", RBK4_KIT14_REAR],
+    barcodes: LabelRange::new("RBK01", "RBK24"),
+    barcode_type: TemplateBarcodeType::Left,
+    template_type: TemplateType::Default,
+}];
+
+static TEMPLATES_RPB24_KIT14: &[TemplateSpec] = &[TemplateSpec {
+    parts: &[RLB_FRONT, "{BAR}", RLB_REAR],
+    barcodes: LabelRange::new("BC01", "BC24"),
+    barcode_type: TemplateBarcodeType::Left,
+    template_type: TemplateType::Default,
+}];
+
+static TEMPLATES_VMK: &[TemplateSpec] = &[TemplateSpec {
+    parts: &[RBK_FRONT, "{BAR}", RBK_REAR],
+    barcodes: LabelRange::new("BC01", "BC04"),
+    barcode_type: TemplateBarcodeType::Left,
+    template_type: TemplateType::Default,
+}];
+
+static TEMPLATES_VMK4: &[TemplateSpec] = &[TemplateSpec {
+    parts: &[RBK4_FRONT, "{BAR}", RBK4_REAR],
+    barcodes: LabelRange::new("BC01", "BC10"),
+    barcode_type: TemplateBarcodeType::Left,
+    template_type: TemplateType::Default,
+}];
+
 const KIT_16S: KitConfig = KitConfig::new(
     "16S",
-    Some(RAB_1ST_FRONT),
-    Some(RAB_1ST_REAR),
-    Some(RAB_2ND_FRONT),
-    Some(RAB_2ND_REAR),
-    LabelRange::new("BC01", "BC24"),
-    Some(LabelRange::new("BC01", "BC24")),
     DOUBLE_LABEL_CONFIG_KEEP_SINGLE,
     double_label_patterns_safe,
     double_label_patterns_maximize,
+    TEMPLATES_16S,
 );
 
 const KIT_LWB: KitConfig = KitConfig::new(
     "LWB",
-    Some(LWB_1ST_FRONT),
-    Some(LWB_1ST_REAR),
-    Some(LWB_2ND_FRONT),
-    Some(LWB_2ND_REAR),
-    LabelRange::new("BC01", "BC12"),
-    Some(LabelRange::new("BC01", "BC12")),
     DOUBLE_LABEL_CONFIG_KEEP_SINGLE,
     double_label_patterns_safe,
     double_label_patterns_maximize,
+    TEMPLATES_LWB,
 );
 
 const KIT_LWB24: KitConfig = KitConfig::new(
     "LWB24",
-    Some(LWB_1ST_FRONT),
-    Some(LWB_1ST_REAR),
-    Some(LWB_2ND_FRONT),
-    Some(LWB_2ND_REAR),
-    LabelRange::new("BC01", "BC24"),
-    Some(LabelRange::new("BC01", "BC24")),
     DOUBLE_LABEL_CONFIG_KEEP_SINGLE,
     double_label_patterns_safe,
     double_label_patterns_maximize,
+    TEMPLATES_LWB24,
 );
 
 const KIT_NB12: KitConfig = KitConfig::new(
     "NB12",
-    Some(NB_1ST_FRONT),
-    Some(NB_1ST_REAR),
-    None,
-    None,
-    LabelRange::new("NB01", "NB12"),
-    None,
     SINGLE_LABEL_CONFIG,
     single_label_patterns_safe,
     single_label_patterns_maximize,
+    TEMPLATES_NB12,
 );
 
 const KIT_NB24: KitConfig = KitConfig::new(
     "NB24",
-    Some(NB_1ST_FRONT),
-    Some(NB_1ST_REAR),
-    None,
-    None,
-    LabelRange::new("NB01", "NB24"),
-    None,
     SINGLE_LABEL_CONFIG,
     single_label_patterns_safe,
     single_label_patterns_maximize,
+    TEMPLATES_NB24,
 );
 
 const KIT_NB96: KitConfig = KitConfig::new(
     "NB96",
-    Some(NB_1ST_FRONT),
-    Some(NB_1ST_REAR),
-    None,
-    None,
-    LabelRange::new("NB01", "NB96"),
-    None,
     SINGLE_LABEL_CONFIG,
     double_label_patterns_safe,
     double_label_patterns_maximize,
+    TEMPLATES_NB96,
 );
 
 const KIT_RAB: KitConfig = KitConfig::new(
     "RAB",
-    Some(RAB_1ST_FRONT),
-    Some(RAB_1ST_REAR),
-    Some(RAB_2ND_FRONT),
-    Some(RAB_2ND_REAR),
-    LabelRange::new("BC01", "BC12"),
-    Some(LabelRange::new("BC01", "BC12")),
     DOUBLE_LABEL_CONFIG_KEEP_SINGLE,
     double_label_patterns_safe,
     double_label_patterns_maximize,
+    TEMPLATES_RAB,
 );
 
 const KIT_RBK96: KitConfig = KitConfig::new(
     "RBK96",
-    Some(RBK4_FRONT),
-    Some(RBK4_REAR),
-    None,
-    None,
-    LabelRange::new("RBK01", "RBK96"),
-    None,
     SINGLE_LABEL_CONFIG,
     single_label_patterns_safe,
     single_label_patterns_maximize,
+    TEMPLATES_RBK96,
 );
 
 const KIT_RBK4: KitConfig = KitConfig::new(
     "RBK4",
-    Some(RBK4_FRONT),
-    Some(RBK4_REAR),
-    None,
-    None,
-    LabelRange::new("BC01", "BC12"),
-    None,
     SINGLE_LABEL_CONFIG,
     single_label_patterns_safe,
     single_label_patterns_maximize,
+    TEMPLATES_RBK4,
 );
 
 const KIT_RLB: KitConfig = KitConfig::new(
     "RLB",
-    Some(RLB_FRONT),
-    Some(RLB_REAR),
-    None,
-    None,
-    LabelRange::new("BC01", "BC12A"),
-    None,
     SINGLE_LABEL_CONFIG,
     single_label_patterns_safe,
     single_label_patterns_maximize,
+    TEMPLATES_RLB,
 );
 
 const KIT_NB13_24: KitConfig = KitConfig::new(
     "NB13-24",
-    Some(NB_1ST_FRONT),
-    Some(NB_1ST_REAR),
-    None,
-    None,
-    LabelRange::new("NB13", "NB24"),
-    None,
     SINGLE_LABEL_CONFIG,
     single_label_patterns_safe,
     single_label_patterns_maximize,
+    TEMPLATES_NB13_24,
 );
 
 const KIT_PCR12: KitConfig = KitConfig::new(
     "PCR12",
-    Some(BC_1ST_FRONT),
-    Some(BC_1ST_REAR),
-    Some(BC_2ND_FRONT),
-    Some(BC_2ND_REAR),
-    LabelRange::new("BC01", "BC12"),
-    Some(LabelRange::new("BC01", "BC12")),
     DOUBLE_LABEL_CONFIG_KEEP_SINGLE,
     double_label_patterns_safe,
     double_label_patterns_maximize,
+    TEMPLATES_PCR12,
 );
 
 // Unique kits
 const KIT_PCR96: KitConfig = KitConfig::new(
     "PCR96",
-    Some(BC_1ST_FRONT),
-    Some(BC_1ST_REAR),
-    Some(BC_2ND_FRONT),
-    Some(BC_2ND_REAR),
-    LabelRange::new("BC01", "BC96"),
-    Some(LabelRange::new("BC01", "BC96")),
     DOUBLE_LABEL_CONFIG_KEEP_SINGLE,
     double_label_patterns_safe,
     double_label_patterns_maximize,
+    TEMPLATES_PCR96,
 );
 
 const KIT_RBK12: KitConfig = KitConfig::new(
     "RBK",
-    Some(RBK_FRONT),
-    Some(RBK_REAR),
-    None,
-    None,
-    LabelRange::new("BC01", "BC12"),
-    None,
     SINGLE_LABEL_CONFIG,
     single_label_patterns_safe,
     single_label_patterns_maximize,
+    TEMPLATES_RBK12,
 );
 
 const KIT_RBK24: KitConfig = KitConfig::new(
     "RBK24",
-    Some(RBK4_FRONT),
-    Some(RBK4_REAR),
-    None,
-    None,
-    LabelRange::new("RBK01", "RBK24"),
-    None,
     SINGLE_LABEL_CONFIG,
     single_label_patterns_safe,
     single_label_patterns_maximize,
+    TEMPLATES_RBK24,
 );
 
 const KIT_RBK96_KIT14: KitConfig = KitConfig::new(
     "RBK096_kit14",
-    Some(RBK4_KIT14_FRONT),
-    Some(RBK4_KIT14_REAR),
-    None,
-    None,
-    LabelRange::new("RBK01", "RBK96"),
-    None,
     SINGLE_LABEL_CONFIG,
     single_label_patterns_safe,
     single_label_patterns_maximize,
+    TEMPLATES_RBK96_KIT14,
 );
 
 const KIT_RBK24_KIT14: KitConfig = KitConfig::new(
     "RBK24_kit14",
-    Some(RBK4_KIT14_FRONT),
-    Some(RBK4_KIT14_REAR),
-    None,
-    None,
-    LabelRange::new("RBK01", "RBK24"),
-    None,
     SINGLE_LABEL_CONFIG,
     single_label_patterns_safe,
     single_label_patterns_maximize,
+    TEMPLATES_RBK24_KIT14,
 );
 
 const KIT_RPB24_KIT14: KitConfig = KitConfig::new(
     "RPB24-Kit14",
-    Some(RLB_FRONT),
-    Some(RLB_REAR),
-    None,
-    None,
-    LabelRange::new("BC01", "BC24"),
-    None,
     SINGLE_LABEL_CONFIG,
     single_label_patterns_safe,
     single_label_patterns_maximize,
+    TEMPLATES_RPB24_KIT14,
 );
 
 const KIT_VMK: KitConfig = KitConfig::new(
     "VMK",
-    Some(RBK_FRONT),
-    Some(RBK_REAR),
-    None,
-    None,
-    LabelRange::new("BC01", "BC04"),
-    None,
     SINGLE_LABEL_CONFIG,
     single_label_patterns_safe,
     single_label_patterns_maximize,
+    TEMPLATES_VMK,
 );
 
 const KIT_VMK4: KitConfig = KitConfig::new(
     "VMK4",
-    Some(RBK4_FRONT),
-    Some(RBK4_REAR),
-    None,
-    None,
-    LabelRange::new("BC01", "BC10"),
-    None,
     SINGLE_LABEL_CONFIG,
     single_label_patterns_safe,
     single_label_patterns_maximize,
+    TEMPLATES_VMK4,
 );
 
 pub fn get_kit_info(kit: &str) -> KitConfig {

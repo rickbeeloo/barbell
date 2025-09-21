@@ -17,6 +17,7 @@ pub fn demux_using_kit(
     min_score_diff: f64,
     max_flank_errros: Option<usize>,
     failed_out: Option<String>,
+    use_extended: bool,
 ) {
     // Create output folder if not exists yet
     if !Path::new(output_folder).exists() {
@@ -29,10 +30,9 @@ pub fn demux_using_kit(
     println!("\n{}", "Kit info".purple().bold());
     println!("Kit name: {}", kit_info.name);
     println!("Kit type: {}", if maximize { "Maximize" } else { "Safe" });
-    println!(
-        "Barcodes: {} - {}",
-        kit_info.barcodes.from, kit_info.barcodes.to
-    );
+    for tmpl in kit_info.templates {
+        println!("Barcodes: {} - {}", tmpl.barcodes.from, tmpl.barcodes.to);
+    }
 
     // If the default values are
     println!("\n{}", "Annotating reads...".purple().bold());
@@ -46,6 +46,7 @@ pub fn demux_using_kit(
         verbose,
         min_score,
         min_score_diff,
+        use_extended,
     )
     .expect("Annotation failed");
 

@@ -100,6 +100,10 @@ enum Commands {
         /// Barcode: fraction difference between top 2 candidates
         #[arg(long = "min-score-diff", default_value_t = 0.1)]
         min_score_diff: f64,
+
+        /// Also use extended templates (if using kit), i.e. detect fusions, breaks, etc. (slower)
+        #[arg(long, default_value_t = false)]
+        use_extended: bool,
     },
     /// Filter annotation files based on pattern
     Filter {
@@ -264,6 +268,10 @@ enum Commands {
         /// Write ids of failed trimmed reads to this file
         #[arg(long)]
         failed_out: Option<String>,
+
+        /// Also use extended templates (if using kit), i.e. detect fusions, breaks, etc. (slower)
+        #[arg(long, default_value_t = false)]
+        use_extended: bool,
     },
 }
 
@@ -284,6 +292,7 @@ fn main() {
             verbose,
             min_score,
             min_score_diff,
+            use_extended,
         } => {
             println!("{}", "Starting annotation...".green());
 
@@ -298,6 +307,7 @@ fn main() {
                     *verbose,
                     *min_score,
                     *min_score_diff,
+                    *use_extended,
                 ) {
                     Ok(_) => println!("{}", "Annotation complete!".green()),
                     Err(e) => println!("{} {}", "Error during processing:".red(), e),
@@ -463,6 +473,7 @@ fn main() {
             min_score_diff,
             flank_max_errors,
             failed_out,
+            use_extended,
         } => {
             demux_using_kit(
                 kit.as_str(),
@@ -475,6 +486,7 @@ fn main() {
                 *min_score_diff,
                 *flank_max_errors,
                 failed_out.clone(),
+                *use_extended,
             );
         }
     }

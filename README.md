@@ -88,6 +88,9 @@ barbell kit -k SQK-RBK114-96 -i reads.fastq -o output_folder --maximize
 ```
 
 For a list of supported kits (see `data/supported_kits.txt`). Note that we thoroughly tested the rapid and native kits but not others, if you experience any issues please report them.
+**Note**, there is an option `--use-exnteded` which enables searches for fusion points, and other artefacts. This is around 3 times slower, 
+but worth it if quality is essential (i.e. generating consensus sequences).
+
 
 ### General Pointers
 
