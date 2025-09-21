@@ -405,14 +405,14 @@ static TEMPLATES_RBK96_KIT14: &[TemplateSpec] = &[
         barcode_type: TemplateBarcodeType::Left,
         template_type: TemplateType::Extended,
     },
-    // Recognition sides in RBK are long enough so we can also
-    // add a 'short' version for odd concatenations we observed
-    TemplateSpec {
-        parts: &[RBK4_KIT14_FRONT, "{BAR}", RKB4_FRONT_FUSION],
-        barcodes: LabelRange::new("RBK01", "RBK96"),
-        barcode_type: TemplateBarcodeType::Left,
-        template_type: TemplateType::Extended,
-    },
+    // // Recognition sides in RBK are long enough so we can also
+    // // add a 'short' version for odd concatenations we observed
+    // TemplateSpec {
+    //     parts: &[RBK4_KIT14_FRONT, "{BAR}", RKB4_FRONT_FUSION],
+    //     barcodes: LabelRange::new("RBK01", "RBK96"),
+    //     barcode_type: TemplateBarcodeType::Left,
+    //     template_type: TemplateType::Extended,
+    // },
 ];
 
 static TEMPLATES_RBK24_KIT14: &[TemplateSpec] = &[TemplateSpec {
