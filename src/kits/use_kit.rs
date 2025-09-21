@@ -18,6 +18,7 @@ pub fn demux_using_kit(
     max_flank_errros: Option<usize>,
     failed_out: Option<String>,
     use_extended: bool,
+    alpha: f32,
 ) {
     // Create output folder if not exists yet
     if !Path::new(output_folder).exists() {
@@ -41,7 +42,7 @@ pub fn demux_using_kit(
         format!("{output_folder}/annotation.tsv").as_str(),
         kit_name,
         max_flank_errros,
-        0.5,
+        alpha,
         threads as u32,
         verbose,
         min_score,

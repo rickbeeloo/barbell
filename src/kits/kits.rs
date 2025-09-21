@@ -117,11 +117,6 @@ impl KitConfig {
             templates,
         }
     }
-
-    const fn with_templates(mut self, templates: &'static [TemplateSpec]) -> Self {
-        self.templates = templates;
-        self
-    }
 }
 
 /*
@@ -144,8 +139,7 @@ const DOUBLE_LABEL_CONFIG_KEEP_SINGLE: LabelConfig = LabelConfig {
     only_side: Some(LabelSide::Left),
 };
 
-// See when this makes sense, not sure if any protocol uses different
-// barcodes on either side
+// See when this makes sense, dont think any of their protocols has this (yet)
 #[allow(dead_code)]
 const DOUBLE_LABEL_CONFIG_KEEP_DOUBLE: LabelConfig = LabelConfig {
     include_label: true,

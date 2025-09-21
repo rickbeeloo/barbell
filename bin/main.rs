@@ -104,6 +104,10 @@ enum Commands {
         /// Also use extended templates (if using kit), i.e. detect fusions, breaks, etc. (slower)
         #[arg(long, default_value_t = false)]
         use_extended: bool,
+
+        /// Edit cost beyond read boundaries
+        #[arg(long = "alpha", default_value_t = 0.4)]
+        alpha: f32,
     },
     /// Filter annotation files based on pattern
     Filter {
@@ -272,6 +276,10 @@ enum Commands {
         /// Also use extended templates (if using kit), i.e. detect fusions, breaks, etc. (slower)
         #[arg(long, default_value_t = false)]
         use_extended: bool,
+
+        /// Edit cost beyond read boundaries
+        #[arg(long = "alpha", default_value_t = 0.4)]
+        alpha: f32,
     },
 }
 
@@ -293,6 +301,7 @@ fn main() {
             min_score,
             min_score_diff,
             use_extended,
+            alpha,
         } => {
             println!("{}", "Starting annotation...".green());
 
@@ -302,7 +311,7 @@ fn main() {
                     output,
                     kit_name.as_str(),
                     *flank_max_errors,
-                    0.5,
+                    *alpha,
                     *threads as u32,
                     *verbose,
                     *min_score,
@@ -344,7 +353,7 @@ fn main() {
                 barcode_types_vec,
                 output,
                 *flank_max_errors,
-                0.5,
+                *alpha,
                 *threads as u32,
                 *verbose,
                 *min_score,
@@ -474,6 +483,7 @@ fn main() {
             flank_max_errors,
             failed_out,
             use_extended,
+            alpha,
         } => {
             demux_using_kit(
                 kit.as_str(),
@@ -487,6 +497,7 @@ fn main() {
                 *flank_max_errors,
                 failed_out.clone(),
                 *use_extended,
+                *alpha,
             );
         }
     }
