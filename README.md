@@ -152,11 +152,11 @@ Example summary:
 ```
 Found 64 unique patterns
   Pattern 1: 82421 occurrences
-    Ftag[fwd, *, @left(0..250)]
+    Ftag[fw, *, @left(0..250)]
   Pattern 2: 5003 occurrences
-    Ftag[fwd, *, @left(0..250)]__Ftag[fwd, *, @right(0..250)]
+    Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @right(0..250)]
   Pattern 3: 3545 occurrences
-    Fflank[fwd, *, @left(0..250)]
+    Fflank[fw, *, @left(0..250)]
   ...
 Showed 10 / 64 patterns
 Inspection complete!
@@ -179,8 +179,8 @@ barbell inspect -i anno.tsv -o pattern_per_read.tsv
 Example `pattern_per_read.tsv` contents:
 
 ```
-85ef... \t Ftag[fwd, *, @left(0..250)]
-2f67... \t Ftag[fwd, *, @left(0..250)]__Ftag[fwd, *, @prev_left(0..250)]
+85ef... \t Ftag[fw, *, @left(0..250)]
+2f67... \t Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @prev_left(0..250)]
 ...
 ```
 
@@ -192,9 +192,9 @@ Create a `filters.txt` file listing the patterns you want to keep, one per line.
 For example:
 
 ```
-Ftag[fwd, *, @left(0..250)]
-Ftag[fwd, *, @left(0..250)]__Ftag[fwd, *, @right(0..250)]
-Ftag[fwd, *, @left(0..250)]__Ftag[fwd, *, @prev_left(0..250)]
+Ftag[fw, *, @left(0..250)]
+Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @right(0..250)]
+Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @prev_left(0..250)]
 ```
 
 Then run:
@@ -212,9 +212,9 @@ Barbell needs to know *where* to cut reads for trimming. You mark cut positions 
 Examples (note the comma-separated fields inside the brackets):
 
 ```text
-Ftag[fwd, *, @left(0..250), >>]
-Ftag[fwd, *, @left(0..250), >>]__Ftag[<<. fwd, *, @right(0..250)]
-Ftag[fwd, *, @left(0..250)]__Ftag[fwd, *, @prev_left(0..250), >>]
+Ftag[fw, *, @left(0..250), >>]
+Ftag[fw, *, @left(0..250), >>]__Ftag[<<. fw, *, @right(0..250)]
+Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @prev_left(0..250), >>]
 ```
 
 In the middle pattern we retain the read sequence between the left tag (cut after it) and the right tag (cut before it).
@@ -234,7 +234,7 @@ barbell trim -i filtered.tsv -r reads.fastq -o trimmed
 Output files are organized by pattern-based folder/filenames, for example:
 
 ```
-BC14_fwd__BC14_fwd.trimmed.fastq   BC31_fwd__BC04_fwd.trimmed.fastq  ...
+BC14_fw__BC14_fw.trimmed.fastq   BC31_fw__BC04_fw.trimmed.fastq  ...
 ```
 
 If you prefer different filename conventions, use these flags:
@@ -366,12 +366,12 @@ Then in the filtering step we can create filtered files for each group:
 
 `group1_filters.txt`:
 ```
-Ftag[fwd, ~group1, @left(0..250), >>]__Rtag[<<, rc, ~group1, @right(0..250)]
+Ftag[fw, ~group1, @left(0..250), >>]__Rtag[<<, rc, ~group1, @right(0..250)]
 ```
 
 `group2_filters.txt`:
 ```
-Ftag[fwd, ~group2, @left(0..250), >>]__Rtag[<<, rc, ~group2, @right(0..250)]
+Ftag[fw, ~group2, @left(0..250), >>]__Rtag[<<, rc, ~group2, @right(0..250)]
 ```
 
 And pull them out!
@@ -379,7 +379,7 @@ And pull them out!
 barbell filter -i anno.tsv -f group1_filters.txt -o group1_reads.tsv
 barbell filter -i anno.tsv -f group2_filters.txt -o group2_reads.tsv
 ```
-and then we can just trim them to seperate files:
+and then we can just trim them to separate files:
 
 ```
 barbell trim -i group1_reads.tsv -r reads.fastq -o group1_trimmed
@@ -411,7 +411,7 @@ barbell trim -i group2_reads.tsv -r reads.fastq -o group2_trimmed
 - `flank_cost`: number of edits in the flank sequence (excluding the barcode)
 - `barcode_cost`: number of edits in the barcode region
 - `label`: label from your FASTA (or preset kit) — e.g., `BC14`, `RBK60`, etc.
-- `strand`: orientation of the match (`fwd` or `rc`)
+- `strand`: orientation of the match (`fw` or `rc`)
 - `cuts`: empty after `annotate`; populated after `filter` to inform `trim` where to cut
 
 ---
@@ -434,7 +434,7 @@ Multiple elements are combined with `__` (double underscore):
 
 Fields:
 - `tag`: `Ftag`, `Fflank`, `Rtag`, `Rflank`, whether a sequence is `Ftag` or `Rtag` is user specified (or within the kit), see [custom experiment](#custom-experiment), the `Fflank,Rflank` are the "incomplete" forms where the barcode was undetectable.
-- `orientation`: `fwd` or `rc`.
+- `orientation`: `fw` or `rc`.
 - `label`: exact label (e.g. `NB01`), `*` for any label, or `~substring` to match headers containing `substring` (for an example see [custom exp. mixing](#custom-experiment-with-mixed-sequences)).
 - `relative position`: e.g. `@left(0..250)`: to left side of read, `@right(0..250)`: to right side of read, `@prev_left(0..250)`: relative to the <u>previous</u> element.
 - `cut specifier` (optional): `>>` (cut after this element) or `<<` (cut before this element).
@@ -442,9 +442,9 @@ Fields:
 Examples:
 
 ```
-Ftag[fwd, *, @left(0..250), >>]
-Ftag[fwd, *, @left(0..250), >>]__Ftag[<<, rc, *, @right(0..250)]
-Ftag[fwd, *, @left(0..100), >>]__Rtag[<<, fwd, *, @prev_left(1500..1700)]
+Ftag[fw, *, @left(0..250), >>]
+Ftag[fw, *, @left(0..250), >>]__Ftag[<<, rc, *, @right(0..250)]
+Ftag[fw, *, @left(0..100), >>]__Rtag[<<, fw, *, @prev_left(1500..1700)]
 ```
 (for examples of concat reads see [concat reads](#how-to-handle-concat-reads) section)
 
@@ -457,16 +457,16 @@ These let you express typical cases such as single-barcode-left, left-and-right 
 It is possible that you have concat reads like:
 
 ```
-Ftag[fwd, *, @left(0..250), >>]__Ftag[<<, rc, *, @pev_left(1500..1750)]__Ftag[fwd, *, @prev_left(0..250), >>]__Ftag[<<, rc, *, @right(0..250)]
+Ftag[fw, *, @left(0..250), >>]__Ftag[<<, rc, *, @pev_left(1500..1750)]__Ftag[fw, *, @prev_left(0..250), >>]__Ftag[<<, rc, *, @right(0..250)]
 ```
 We always read the pattern from <u> left to right </u>, then we can deduce the read matches looked like this:
 ```
-[Ftag,fw]---------[Ftag,rc][Ftag, fwd]---------[Ftag, rc]
+[Ftag,fw]---------[Ftag,rc][Ftag, fw]---------[Ftag, rc]
 ```
 If we want to cut more than once we have to use **cut group identifiers**, we do this by placing a number <u> after </u> the `<<` or `>>`:
 
 ```
-Ftag[fwd, *, @left(0..250), >>1]__Ftag[<<1, rc, *, @pev_left(1500..1750)]__Ftag[fwd, *, @prev_left(0..250), >>2]__Ftag[<<2, rc, *, @right(0..250)]
+Ftag[fw, *, @left(0..250), >>1]__Ftag[<<1, rc, *, @pev_left(1500..1750)]__Ftag[fw, *, @prev_left(0..250), >>2]__Ftag[<<2, rc, *, @right(0..250)]
 ```
 Note the `>>1, <<1, >>2, <<2`, now barbell knows exactly where you want the reads to be cut.
 
