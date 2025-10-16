@@ -199,7 +199,7 @@ pub fn inspect(
     for (i, (pattern, count)) in pattern_count_vec.iter().take(top_n).enumerate() {
         let colored = colorize_pattern(pattern);
         println!("\tPattern {}: {} occurrences", i + 1, count);
-        println!("\t\t{}", colored);
+        println!("\t\t{colored}");
     }
 
     println!("Showed {} / {} patterns", top_n, pattern_count_vec.len());

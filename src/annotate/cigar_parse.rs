@@ -50,7 +50,6 @@ pub fn get_matching_region(m: &Match, start: usize, end: usize) -> Option<(usize
 #[cfg(test)]
 mod test {
     use super::*;
-    use pa_types::CigarOp::*;
     use sassy::Searcher;
     use sassy::profiles::Iupac;
 
