@@ -40,7 +40,7 @@ fn create_progress_bar() -> (ProgressBar, ProgressBar, ProgressBar) {
     );
 
     total_bar.enable_steady_tick(Duration::from_millis(100));
-    found_bar.enable_steady_tick(Duration::from_millis(120)); // Slightly different timing for visual variety
+    found_bar.enable_steady_tick(Duration::from_millis(120));
     missed_bar.enable_steady_tick(Duration::from_millis(140));
 
     total_bar.set_prefix("Total:");
@@ -181,7 +181,6 @@ pub fn annotate(
         query_group.display(5);
     }
 
-    // Create progress bars
     let (total_bar, found_bar, missed_bar) = create_progress_bar();
 
     // Track counts, we need atomics here as multiple threads update the counters
@@ -212,8 +211,6 @@ pub fn annotate(
 
             // Go over the
             let mut record_set_annotations = Vec::new();
-            // this function does the heavy work
-            // total, fount we track here
             let mut found = 0;
             for record in record_set.into_iter() {
                 // Use the demuxer through thread-local storage
@@ -233,9 +230,6 @@ pub fn annotate(
             Some((record_set_annotations, found))
         },
         |record_sets| {
-            // This function runs in the main thread. It provides a streaming iterator over
-            // record sets and the corresponding return values from the worker function
-            // (not necessarily in the same order as in the file)
             while let Some(result) = record_sets.next() {
                 let (record_set, found_result) = result.unwrap();
                 let n_records = record_set.len();
