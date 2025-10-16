@@ -42,7 +42,7 @@ pub fn get_matching_region(m: &Match, start: usize, end: usize) -> Option<(usize
         .iter()
         .filter(|Pos(q_pos, _)| *q_pos >= start && *q_pos <= end);
     let start = sub_path.next()?.0 as usize;
-    let end = sub_path.last()?.0 as usize;
+    let end = sub_path.next_back()?.0 as usize;
 
     Some((start, end))
 }

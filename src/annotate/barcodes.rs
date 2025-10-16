@@ -201,7 +201,7 @@ impl BarcodeGroup {
         for tmpl in kit_config.templates {
             // Only add extended templates if users allowed it
             if tmpl.template_type == TemplateType::Extended && !also_use_extended {
-                println!("Skipping extended template {}", kit);
+                println!("Skipping extended template {kit}");
                 continue;
             }
             let label_range = tmpl.barcodes;

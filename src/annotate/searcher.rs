@@ -217,6 +217,7 @@ impl Demuxer {
 
     /// Get perfect score for barcodegroup based on lodhi
     fn get_perfect_match_score(&mut self, barcode_group: &BarcodeGroup) -> f64 {
+        // Todo: this does include padding, we might not always want that
         let l_bar = barcode_group.pad_region.1 - barcode_group.pad_region.0;
         let perfect = Cigar {
             ops: vec![CigarElem {

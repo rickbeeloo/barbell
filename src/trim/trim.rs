@@ -258,6 +258,7 @@ pub fn process_read_and_anno(
 }
 
 /// Extracts the clean read ID from a FASTQ record ID by taking the first part before any whitespace
+#[allow(unused)]
 fn clean_read_id(id: &str) -> &str {
     id.split_whitespace().next().unwrap_or(id)
 }
