@@ -408,7 +408,7 @@ pub fn trim_matches(
 
                 // Write FASTQ format
                 if write_full_header {
-                    writeln!(writer, "@{}", full_header).expect("Failed to write header");
+                    writeln!(writer, "@{full_header}").expect("Failed to write header");
                 } else {
                     writeln!(writer, "@{read_id}").expect("Failed to write header");
                 }
