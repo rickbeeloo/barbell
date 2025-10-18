@@ -2,7 +2,6 @@
 
 ## Why Barbell?
 
-- More accurate barcode scoring — **~2–5× less barcode bleeding** than Dorado.
 - **>100× fewer trimming errors** compared to Dorado.
 - Equivalent or **better assemblies**.
 - **Contamination-free** assemblies by removing artefact reads.
@@ -23,6 +22,7 @@
   - [What are barbell patterns?](#patterns)
   - [How to cut concat reads](#how-to-handle-concat-reads)
   - [Output column descriptions (annotate & filter)](#output-columns-annotate--filter)
+- [Paper evals]()
 - [Notes & tips](#notes--tips)
 
 ---
@@ -482,6 +482,10 @@ to `filters.txt` and use that in `barbell filter`.
 
 ---
 
+## Paper evals
+Since this involves substantial amount of extra code we moved these to the [paper-evals](https://github.com/rickbeeloo/barbell-evals) repo. All information on how to reproduce results and set up environments to do so can be found there. 
+
+---
 
 ## Notes & tips
 
