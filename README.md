@@ -2,7 +2,7 @@
 
 ## Why Barbell?
 
-- **>100× fewer trimming errors** compared to Dorado.
+- **>1000× fewer trimming errors** compared to Dorado.
 - Equivalent or **better assemblies**.
 - **Contamination-free** assemblies by removing artefact reads.
 - Easily applicable to **custom experiments**.
