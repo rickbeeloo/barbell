@@ -1,4 +1,4 @@
-name: OS building
+name: Cross-Platform Build
 
 on:
   workflow_dispatch:
@@ -38,11 +38,17 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --verbose
 
-      - name: Prepare artifact (Unix)
-        if: runner.os != 'Windows'
+      - name: Prepare artifact (Linux)
+        if: runner.os == 'Linux'
         run: |
           mkdir -p artifacts
           find target/release -maxdepth 1 -type f -executable -exec cp {} artifacts/ \;
+
+      - name: Prepare artifact (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p artifacts
+          find target/release -maxdepth 1 -type f -perm +111 ! -name "*.d" ! -name "*.rlib" -exec cp {} artifacts/ \;
 
       - name: Prepare artifact (Windows)
         if: runner.os == 'Windows'
