@@ -8,16 +8,24 @@ pub fn map_pat_to_text(
     m: &Match,
     p_start: i32,
     p_end: i32,
+    rev_path: bool,
 ) -> Option<((usize, usize), (usize, usize))> {
     let mut start_pair: Option<Pos> = None;
     let mut end_pair: Option<Pos> = None;
 
-    for Pos(i, j) in m.to_path().iter() {
-        if *i >= p_start && *i < p_end {
+    let path = m.to_path();
+    let iter: Box<dyn Iterator<Item = &Pos>> = if rev_path {
+        Box::new(path.iter().rev())
+    } else {
+        Box::new(path.iter())
+    };
+
+    for &Pos(i, j) in iter {
+        if i >= p_start && i < p_end {
             if start_pair.is_none() {
-                start_pair = Some(Pos(*i, *j));
+                start_pair = Some(Pos(i, j));
             }
-            end_pair = Some(Pos(*i, *j));
+            end_pair = Some(Pos(i, j));
         }
     }
 
@@ -32,7 +40,6 @@ pub fn map_pat_to_text(
         _ => None,
     }
 }
-
 /// Get matching region for a given match and start/end positions
 pub fn get_matching_region(m: &Match, start: usize, end: usize) -> Option<(usize, usize)> {
     let path = m.to_path();
@@ -60,7 +67,7 @@ mod test {
         let mut searcher = Searcher::<Iupac>::new_rc();
         let matches = searcher.search(p, &t, 0);
         let m = matches.first().unwrap();
-        let ((ps, pe), (t_start, t_end)) = map_pat_to_text(m, 5, 7 + 1).unwrap();
+        let ((ps, pe), (t_start, t_end)) = map_pat_to_text(m, 5, 7 + 1, false).unwrap();
         let match_slice = &t[t_start..t_end];
         println!(
             "Text slice: {:?}",
@@ -78,7 +85,7 @@ mod test {
         let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.5);
         let matches = searcher.search(p, &t, 3);
         let m = matches.first().unwrap();
-        let ((ps, pe), (t_start, t_end)) = map_pat_to_text(m, 3, 5 + 1).unwrap();
+        let ((ps, pe), (t_start, t_end)) = map_pat_to_text(m, 3, 5 + 1, false).unwrap();
         let match_slice = &t[t_start..t_end];
         println!(
             "Text slice: ({}, {}) - {:?}",

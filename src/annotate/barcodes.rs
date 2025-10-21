@@ -127,6 +127,14 @@ impl BarcodeGroup {
                 barcode_type.clone(),
             ));
         }
+        /*
+            Important here is the structure:
+            ---------------------------------------- seq
+                |                |     pad_start, pad_end
+                 ===          ===      "padding"
+                    |         |        bar_start, bar_end
+
+        */
 
         Self {
             flank,

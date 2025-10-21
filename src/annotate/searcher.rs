@@ -241,46 +241,44 @@ impl Demuxer {
             let flank_matches = self.overhang_searcher.search(flank, &read, flank_k);
 
             for (i, flank_match) in flank_matches.iter().enumerate() {
-                if self.verbose {
-                    println!(
-                        "Flank {i}: {}-{}",
-                        flank_match.text_start, flank_match.text_end
-                    );
+                // Get barcode region
+                let (mut mask_start, mut mask_end) = barcode_group.bar_region;
+
+                // If the match is in reverse complement we have to flip the locations based
+                // on the length
+                if flank_match.strand == Strand::Rc {
+                    let flank_len = flank.len();
+                    let (start, end) = barcode_group.bar_region;
+                    mask_start = flank_len - end;
+                    mask_end = flank_len - start;
                 }
 
-                // Get barcode region
-                let (mask_start, mask_end) = barcode_group.bar_region;
-
-                // Extract read positions for barcode matchign region
+                // Extract read positions for barcode matching region
                 let Some((barcode_region_start, barcode_region_end)) =
                     get_matching_region(flank_match, mask_start, mask_end)
                 else {
+                    // println!("No room for barcode");
                     continue; // no room for barcode?
                 };
 
-                let barcode_region_start = (flank_match.text_start + barcode_region_start)
-                    .saturating_sub(crate::PADDING + 5);
+                // We have the barcode match region but to align against it we add some
+                // padding on both sides of the barcode to anchor the alignment
+                let barcode_region_start =
+                    (flank_match.text_start + barcode_region_start).saturating_sub(crate::PADDING);
                 let barcode_region_end =
-                    (flank_match.text_start + barcode_region_end + crate::PADDING + 5)
-                        .min(read.len());
+                    (flank_match.text_start + barcode_region_end + crate::PADDING).min(read.len());
 
                 let barcode_region = &read[barcode_region_start..barcode_region_end];
-
-                if self.verbose {
-                    for _ in 0..10 {
-                        println!(
-                            "Barcode region: {}",
-                            String::from_utf8_lossy(barcode_region)
-                        );
-                    }
-                }
-
                 let mut candidates: Vec<(Match, &Barcode)> = Vec::new();
 
                 for barcode_and_flank in barcode_group.barcodes.iter() {
                     let fwd_best_hit = self
                         .regular_searcher
-                        .search(&barcode_and_flank.seq, &barcode_region, 20)
+                        .search(
+                            &barcode_and_flank.seq,
+                            &barcode_region,
+                            barcode_and_flank.seq.len(),
+                        )
                         .into_iter()
                         .filter(|m| m.strand == flank_match.strand)
                         .min_by_key(|m| m.cost);
@@ -329,19 +327,32 @@ impl Demuxer {
                 // sort by normalized score high to low
                 scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-                if self.verbose {
-                    for (s_norm, s, m, _b) in scored.iter().take(5) {
-                        println!("Cost: {:?}", m.cost);
-                        println!("Strand: {:?}", m.strand);
-                        println!("Cigar: {}", m.cigar.to_string());
-                        println!("Score: {s} (norm: {s_norm})");
-                        println!("--------------------------------");
-                    }
-                }
+                /*
+                    Important here is the structure:
+                    ---------------------------------------- seq
+                        |                |     pad_start, pad_end <- the query in the search
+                         ===          ===      "padding"
+                            |         |        bar_start, bar_end (here 'mask')
 
-                let (mask_start, mask_end) = barcode_group.bar_region;
-                let bar_read_region =
-                    map_pat_to_text(&scored[0].2, mask_start as i32, mask_end as i32);
+
+                So now for the query (including the padding) we want to extract the matching region
+                exlcuding this padding to get the barcode match
+                while we cannot ensure we have padding in our target, this is fixed in our barcode+flank query
+
+                */
+
+                let (pad_start, pad_end) = barcode_group.pad_region;
+                let (bar_start, bar_end) = barcode_group.bar_region;
+                let rel_bar_start = bar_start - pad_start;
+                let rel_bar_end = pad_end - bar_end + (bar_end - bar_start);
+
+                let bar_read_region = map_pat_to_text(
+                    &scored[0].2,
+                    rel_bar_start as i32,
+                    rel_bar_end as i32,
+                    scored[0].2.strand == Strand::Rc,
+                );
+
                 let ((bar_start, bar_end), (read_bar_start, read_bar_end)) =
                     bar_read_region.expect("No barcode match region found; unusual");
 
@@ -351,33 +362,6 @@ impl Demuxer {
                 if scored.len() > 1 {
                     is_valid_barcode_match = is_valid_barcode_match
                         && (top_norm - scored[1].0) >= self.min_score_diff_frac;
-                    if self.verbose {
-                        println!(
-                            "Top norm: {} min score diff: {}",
-                            top_norm,
-                            top_norm - scored[1].0
-                        );
-                    }
-                }
-
-                if self.verbose {
-                    for _ in 0..10 {
-                        println!("Best label: {}", scored[0].3.label);
-                        println!("Best match: {}", scored[0].2.cigar.to_string());
-                        println!("Best score: {} (norm {})", scored[0].1, scored[0].0);
-                        println!("Best cost: {}", scored[0].2.cost);
-
-                        if scored.len() > 1 {
-                            println!("Second score: {} (norm {})", scored[1].1, scored[1].0);
-                            println!("Second label: {}", scored[1].3.label);
-                            println!("Second cost: {}", scored[1].2.cost);
-                            println!("Second cigar: {}", scored[1].2.cigar.to_string());
-                        } else {
-                            println!("No second match");
-                        }
-                        println!("Is valid: {}", is_valid_barcode_match);
-                        println!("--------------------------------");
-                    }
                 }
 
                 if is_valid_barcode_match {
@@ -386,8 +370,8 @@ impl Demuxer {
                         barcode_region_start + read_bar_end,
                         flank_match.text_start,
                         flank_match.text_end,
-                        bar_start - barcode_group.flank_prefix.len(),
-                        bar_end - barcode_group.flank_prefix.len(),
+                        barcode_region_start + bar_start,
+                        barcode_region_start + bar_end,
                         scored[0].3.match_type.clone(),
                         flank_match.cost,
                         scored[0].2.cost as Cost,
@@ -419,6 +403,7 @@ impl Demuxer {
                 }
             }
         }
+
         collapse_overlapping_matches(&results, 0.8)
     }
 }

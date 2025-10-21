@@ -179,10 +179,13 @@ pub fn filter_from_text_file(
 ) -> Result<(), Box<dyn Error>> {
     // read the text file into a vector of strings
     let patterns = std::fs::read_to_string(text_file)?;
+
     let patterns = patterns
-        .split("\n")
+        .split('\n')
         .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
         .collect::<Vec<&str>>();
+
     let patterns = patterns
         .iter()
         .map(|s| pattern_from_str!(s))
