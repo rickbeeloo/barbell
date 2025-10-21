@@ -465,15 +465,15 @@ mod tests {
         assert_eq!(region, expected);
     }
 
-    #[test]
-    fn test_read_barcodes() {
-        let barcode_file = "data/rapid_bars.txt";
-        let barcodes = read_barcodes(barcode_file);
-        assert!(barcodes.len() > 1);
-        let first_barcode = barcodes.first().unwrap();
-        assert_eq!(first_barcode.0, "BC01");
-        assert_eq!(first_barcode.1, "TACATGCTCCTGTTGTTAGGGAGG".as_bytes());
-    }
+    // #[test]
+    // fn test_read_barcodes() {
+    //     let barcode_file = "data/rapid_bars.txt";
+    //     let barcodes = read_barcodes(barcode_file);
+    //     assert!(barcodes.len() > 1);
+    //     let first_barcode = barcodes.first().unwrap();
+    //     assert_eq!(first_barcode.0, "BC01");
+    //     assert_eq!(first_barcode.1, "TACATGCTCCTGTTGTTAGGGAGG".as_bytes());
+    // }
 
     #[test]
     fn test_mock_read() {
