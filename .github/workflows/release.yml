@@ -1,7 +1,7 @@
 name: Cross-Platform Build
 
 permissions:
-  contents: write  
+  contents: write
 
 on:
   workflow_dispatch:
@@ -45,20 +45,30 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           mkdir -p artifacts
-          find target/release -maxdepth 1 -type f -executable -exec cp {} artifacts/ \;
+          for f in target/release/*; do
+            if [[ -x "$f" && "$(basename "$f")" != benchmarks* ]]; then
+              cp "$f" "artifacts/$(basename "$f")-linux"
+            fi
+          done
 
       - name: Prepare artifact (macOS)
         if: runner.os == 'macOS'
         run: |
           mkdir -p artifacts
-          find target/release -maxdepth 1 -type f -perm +111 ! -name "*.d" ! -name "*.rlib" -exec cp {} artifacts/ \;
+          for f in target/release/*; do
+            if [[ -x "$f" && "$(basename "$f")" != benchmarks* && ! "$f" =~ \.d$ && ! "$f" =~ \.rlib$ ]]; then
+              cp "$f" "artifacts/$(basename "$f")-macos"
+            fi
+          done
 
       - name: Prepare artifact (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path artifacts
-          Copy-Item target/release/*.exe artifacts/ -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          Get-ChildItem target/release/*.exe | Where-Object { $_.Name -notmatch '^benchmarks' } | ForEach-Object {
+            Copy-Item $_.FullName ("artifacts/" + $_.BaseName + "-windows.exe")
+          }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -69,7 +79,7 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref_name, 'v') 
+    if: startsWith(github.ref_name, 'v')
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
