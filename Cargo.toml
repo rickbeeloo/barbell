@@ -36,18 +36,6 @@ itertools = "*"
 glob = "*"
 cigar-lodhi-rs = {git = "https://github.com/rickbeeloo/cigar-lodhi-rs.git"}
 
-# Enable native CPU optimizations for release builds
-[profile.release]
-lto = "thin"
-codegen-units = 1
-panic = "abort"
-
-# The profile that 'dist' will build with
-[profile.dist]
-inherits = "release"
-
-[package.metadata.dist]
-allow-dirty = ["ci", "msi"]
 
 [workspace]
 members = [
