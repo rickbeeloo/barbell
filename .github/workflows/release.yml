@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'v*'  # Runs when you push a version tag (like v1.0.0)
+      - 'v*'
 
 jobs:
   build:
@@ -37,14 +37,18 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --verbose
 
-      - name: Prepare artifact
+      - name: Prepare artifact (Unix)
+        if: runner.os != 'Windows'
         run: |
           mkdir -p artifacts
-          if [ "${{ matrix.os }}" = "Windows" ]; then
-            cp target/release/*.exe artifacts/ || true
-          else
-            cp target/release/* artifacts/ || true
-          fi
+          find target/release -maxdepth 1 -type f -executable -exec cp {} artifacts/ \;
+
+      - name: Prepare artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts
+          Copy-Item target/release/*.exe artifacts/ -ErrorAction SilentlyContinue
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
