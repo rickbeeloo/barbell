@@ -10,3 +10,4 @@ filter.txt
 *.tsv
 *.py
 /*.fasta
+*backup*
