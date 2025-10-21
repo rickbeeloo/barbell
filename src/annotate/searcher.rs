@@ -11,6 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub struct Demuxer {
     queries: Vec<BarcodeGroup>,
+    #[allow(dead_code)]
     verbose: bool,
     // Fractional thresholds 0..1
     min_score_frac: f64,
@@ -240,7 +241,7 @@ impl Demuxer {
 
             let flank_matches = self.overhang_searcher.search(flank, &read, flank_k);
 
-            for (i, flank_match) in flank_matches.iter().enumerate() {
+            for flank_match in flank_matches.iter() {
                 // Get barcode region
                 let (mut mask_start, mut mask_end) = barcode_group.bar_region;
 
@@ -257,7 +258,6 @@ impl Demuxer {
                 let Some((barcode_region_start, barcode_region_end)) =
                     get_matching_region(flank_match, mask_start, mask_end)
                 else {
-                    // println!("No room for barcode");
                     continue; // no room for barcode?
                 };
 
