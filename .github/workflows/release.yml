@@ -1,7 +1,7 @@
 name: Cross-Platform Build
 
 permissions:
-  contents: write
+  contents: write  
 
 on:
   workflow_dispatch:
@@ -45,21 +45,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           mkdir -p artifacts
-          for f in target/release/*; do
-            if [[ -x "$f" && "$(basename "$f")" != benchmarks* ]]; then
-              cp "$f" "artifacts/$(basename "$f")-linux"
-            fi
-          done
+          find target/release -maxdepth 1 -type f -executable ! -name "benchmarks*" -exec sh -c 'cp "$1" "artifacts/$(basename "$1")-linux"' _ {} \;
 
       - name: Prepare artifact (macOS)
         if: runner.os == 'macOS'
         run: |
           mkdir -p artifacts
-          for f in target/release/*; do
-            if [[ -x "$f" && "$(basename "$f")" != benchmarks* && ! "$f" =~ \.d$ && ! "$f" =~ \.rlib$ ]]; then
-              cp "$f" "artifacts/$(basename "$f")-macos"
-            fi
-          done
+          find target/release -maxdepth 1 -type f -perm +111 ! -name "*.d" ! -name "*.rlib" ! -name "benchmarks*" -exec sh -c 'cp "$1" "artifacts/$(basename "$1")-macos"' _ {} \;
 
       - name: Prepare artifact (Windows)
         if: runner.os == 'Windows'
@@ -79,7 +71,7 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref_name, 'v')
+    if: startsWith(github.ref_name, 'v') 
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
