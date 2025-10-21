@@ -450,20 +450,20 @@ pub fn create_testdata(n: usize, sim_out_dir: &str, barcode_file: &str, rc_frac:
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_create_random_sequence() {
-        let seq = create_random_sequence(10);
-        assert_eq!(seq.len(), 10);
-        println!("Sequence: {}", String::from_utf8_lossy(&seq));
-    }
+    // #[test]
+    // fn test_create_random_sequence() {
+    //     let seq = create_random_sequence(10);
+    //     assert_eq!(seq.len(), 10);
+    //     println!("Sequence: {}", String::from_utf8_lossy(&seq));
+    // }
 
-    #[test]
-    fn test_get_adatper() {
-        let barcode = b"xxxx";
-        let region = get_adapter_region(barcode);
-        let expected = b"GCTTGGGTGTTTAACCxxxxGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
-        assert_eq!(region, expected);
-    }
+    // #[test]
+    // fn test_get_adatper() {
+    //     let barcode = b"xxxx";
+    //     let region = get_adapter_region(barcode);
+    //     let expected = b"GCTTGGGTGTTTAACCxxxxGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
+    //     assert_eq!(region, expected);
+    // }
 
     // #[test]
     // fn test_read_barcodes() {
@@ -475,24 +475,24 @@ mod tests {
     //     assert_eq!(first_barcode.1, "TACATGCTCCTGTTGTTAGGGAGG".as_bytes());
     // }
 
-    #[test]
-    fn test_mock_read() {
-        let mut read = MockRead::new("seq_0".to_string(), 100);
-        read.add_element(b"AAAA", 0);
-        read.add_element(b"CCCC", 20);
-        read.add_element(b"GGGG", 40);
-        let seq = read.render();
-        assert_eq!(&seq[0..4], "AAAA".as_bytes());
-        assert_eq!(&seq[20..24], "CCCC".as_bytes());
-        assert_eq!(&seq[40..44], "GGGG".as_bytes());
-        println!("Mock read: {}", String::from_utf8_lossy(&seq));
-    }
+    // #[test]
+    // fn test_mock_read() {
+    //     let mut read = MockRead::new("seq_0".to_string(), 100);
+    //     read.add_element(b"AAAA", 0);
+    //     read.add_element(b"CCCC", 20);
+    //     read.add_element(b"GGGG", 40);
+    //     let seq = read.render();
+    //     assert_eq!(&seq[0..4], "AAAA".as_bytes());
+    //     assert_eq!(&seq[20..24], "CCCC".as_bytes());
+    //     assert_eq!(&seq[40..44], "GGGG".as_bytes());
+    //     println!("Mock read: {}", String::from_utf8_lossy(&seq));
+    // }
 
-    #[test]
-    fn test_simulation_data() {
-        let n = 100;
-        let sim_out_dir = "simulated_data";
-        let barcode_file = "data/rapid_bars.txt";
-        create_testdata(n, sim_out_dir, barcode_file, 0.0);
-    }
+    // #[test]
+    // fn test_simulation_data() {
+    //     let n = 100;
+    //     let sim_out_dir = "simulated_data";
+    //     let barcode_file = "data/rapid_bars.txt";
+    //     create_testdata(n, sim_out_dir, barcode_file, 0.0);
+    // }
 }

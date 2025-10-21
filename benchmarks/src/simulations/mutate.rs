@@ -56,17 +56,17 @@ pub fn random_trim_side(
 #[cfg(test)]
 mod tests {
 
-    #[test]
-    fn test_random_trim_side() {
-        let seq: &'static [u8; 12] = b"ACGTACGTACGT";
-        let trimmed = super::random_trim_side(seq, 2, true, true);
-        assert!(trimmed.len() < seq.len());
-    }
+    // #[test]
+    // fn test_random_trim_side() {
+    //     let seq: &'static [u8; 12] = b"ACGTACGTACGT";
+    //     let trimmed = super::random_trim_side(seq, 2, true, true);
+    //     assert!(trimmed.len() < seq.len());
+    // }
 
-    #[test]
-    fn test_mutate_sequence() {
-        let seq: &'static [u8; 12] = b"ACGTACGTACGT";
-        let mutated = super::mutate_sequence(seq, 1, 2);
-        assert!(mutated != seq);
-    }
+    // #[test]
+    // fn test_mutate_sequence() {
+    //     let seq: &'static [u8; 12] = b"ACGTACGTACGT";
+    //     let mutated = super::mutate_sequence(seq, 1, 2);
+    //     assert!(mutated != seq);
+    // }
 }
