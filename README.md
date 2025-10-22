@@ -8,6 +8,8 @@
 - Easily applicable to **custom experiments**.
 - Still **very fast**.
 
+If you have any issues or if something is unclear, just create an [issue](https://github.com/rickbeeloo/barbell/issues).
+
 ---
 
 ## Quick links
@@ -30,20 +32,25 @@
 ## Installing Barbell
 Barbell is written in Rust.
 
-### Install Rust
+### Executables
+Download the latest release from [releases](https://github.com/rickbeeloo/barbell/releases)
+
+
+### From source (recommended)
+
 Check whether Rust is installed:
 
 ```bash
 rustc --version
 ```
 
-If not installed, run the official installer:
+If not, run the official installer:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-### From source
+Then we can clone and build!
 
 ```bash
 git clone git@github.com:rickbeeloo/barbell.git
