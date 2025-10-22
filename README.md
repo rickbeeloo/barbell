@@ -62,6 +62,13 @@ The `barbell` executable will be created at `target/release/barbell`.
 
 ---
 
+## 📸 Preview
+<img src="data/barbell_example.gif" alt="Demo GIF" width="700">
+
+
+
+---
+
 ## Quickstart
 
 Barbell includes built-in kit *presets* for many Nanopore kits (most DNA kits; RNA and Twist kits are an exception). Presets let you run analyses quickly, but we recommend reading **Understanding barbell** to interpret the results correctly.
