@@ -47,30 +47,20 @@ Barbell is written in Rust.
 ### Executables
 Download the latest release from [releases](https://github.com/rickbeeloo/barbell/releases)
 
-
 ### From source (recommended)
-
 Check whether Rust is installed:
 
 ```bash
 rustc --version
 ```
 
-If not, run the official installer:
+If not install it via [rustup](https://rustup.rs/), more info in their [docs](https://rust-lang.github.io/rustup/installation/index.html).
+
+Then we can install Barbell:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+RUSTFLAGS="-C target-cpu=native" --git https://github.com/rickbeeloo/barbell barbell
 ```
-
-Then we can clone and build!
-
-```bash
-git clone git@github.com:rickbeeloo/barbell.git
-cd barbell-sg
-cargo build --release
-```
-
-The `barbell` executable will be created at `target/release/barbell`.
 
 ---
 

@@ -80,7 +80,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
-name = "barbell-sassy-rewrite"
+name = "barbell"
 version = "0.1.9"
 dependencies = [
  "anyhow",
@@ -110,7 +110,7 @@ dependencies = [
 name = "benchmarks"
 version = "0.1.0"
 dependencies = [
- "barbell-sassy-rewrite",
+ "barbell",
  "clap",
  "glob",
  "needletail",
