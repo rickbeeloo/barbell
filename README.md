@@ -1,5 +1,6 @@
 # 🦀 Barbell — Pattern aware demux
 
+
 ## Why Barbell?
 
 - **>1000× fewer trimming errors** compared to Dorado.
@@ -26,6 +27,17 @@ If you have any issues or if something is unclear, just create an [issue](https:
   - [Output column descriptions (annotate & filter)](#output-columns-annotate--filter)
 - [Paper evals](#paper-evals)
 - [Notes & tips](#notes--tips)
+
+---
+
+## Paper 
+See the paper for more details on the Barbell scoring and comparisons with other tools:
+> ### [Barbell Resolves Demultiplexing and Trimming Issues in Nanopore Data](https://doi.org/10.1101/2025.10.22.683865)
+>
+> **Rick Beeloo**, **Ragnar Groot Koerkamp**, **Xiu Jia**, **Marian J. Broekhuizen-Stins**, **Lieke van Ijken**, **Bas E. Dutilh**, **Aldert L. Zomer**  
+> *bioRxiv*, 2025  
+> [https://doi.org/10.1101/2025.10.22.683865](https://doi.org/10.1101/2025.10.22.683865)
+
 
 ---
 
