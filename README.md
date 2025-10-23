@@ -59,6 +59,7 @@ If not install it via [rustup](https://rustup.rs/), more info in their [docs](ht
 Then we can install Barbell:
 
 ```bash
+rustup default nightly
 RUSTFLAGS="-C target-cpu=native" cargo install --git https://github.com/rickbeeloo/barbell barbell
 ```
 
