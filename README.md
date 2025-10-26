@@ -88,7 +88,7 @@ Basic command:
 barbell kit -k <kit-name> -i <reads.fastq> -o <output_folder> 
 ```
 
-Not unlike the `master` branch there is no `--maximize` here instead we can pass a "stategy":
+Not unlike the `master` branch there is no `--maximize` here instead we can pass a "strategy":
 ```bash
 --strategy <STRATEGY>
           Filtering strategy: 'flexible' (sub-pattern), 'terminal' (no internal matches), 'unique-labels' (no mixed barcodes), or 'complete' (both filters) [default: flexible]
