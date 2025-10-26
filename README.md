@@ -1,6 +1,12 @@
 # 🦀 Barbell — Pattern aware demux
 
 
+> [!IMPORTANT]  
+> This is a work in progress to recognize "sub-patterns" such that 
+> a read like `Ftag----Rtag------` can still be slices to `Ftag--Rtag` discarding 
+> the trailing part `----`. This also allows more flexibility around adapter
+> such as `Ftag-----adapter------`, we can still salvage the prefix `Ftag-----`
+
 ## Why Barbell?
 
 - **>1000× fewer trimming errors** compared to Dorado.
