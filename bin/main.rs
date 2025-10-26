@@ -206,8 +206,7 @@ enum Commands {
 }
 
 fn main() {
-    print_banner();
-
+    //print_banner();
     let cli = Cli::parse();
 
     match &cli.command {
@@ -405,6 +404,7 @@ fn main() {
     }
 }
 
+#[allow(dead_code)]
 fn print_banner() {
     println!(
         "{}",
