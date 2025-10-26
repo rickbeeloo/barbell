@@ -91,7 +91,7 @@ pub fn demux_using_kit(
         fastq_file,
         output_folder,
         true,
-        true,
+        false,
         false,
         false,
         Some(LabelSide::Left),
