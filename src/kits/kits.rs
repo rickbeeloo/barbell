@@ -687,9 +687,9 @@ pub fn get_kit_info(kit: &str) -> KitConfig {
         _ => {
             if kit.contains(".") {
                 let new_kit = kit.replace(".", "-");
-                println!(
-                    "Your kit name used '.' ({kit}) instead of '-' replaced it with {new_kit} and trying again"
-                );
+                // println!(
+                //     "Your kit name used '.' ({kit}) instead of '-' replaced it with {new_kit} and trying again"
+                // );
                 get_kit_info(&new_kit)
             } else {
                 panic!("Unknown or unsupported kit: {kit}, please raise an issue")
