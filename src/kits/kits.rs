@@ -160,23 +160,24 @@ static SINGLE_LABEL_PATTERNS_SAFE: LazyLock<Vec<Pattern>> = LazyLock::new(|| {
         // Single barcode on the left
         pattern_from_str!("Ftag[fw, *, @left(0..250), >>]"),
         // Double barcode on the left but with the same barcode label (within sample ligation)
-        pattern_from_str!("Ftag[fw, ?1, @left(0..250)]__Ftag[fw, ?1, @prev_left(0..250), >>]"),
+        //pattern_from_str!("Ftag[fw, ?1, @left(0..250)]__Ftag[fw, ?1, @prev_left(0..250), >>]"),
     ]
 });
 
 static SINGLE_LABEL_PATTERNS_MAXIMIZE: LazyLock<Vec<Pattern>> = LazyLock::new(|| {
     vec![
-        // From safe
-        pattern_from_str!("Ftag[fw, *, @left(0..250), >>]"),
-        pattern_from_str!("Ftag[fw, ?1, @left(0..250)]__Ftag[fw, ?1, @prev_left(0..250), >>]"),
-        // Slightly more risky (ignores that both labels should be identical and just uses left one)
-        pattern_from_str!("Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @prev_left(0..250), >>]"),
-        // Would be odd to have barcode on the right, but can still assume left is fine and extract region within
-        pattern_from_str!("Ftag[fw, *, @left(0..250), >>]__Ftag[<<, fw, *, @right(0..250)]"),
-        // Same as above + double left
-        pattern_from_str!(
-            "Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @prev_left(0..250), >>]__Ftag[<<, fw, *, @right(0..250)]"
-        ),
+        pattern_from_str!("Ftag[fw, *, @any(0..250), >>]"),
+        // // From safe
+        // pattern_from_str!("Ftag[fw, *, @left(0..250), >>]"),
+        // pattern_from_str!("Ftag[fw, ?1, @left(0..250)]__Ftag[fw, ?1, @prev_left(0..250), >>]"),
+        // // Slightly more risky (ignores that both labels should be identical and just uses left one)
+        // pattern_from_str!("Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @prev_left(0..250), >>]"),
+        // // Would be odd to have barcode on the right, but can still assume left is fine and extract region within
+        // pattern_from_str!("Ftag[fw, *, @left(0..250), >>]__Ftag[<<, fw, *, @right(0..250)]"),
+        // // Same as above + double left
+        // pattern_from_str!(
+        //     "Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @prev_left(0..250), >>]__Ftag[<<, fw, *, @right(0..250)]"
+        // ),
     ]
 });
 
@@ -193,28 +194,35 @@ static DOUBLE_LABEL_PATTERNS_SAFE: LazyLock<Vec<Pattern>> = LazyLock::new(|| {
 
 static DOUBLE_LABEL_PATTERNS_MAXIMIZE: LazyLock<Vec<Pattern>> = LazyLock::new(|| {
     vec![
-        // From safe
-        pattern_from_str!("Ftag[fw, *, @left(0..250), >>]"),
-        pattern_from_str!("Ftag[<<, rc, *, @right(0..250)]"),
-        pattern_from_str!("Ftag[fw, ?1, @left(0..250), >>]__Ftag[<<, rc, ?1, @right(0..250)]"),
-        // Same as ideal, but extra barcode on the left, we ensure two "inner" barcodes have the same label
-        pattern_from_str!(
-            "Ftag[fw, *, @left(0..250)]__Ftag[fw, ?1, @prev_left(0..250), >>]__Ftag[<<, rc, ?1, @right(0..250)]"
-        ),
-        // Barcode on the left, and just flank on the right, we can't with certainty prove that the barcodes were different, so we assume it's ok
-        pattern_from_str!("Ftag[fw, *, @left(0..250), >>]__Fflank[<<, rc, *, @right(0..250)]"),
-        // Same as above, but flipped
-        pattern_from_str!("Fflank[fw, *, @left(0..250), >>]__Ftag[<<, rc, *, @right(0..250)]"),
-        // Two barcodes on the left
-        pattern_from_str!("Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @prev_left(0..250), >>]"),
-        // Weird chimeric pattern, where we have a double Ftag on the right...
-        pattern_from_str!(
-            "Ftag[fw, ?1, @left(0..250), >>]__Ftag[<<, fw, ?1, @right(0..250)]__Ftag[rc, *, @right(0..250)]"
-        ),
-        // Triple barcode on the left, again we assure inner barcodes are the same
-        pattern_from_str!(
-            "Ftag[fw, *, @left(0..250)]__Ftag[rc, *, @prev_left(0..250)]__Ftag[fw, ?1, @prev_left(0..250), >>]__Ftag[<<, rc, ?1, @right(0..250)]"
-        ),
+        // Single barcode on the left
+        pattern_from_str!("Ftag[fw, *, @any(0..250), >>]"),
+        // Single barcode on the right
+        pattern_from_str!("Ftag[<<, rc, *, @any(0..250)]"),
+        // Double barcode, left and right, as expected, with both the same barcode label
+        pattern_from_str!("Ftag[fw, ?1, @any(0..250), >>]__Ftag[<<, rc, ?1, @any(0..250)]"),
+        //     // From safe
+        //     pattern_from_str!("Ftag[fw, *, @left(0..250), >>]"),
+        //     pattern_from_str!("Ftag[<<, rc, *, @right(0..250)]"),
+        //     pattern_from_str!("Ftag[fw, ?1, @left(0..250), >>]__Ftag[<<, rc, ?1, @right(0..250)]"),
+        //     // Same as ideal, but extra barcode on the left, we ensure two "inner" barcodes have the same label
+        //     pattern_from_str!(
+        //         "Ftag[fw, *, @left(0..250)]__Ftag[fw, ?1, @prev_left(0..250), >>]__Ftag[<<, rc, ?1, @right(0..250)]"
+        //     ),
+        //     // Barcode on the left, and just flank on the right, we can't with certainty prove that the barcodes were different, so we assume it's ok
+        //     pattern_from_str!("Ftag[fw, *, @left(0..250), >>]__Fflank[<<, rc, *, @right(0..250)]"),
+        //     // Same as above, but flipped
+        //     pattern_from_str!("Fflank[fw, *, @left(0..250), >>]__Ftag[<<, rc, *, @right(0..250)]"),
+        //     // Two barcodes on the left
+        //     pattern_from_str!("Ftag[fw, *, @left(0..250)]__Ftag[fw, *, @prev_left(0..250), >>]"),
+        //     // Weird chimeric pattern, where we have a double Ftag on the right...
+        //     pattern_from_str!(
+        //         "Ftag[fw, ?1, @left(0..250), >>]__Ftag[<<, fw, ?1, @right(0..250)]__Ftag[rc, *, @right(0..250)]"
+        //     ),
+        //     // Triple barcode on the left, again we assure inner barcodes are the same
+        //     pattern_from_str!(
+        //         "Ftag[fw, *, @left(0..250)]__Ftag[rc, *, @prev_left(0..250)]__Ftag[fw, ?1, @prev_left(0..250), >>]__Ftag[<<, rc, ?1, @right(0..250)]"
+        //     ),
+        // ]
     ]
 });
 

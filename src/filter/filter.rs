@@ -2,6 +2,7 @@ use crate::annotate::searcher::BarbellMatch;
 use crate::filter::pattern::*;
 use crate::pattern_from_str;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use std::collections::HashSet;
 use std::error::Error;
 use std::fs::File;
 use std::time::Duration;
@@ -91,8 +92,7 @@ pub fn filter(
             if read_id != &record.read_id {
                 total_bar.inc(1);
                 // Process previous group
-                let passed =
-                    check_filter_pass_sub_pattern(&mut current_group, filters, filter_strategy);
+                let passed = filter_annotations(&mut current_group, filters, filter_strategy);
                 if passed {
                     kept_bar.inc(1);
                     for annotation in &current_group {
@@ -124,7 +124,7 @@ pub fn filter(
     // Process the last group
     if !current_group.is_empty() {
         total_bar.inc(1);
-        let passed = check_filter_pass_sub_pattern(&mut current_group, filters, filter_strategy);
+        let passed = filter_annotations(&mut current_group, filters, filter_strategy);
         if passed {
             kept_bar.inc(1);
             for annotation in &current_group {
@@ -221,11 +221,6 @@ struct Interval {
 }
 
 fn greedy_solve(all_cuts: Vec<Vec<(usize, Cut)>>) -> Vec<Vec<(usize, Cut)>> {
-    println!("Greedy solver");
-    for (cut_idx, cut) in all_cuts.iter().enumerate() {
-        println!("\tCut {}: {:?}", cut_idx, cut);
-    }
-
     let mut intervals = Vec::new();
 
     for (i, cut) in all_cuts.iter().enumerate() {
@@ -316,10 +311,122 @@ fn greedy_solve(all_cuts: Vec<Vec<(usize, Cut)>>) -> Vec<Vec<(usize, Cut)>> {
     result
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum FilterStrategy {
-    KeepAll,
-    DiscardInternal,
+    Exact,
+    Flexible, // Use sub pattern matching without any prefilters
+    Terminal,
+    UniqueLabels,
+    Complete, // better name ideas?
+}
+
+impl std::fmt::Debug for FilterStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let description = match self {
+            FilterStrategy::Exact => "Exact (require exact pattern match)",
+            FilterStrategy::Flexible => "Flexible (find any subpattern match, no prefilters)",
+            FilterStrategy::Terminal => "Terminal (prefilter for internal placement required)",
+            FilterStrategy::UniqueLabels => {
+                "UniqueLabels (all annotations must have the same label)"
+            }
+            FilterStrategy::Complete => {
+                "Complete (combines 'Terminal' and 'UniqueLabels' prefilters)"
+            }
+        };
+        write!(f, "FilterStrategy::{:?}: {}", self.as_str(), description)
+    }
+}
+
+impl FilterStrategy {
+    fn as_str(&self) -> &'static str {
+        match self {
+            FilterStrategy::Exact => "Exact",
+            FilterStrategy::Flexible => "Flexible",
+            FilterStrategy::Terminal => "Terminal",
+            FilterStrategy::UniqueLabels => "UniqueLabels",
+            FilterStrategy::Complete => "Complete",
+        }
+    }
+}
+
+fn check_internal(annotations: &mut [BarbellMatch]) -> bool {
+    println!("Checking internal");
+    for annotation in annotations.iter() {
+        if annotation.read_start_bar > 250 || annotation.read_end_bar < annotation.read_len - 250 {
+            return false;
+        }
+    }
+    true
+}
+
+fn check_diff_barcodes(annotations: &mut [BarbellMatch]) -> bool {
+    let mut unique = HashSet::new();
+    for a in annotations.iter() {
+        unique.insert(&a.label);
+        if unique.len() > 1 {
+            return false;
+        }
+    }
+    true
+}
+
+fn filter_annotations(
+    annotations: &mut [BarbellMatch],
+    patterns: &[Pattern],
+    strategy: FilterStrategy,
+) -> bool {
+    if strategy == FilterStrategy::Exact {
+        return check_filter_pass_full_pattern(annotations, patterns);
+    }
+
+    // In case not exact we first use the prefilters
+    let prefilter_pass = match strategy {
+        FilterStrategy::Flexible => true,
+        FilterStrategy::Terminal => check_internal(annotations),
+        FilterStrategy::UniqueLabels => check_diff_barcodes(annotations),
+        FilterStrategy::Complete => check_internal(annotations) && check_diff_barcodes(annotations),
+        _ => unreachable!("Exact is already handled above"),
+    };
+
+    if !prefilter_pass {
+        return false;
+    }
+
+    // If the prefilter passed, we can now match the patterns
+    check_filter_pass_sub_pattern(annotations, patterns, strategy)
+}
+
+fn check_filter_pass_full_pattern(annotations: &mut [BarbellMatch], patterns: &[Pattern]) -> bool {
+    // Track both the maximum number of matches and the cut positions
+    let mut max_matches = 0;
+    let mut best_cut_positions: Option<Vec<(usize, Cut)>> = None;
+
+    for pattern in patterns {
+        // cut position is (match_idx, cut)
+        let (is_match, cut_positions) = match_full_pattern(annotations, pattern);
+        if is_match {
+            let pattern_len = pattern.elements.len();
+            if pattern_len > max_matches {
+                max_matches = pattern_len;
+                best_cut_positions = Some(cut_positions);
+            }
+        }
+    }
+
+    // If we have a match and cut positions, update all annotations in the group
+    if max_matches > 0
+        && let Some(cut_positions) = best_cut_positions
+    {
+        for (cut_match_idx, cut) in cut_positions {
+            if let Some(existing_cuts) = &mut annotations[cut_match_idx].cuts {
+                existing_cuts.push((cut, cut_match_idx));
+            } else {
+                annotations[cut_match_idx].cuts = Some(vec![(cut, cut_match_idx)]);
+            }
+        }
+    }
+
+    max_matches == annotations.len()
 }
 
 fn check_filter_pass_sub_pattern(
@@ -327,23 +434,6 @@ fn check_filter_pass_sub_pattern(
     patterns: &[Pattern],
     strategy: FilterStrategy,
 ) -> bool {
-    // This is simple, if we have any match that is not at the ends we discard it
-    // if the users wants to be strict
-    match strategy {
-        FilterStrategy::KeepAll => {
-            // Do nothing
-        }
-        FilterStrategy::DiscardInternal => {
-            for annotation in annotations.iter() {
-                if annotation.read_start_bar > 250
-                    || annotation.read_end_bar < annotation.read_len - 250
-                {
-                    return false;
-                }
-            }
-        }
-    }
-
     // We just keep track of every sub pattern we can find for all patterns
     let mut all_cuts = vec![];
 
@@ -387,39 +477,6 @@ fn check_filter_pass_sub_pattern(
     }
 
     !best_cut_positions.is_empty()
-}
-
-fn check_filter_pass_full_pattern(annotations: &mut [BarbellMatch], patterns: &[Pattern]) -> bool {
-    // Track both the maximum number of matches and the cut positions
-    let mut max_matches = 0;
-    let mut best_cut_positions: Option<Vec<(usize, Cut)>> = None;
-
-    for pattern in patterns {
-        // cut position is (match_idx, cut)
-        let (is_match, cut_positions) = match_full_pattern(annotations, pattern);
-        if is_match {
-            let pattern_len = pattern.elements.len();
-            if pattern_len > max_matches {
-                max_matches = pattern_len;
-                best_cut_positions = Some(cut_positions);
-            }
-        }
-    }
-
-    // If we have a match and cut positions, update all annotations in the group
-    if max_matches > 0
-        && let Some(cut_positions) = best_cut_positions
-    {
-        for (cut_match_idx, cut) in cut_positions {
-            if let Some(existing_cuts) = &mut annotations[cut_match_idx].cuts {
-                existing_cuts.push((cut, cut_match_idx));
-            } else {
-                annotations[cut_match_idx].cuts = Some(vec![(cut, cut_match_idx)]);
-            }
-        }
-    }
-
-    max_matches == annotations.len()
 }
 
 #[cfg(test)]
@@ -478,7 +535,7 @@ mod tests {
         let passed = check_filter_pass_sub_pattern(
             &mut matches,
             &[pattern1, pattern2],
-            FilterStrategy::KeepAll,
+            FilterStrategy::Flexible,
         );
         assert!(passed);
         let match1 = matches[0].clone();
@@ -551,11 +608,106 @@ mod tests {
         let passed = check_filter_pass_sub_pattern(
             &mut matches2,
             &[pattern1, pattern2, pattern3],
-            FilterStrategy::KeepAll,
+            FilterStrategy::Flexible,
         );
         assert!(passed);
         assert_eq!(matches2.len(), 2);
         assert_eq!(matches2[0].cuts, first_expected_cuts);
         assert_eq!(matches2[1].cuts, second_expected_cuts);
+    }
+
+    #[test]
+    fn test_sub_pattern_different_barcodes() {
+        // Say the user supplied two patterns
+        let pattern1 = pattern_from_str!("Ftag[fw, *, @left(0..250), >>]");
+        let pattern2 =
+            pattern_from_str!("Ftag[fw, *, @left(0..250), >>]__Rtag[<<, fw, *, @right(0..250)]");
+
+        let mut matches = vec![
+            BarbellMatch::new(
+                0,   // read_start_bar
+                100, // read_end_bar
+                0,   // read_start_flank
+                100, // read_end_flank
+                0,   // bar_start
+                100, // bar_end
+                BarcodeType::Ftag,
+                0, // flank_cost
+                0, // barcode_cost
+                "XXX".to_string(),
+                Strand::Fwd,
+                250, // read_len
+                "test".to_string(),
+                0,
+                None,
+            ),
+            BarbellMatch::new(
+                100, // read_start_bar
+                200, // read_end_bar
+                100, // read_start_flank
+                200, // read_end_flank
+                0,   // bar_start
+                100, // bar_end
+                BarcodeType::Rtag,
+                0, // flank_cost
+                0, // barcode_cost
+                "YYY".to_string(),
+                Strand::Fwd,
+                250, // read_len
+                "test".to_string(),
+                0,
+                None,
+            ),
+        ];
+
+        // This mutates the matches with cut information
+
+        let mut matches_test_1 = matches.clone();
+        let passed = filter_annotations(
+            &mut matches_test_1,
+            &[pattern1.clone(), pattern2.clone()],
+            FilterStrategy::Exact,
+        );
+        // Without any sub patttern strategy all of them should pass
+        assert!(passed);
+
+        // If we change to Flexible it should still pass
+        let mut matches_test_2 = matches.clone();
+        let passed = filter_annotations(
+            &mut matches_test_2,
+            &[pattern1.clone(), pattern2.clone()],
+            FilterStrategy::Flexible,
+        );
+        assert!(passed);
+
+        // If we change to terminal it should still pass
+        let mut matches_test_3 = matches.clone();
+        let passed = filter_annotations(
+            &mut matches_test_3,
+            &[pattern1.clone(), pattern2.clone()],
+            FilterStrategy::Terminal,
+        );
+        assert!(passed);
+
+        // However if we changed the read len to 1K or so
+        // the terminal filter should fail
+        let mut matches_test_4 = matches.clone();
+        matches_test_4.iter_mut().for_each(|m| m.read_len = 1000);
+        let passed = filter_annotations(
+            &mut matches_test_4,
+            &[pattern1.clone(), pattern2.clone()],
+            FilterStrategy::Terminal,
+        );
+        assert!(!passed);
+
+        // If we use both filters (complete) it should also fail
+        let mut matches_test_5 = matches.clone();
+        matches_test_5.iter_mut().for_each(|m| m.read_len = 1000);
+        let passed = filter_annotations(
+            &mut matches_test_5,
+            &[pattern1.clone(), pattern2.clone()],
+            FilterStrategy::Complete,
+        );
+        assert!(!passed);
     }
 }

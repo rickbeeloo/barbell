@@ -84,9 +84,10 @@ enum Commands {
         #[arg(long)]
         dropped: Option<String>,
 
-        /// if present, discard reads with internal matches
-        #[arg(long)]
-        discard_internal: bool,
+        /// Filtering strategy: 'exact' (default), 'flexible' (sub-pattern), 'terminal' (no internal matches),
+        /// 'unique-labels' (no mixed barcodes), or 'complete' (both filters)
+        #[arg(long, default_value = "exact")]
+        strategy: String,
     },
 
     /// Trim and sort reads based on filtered annotations
@@ -193,9 +194,10 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         use_extended: bool,
 
-        /// if present, discard reads with internal matches
-        #[arg(long, default_value_t = false)]
-        discard_internal: bool,
+        /// Filtering strategy: 'flexible' (sub-pattern), 'terminal' (no internal matches),
+        /// 'unique-labels' (no mixed barcodes), or 'complete' (both filters)
+        #[arg(long, default_value = "flexible")]
+        strategy: String,
 
         /// Edit cost beyond read boundaries
         #[arg(long = "alpha", default_value_t = 0.4)]
@@ -292,17 +294,25 @@ fn main() {
             output,
             file,
             dropped,
-            discard_internal,
+            strategy,
         } => {
             println!("{}", "Starting filtering...".green());
 
-            let strategy = if *discard_internal {
-                FilterStrategy::DiscardInternal
-            } else {
-                FilterStrategy::KeepAll
+            let f_strategy = match strategy.as_str() {
+                "exact" => FilterStrategy::Exact,
+                "flexible" => FilterStrategy::Flexible,
+                "terminal" => FilterStrategy::Terminal,
+                "unique-labels" => FilterStrategy::UniqueLabels,
+                "complete" => FilterStrategy::Complete,
+                _ => {
+                    eprintln!(
+                        "Unknown filter strategy: {strategy}. Use: exact, flexible, terminal, unique-labels, or complete"
+                    );
+                    return;
+                }
             };
 
-            match filter_from_text_file(input, file, output, dropped.as_deref(), strategy) {
+            match filter_from_text_file(input, file, output, dropped.as_deref(), f_strategy) {
                 Ok(_) => println!("{}", "Filtering successful!".green()),
                 Err(e) => println!("{} {}", "Filtering failed:".red(), e),
             }
@@ -360,13 +370,21 @@ fn main() {
             flank_max_errors,
             failed_out,
             use_extended,
+            strategy,
             alpha,
-            discard_internal,
         } => {
-            let strategy = if *discard_internal {
-                FilterStrategy::DiscardInternal
-            } else {
-                FilterStrategy::KeepAll
+            let f_strategy = match strategy.as_str() {
+                "exact" => FilterStrategy::Exact,
+                "flexible" => FilterStrategy::Flexible,
+                "terminal" => FilterStrategy::Terminal,
+                "unique-labels" => FilterStrategy::UniqueLabels,
+                "complete" => FilterStrategy::Complete,
+                _ => {
+                    eprintln!(
+                        "Unknown filter strategy: {strategy}. Use: exact, flexible, terminal, unique-labels, or complete"
+                    );
+                    return;
+                }
             };
 
             demux_using_kit(
@@ -374,7 +392,6 @@ fn main() {
                 input,
                 *threads,
                 output,
-                *maximize,
                 *verbose,
                 *min_score,
                 *min_score_diff,
@@ -382,7 +399,7 @@ fn main() {
                 failed_out.clone(),
                 *use_extended,
                 *alpha,
-                strategy,
+                f_strategy,
             );
         }
     }

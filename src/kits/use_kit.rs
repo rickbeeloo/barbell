@@ -12,7 +12,6 @@ pub fn demux_using_kit(
     fastq_file: &str,
     threads: usize,
     output_folder: &str,
-    maximize: bool,
     verbose: bool,
     min_score: f64,
     min_score_diff: f64,
@@ -32,7 +31,6 @@ pub fn demux_using_kit(
     // Print some kit info
     println!("\n{}", "Kit info".purple().bold());
     println!("Kit name: {}", kit_info.name);
-    println!("Kit type: {}", if maximize { "Maximize" } else { "Safe" });
     for tmpl in kit_info.templates {
         println!("Barcodes: {} - {}", tmpl.barcodes.from, tmpl.barcodes.to);
     }
@@ -70,10 +68,11 @@ pub fn demux_using_kit(
     // Filter
     println!("\n{}", "Filtering reads...".purple().bold());
 
-    let patterns = if maximize {
-        (kit_info.maximize_patterns)()
-    } else {
+    let patterns = if filter_strategy == FilterStrategy::Exact {
         (kit_info.safe_patterns)()
+    } else {
+        // Uses @any tags to plae matches wherever
+        (kit_info.maximize_patterns)()
     };
 
     filter(

@@ -27,7 +27,7 @@ pub struct Cut {
     pub direction: CutDirection,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct PatternElement {
     pub match_type: BarcodeType,
     pub orientation: Option<Strand>,
@@ -39,7 +39,7 @@ pub struct PatternElement {
 }
 
 // Relative position of matches
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum RelativePosition {
     Left,
     Right,
@@ -48,7 +48,7 @@ pub enum RelativePosition {
     Any,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Pattern {
     pub elements: Vec<PatternElement>,
 }
@@ -286,7 +286,7 @@ pub fn check_from_seed(
     // We have a single cut, time to check
     let cut = cut_positions.last().unwrap();
     let cut_idx = cut.0;
-    println!(" LAST cut idx: {}", cut_idx);
+
     let cut_direction = cut.1.direction.clone();
     match cut_direction {
         CutDirection::After => {
