@@ -11,6 +11,15 @@ pub enum CutDirection {
     After,  // > cut at match.end
 }
 
+impl CutDirection {
+    pub fn rotate(&self) -> Self {
+        match self {
+            CutDirection::Before => CutDirection::After,
+            CutDirection::After => CutDirection::Before,
+        }
+    }
+}
+
 // Records where..cut, in what direction, and also with id it belongs in case of paired cuts
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cut {
@@ -36,6 +45,7 @@ pub enum RelativePosition {
     Right,
     PrevLeft,
     PrevRight, // unimplemented for now
+    Any,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -120,7 +130,10 @@ fn check_match_type_and_label(m: &BarbellMatch, pattern_element: &PatternElement
             true
         }
         // Flanks are always ok
-        BarcodeType::Fflank | BarcodeType::Rflank => true,
+        BarcodeType::Fflank
+        | BarcodeType::Rflank
+        | BarcodeType::Fadapter
+        | BarcodeType::Radapter => true,
     }
 }
 
@@ -184,6 +197,9 @@ fn check_relative_position(
                     "This does not make much sense when going left > right, unless we DP optimal"
                 );
             }
+            RelativePosition::Any => {
+                return true;
+            }
         }
     }
     true
@@ -202,7 +218,126 @@ fn matches_pattern_element(
         && check_relative_position(m, pattern_element, prev_end, seq_len as isize)
 }
 
-pub fn match_pattern(matches: &[BarbellMatch], pattern: &Pattern) -> (bool, Vec<(usize, Cut)>) {
+pub fn find_seeds(matches: &[BarbellMatch], pattern: &Pattern) -> Vec<usize> {
+    // To match a pattern as subpattern, we can first search the first element
+    // in the pattern and locate
+    let mut seeds: Vec<usize> = Vec::new();
+    let seed_element = pattern.elements.first().unwrap();
+
+    for (idx, m) in matches.iter().enumerate() {
+        if matches_pattern_element(m, seed_element, None, &mut HashMap::new(), m.read_len) {
+            seeds.push(idx);
+        }
+    }
+    seeds
+}
+
+pub fn check_from_seed(
+    matches: &[BarbellMatch],
+    pattern: &Pattern,
+    seed_idx: usize,
+) -> (bool, Vec<(usize, Cut)>) {
+    // let matches = &matches[seed_idx..];
+
+    // Early return if not enough matches
+    if matches.len() < pattern.elements.len() {
+        return (false, vec![]);
+    }
+
+    let mut prev_end: Option<isize> = None;
+    let mut matched_labels: HashMap<usize, String> = HashMap::new();
+    let mut current_match_idx = seed_idx;
+
+    let mut cut_positions = Vec::with_capacity(2);
+
+    for pattern_element in pattern.elements.iter() {
+        if current_match_idx >= matches.len() {
+            return (false, vec![]);
+        }
+
+        let m = &matches[current_match_idx];
+        let seq_len = m.read_len;
+
+        if matches_pattern_element(m, pattern_element, prev_end, &mut matched_labels, seq_len) {
+            // If this element has a cut marker, record the position and direction
+            if let Some(cuts) = &pattern_element.cuts {
+                for cut in cuts {
+                    cut_positions.push((current_match_idx, cut.clone()));
+                }
+            }
+
+            prev_end = Some(m.read_end_bar as isize);
+            current_match_idx += 1;
+        } else {
+            return (false, vec![]);
+        }
+    }
+
+    // If the user specified only one cut positions (i.e. Ftag,>>) we cut until the
+    // end of the read UNLESS there is (any) other match elements after it
+    // If the user specified only one cut positions the other way (<<) we search
+    // in front if there is anything left
+    // if we already have two cuts we are fine and can return instantly
+    if cut_positions.len() == 2 {
+        // Bases covered here is between the cuts
+        return (true, cut_positions);
+    }
+
+    // We have a single cut, time to check
+    let cut = cut_positions.last().unwrap();
+    let cut_idx = cut.0;
+    println!(" LAST cut idx: {}", cut_idx);
+    let cut_direction = cut.1.direction.clone();
+    match cut_direction {
+        CutDirection::After => {
+            // We cut until the end of the read UNLESS there is (any) other match elements after it
+            if cut_idx < matches.len() - 1 {
+                // We just get the next index
+                let flip_cut = cut_direction.rotate(); // Have to flip cut sign from << to >>, or vice versa
+                let new_cut = Cut::new(cut.1.group_id, flip_cut);
+                cut_positions.push((cut_idx + 1, new_cut));
+            }
+        }
+        CutDirection::Before => {
+            if cut_idx > 0 {
+                let flip_cut = cut_direction.rotate(); // Have to flip cut sign from << to >>, or vice versa
+                let new_cut = Cut::new(cut.1.group_id, flip_cut);
+                cut_positions.push((cut_idx - 1, new_cut));
+            }
+        }
+    }
+
+    (true, cut_positions)
+}
+
+pub fn match_sub_pattern(
+    matches: &[BarbellMatch],
+    pattern: &Pattern,
+) -> (bool, Vec<Vec<(usize, Cut)>>) {
+    // Early return if not enough matches
+    if matches.len() < pattern.elements.len() {
+        return (false, vec![]);
+    }
+
+    // First we look in the matches if any equals that of the beginnign of the pattern
+    let seeds = find_seeds(matches, pattern);
+
+    // Then from each seed we just check if everything "after" it matches the pattern
+    let mut all_cuts = vec![];
+    for seed_idx in seeds {
+        let (is_match, cut_positions) = check_from_seed(matches, pattern, seed_idx);
+        if is_match {
+            all_cuts.push(cut_positions.clone());
+        }
+    }
+
+    (!all_cuts.is_empty(), all_cuts)
+}
+
+pub fn match_full_pattern(
+    matches: &[BarbellMatch],
+    pattern: &Pattern,
+) -> (bool, Vec<(usize, Cut)>) {
     let mut prev_end: Option<isize> = None;
     let mut matched_labels: HashMap<usize, String> = HashMap::new();
     let mut current_match_idx = 0;
@@ -232,8 +367,15 @@ pub fn match_pattern(matches: &[BarbellMatch], pattern: &Pattern) -> (bool, Vec<
             prev_end = Some(m.read_end_bar as isize);
             current_match_idx += 1;
         } else {
+            // 1. If we don't match anymore we should abort
             return (false, vec![]);
         }
+    }
+
+    if current_match_idx < matches.len() {
+        // 2. If we did not exhaust all matches by matching them
+        // to the pattern, we should abort
+        return (false, vec![]);
     }
 
     (true, cut_positions)
@@ -271,6 +413,7 @@ macro_rules! pattern_from_str {
                 "left" => RelativePosition::Left,
                 "right" => RelativePosition::Right,
                 "prev_left" => RelativePosition::PrevLeft,
+                "any" => RelativePosition::Any,
                 _ => return None,
             };
 
@@ -429,6 +572,160 @@ mod tests {
     }
 
     #[test]
+    fn test_double_sub_pattern_matches() {
+        let pattern = pattern_from_str!("Ftag[fw, *, @left(0..250), >>]");
+        let matches = vec![
+            BarbellMatch::new(
+                0,   // read_start_bar
+                100, // read_end_bar
+                0,   // read_start_flank
+                100, // read_end_flank
+                0,   // bar_start
+                100, // bar_end
+                BarcodeType::Ftag,
+                0, // flank_cost
+                0, // barcode_cost
+                "XXX".to_string(),
+                Strand::Fwd,
+                500, // read_len
+                "test".to_string(),
+                0,
+                None,
+            ),
+            BarbellMatch::new(
+                100, // read_start_bar
+                200, // read_end_bar
+                100, // read_start_flank
+                200, // read_end_flank
+                0,   // bar_start
+                100, // bar_end
+                BarcodeType::Ftag,
+                0, // flank_cost
+                0, // barcode_cost
+                "XXX".to_string(),
+                Strand::Fwd,
+                500, // read_len
+                "test".to_string(),
+                0,
+                None,
+            ),
+        ];
+        let seeds = find_seeds(&matches, &pattern);
+        assert_eq!(seeds, vec![0, 1]);
+        // Using full pattern search this should not match
+        let (is_match, _cut_positions) = match_full_pattern(&matches, &pattern);
+        assert!(!is_match);
+
+        // Using sub pattern search this should match twice
+        // the firt slice from match1 --- match2, and match2-- end of read
+        // First case:
+        let first_slice = [
+            (
+                0,
+                Cut {
+                    group_id: 0,
+                    direction: CutDirection::After,
+                },
+            ),
+            (
+                1,
+                Cut {
+                    group_id: 0,
+                    direction: CutDirection::Before,
+                },
+            ),
+        ]
+        .to_vec();
+        // Second case:
+        let second_slice = [(
+            1,
+            Cut {
+                group_id: 0,
+                direction: CutDirection::After,
+            },
+        )]
+        .to_vec();
+        // Total exepcted cut positions:
+        let expected_cut_positions = vec![first_slice, second_slice];
+        let (is_match, cut_positions) = match_sub_pattern(&matches, &pattern);
+        assert!(is_match);
+        assert_eq!(cut_positions, expected_cut_positions);
+    }
+
+    #[test]
+    fn test_simple_ftag_adapter_subpattern_matches() {
+        let pattern = pattern_from_str!("Ftag[fw, *, @left(0..250), >>]");
+        let matches = vec![
+            BarbellMatch::new(
+                0,   // read_start_bar
+                100, // read_end_bar
+                0,   // read_start_flank
+                100, // read_end_flank
+                0,   // bar_start
+                100, // bar_end
+                BarcodeType::Ftag,
+                0, // flank_cost
+                0, // barcode_cost
+                "XXX".to_string(),
+                Strand::Fwd,
+                500, // read_len
+                "test".to_string(),
+                0,
+                None,
+            ),
+            BarbellMatch::new(
+                100, // read_start_bar
+                200, // read_end_bar
+                100, // read_start_flank
+                200, // read_end_flank
+                0,   // bar_start
+                100, // bar_end
+                BarcodeType::Fadapter,
+                0, // flank_cost
+                0, // barcode_cost
+                "XXX".to_string(),
+                Strand::Fwd,
+                500, // read_len
+                "test".to_string(),
+                0,
+                None,
+            ),
+        ];
+        let seeds = find_seeds(&matches, &pattern);
+        assert_eq!(seeds, vec![0]);
+        // Using full pattern search this should not match
+        let (is_match, _cut_positions) = match_full_pattern(&matches, &pattern);
+        assert!(!is_match);
+
+        // Using sub pattern search this should match twice
+        // the firt slice from match1 --- match2, and match2-- end of read
+        // First case:
+        let first_slice = [
+            (
+                0,
+                Cut {
+                    group_id: 0,
+                    direction: CutDirection::After,
+                },
+            ),
+            (
+                1,
+                Cut {
+                    group_id: 0,
+                    direction: CutDirection::Before,
+                },
+            ),
+        ]
+        .to_vec();
+
+        // Total exepcted cut positions:
+        let expected_cut_positions = vec![first_slice];
+        let (is_match, cut_positions) = match_sub_pattern(&matches, &pattern);
+        assert!(is_match);
+        assert_eq!(cut_positions, expected_cut_positions);
+    }
+
+    #[test]
     fn test_distance_to_left_end() {
         // let pattern = pattern_from_str!("Ftag[fw, *, @left(0-250)]");
         let pattern = pattern_from_str!("Ftag[fw, *, @left(0..250)]");
@@ -452,19 +749,19 @@ mod tests {
         )];
 
         matches[0].read_start_bar = 0;
-        let (is_match, _) = match_pattern(&matches, &pattern);
+        let (is_match, _) = match_full_pattern(&matches, &pattern);
         assert!(is_match);
 
         matches[0].read_start_bar = 100;
-        let (is_match, _) = match_pattern(&matches, &pattern);
+        let (is_match, _) = match_full_pattern(&matches, &pattern);
         assert!(is_match);
 
         matches[0].read_start_bar = 250;
-        let (is_match, _) = match_pattern(&matches, &pattern);
+        let (is_match, _) = match_full_pattern(&matches, &pattern);
         assert!(is_match);
 
         matches[0].read_start_bar = 251;
-        let (is_match, _) = match_pattern(&matches, &pattern);
+        let (is_match, _) = match_full_pattern(&matches, &pattern);
         assert!(!is_match);
     }
 
@@ -491,19 +788,19 @@ mod tests {
         )];
 
         matches[0].read_end_bar = 500;
-        let (is_match, _) = match_pattern(&matches, &pattern);
+        let (is_match, _) = match_full_pattern(&matches, &pattern);
         assert!(is_match);
 
         matches[0].read_end_bar = 450;
-        let (is_match, _) = match_pattern(&matches, &pattern);
+        let (is_match, _) = match_full_pattern(&matches, &pattern);
         assert!(is_match);
 
         matches[0].read_end_bar = 250;
-        let (is_match, _) = match_pattern(&matches, &pattern);
+        let (is_match, _) = match_full_pattern(&matches, &pattern);
         assert!(is_match);
 
         matches[0].read_end_bar = 249;
-        let (is_match, _) = match_pattern(&matches, &pattern);
+        let (is_match, _) = match_full_pattern(&matches, &pattern);
         assert!(!is_match);
     }
 
@@ -552,27 +849,27 @@ mod tests {
 
         // Should not pass,
         matches[1].read_start_bar = 50;
-        let (is_match, _) = match_pattern(&matches, &pattern);
+        let (is_match, _) = match_full_pattern(&matches, &pattern);
         assert!(!is_match);
 
         // Same start as previous match, does not satisfy min distance of 5
         matches[1].read_start_bar = 100;
-        let (is_match, _) = match_pattern(&matches, &pattern);
+        let (is_match, _) = match_full_pattern(&matches, &pattern);
         assert!(!is_match);
 
         // Should pass, just satisfies min distance of 5
         matches[1].read_start_bar = 105;
-        let (is_match, _) = match_pattern(&matches, &pattern);
+        let (is_match, _) = match_full_pattern(&matches, &pattern);
         assert!(is_match);
 
         // Should still pass, but maxing out
         matches[1].read_start_bar = 200;
-        let (is_match, _) = match_pattern(&matches, &pattern);
+        let (is_match, _) = match_full_pattern(&matches, &pattern);
         assert!(is_match);
 
         // Should not pass anymore, too far away
         matches[1].read_start_bar = 201;
-        let (is_match, _) = match_pattern(&matches, &pattern);
+        let (is_match, _) = match_full_pattern(&matches, &pattern);
         assert!(!is_match);
     }
 
@@ -619,13 +916,13 @@ mod tests {
             ),
         ];
 
-        let (is_match, _) = match_pattern(&matches, &pattern);
+        let (is_match, _) = match_full_pattern(&matches, &pattern);
         assert!(is_match);
 
         // Edit..different labels
         matches[1].label = "yyyy".to_string();
 
-        let (is_match, _) = match_pattern(&matches, &pattern);
+        let (is_match, _) = match_full_pattern(&matches, &pattern);
         assert!(!is_match);
     }
 
@@ -672,7 +969,7 @@ mod tests {
             ),
         ];
 
-        let (is_match, _) = match_pattern(&matches, &pattern);
+        let (is_match, _) = match_full_pattern(&matches, &pattern);
         assert!(is_match);
     }
 
@@ -737,7 +1034,7 @@ mod tests {
             ),
         ];
 
-        let (is_match, _) = match_pattern(&matches, &pattern);
+        let (is_match, _) = match_full_pattern(&matches, &pattern);
         assert!(is_match);
     }
 
@@ -783,7 +1080,7 @@ mod tests {
             ),
         ];
 
-        let (is_match, cut_positions) = match_pattern(&matches, &pattern);
+        let (is_match, cut_positions) = match_full_pattern(&matches, &pattern);
         assert!(is_match);
         assert_eq!(
             cut_positions,
@@ -837,7 +1134,7 @@ mod tests {
             ),
         ];
 
-        let (is_match, cut_positions) = match_pattern(&matches, &pattern);
+        let (is_match, cut_positions) = match_full_pattern(&matches, &pattern);
         assert!(is_match);
         assert_eq!(
             cut_positions,
@@ -908,7 +1205,7 @@ mod tests {
             ),
         ];
 
-        let (is_match, cut_positions) = match_pattern(&matches, &pattern);
+        let (is_match, cut_positions) = match_full_pattern(&matches, &pattern);
         assert!(is_match);
         assert_eq!(
             cut_positions,

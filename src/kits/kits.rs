@@ -1,9 +1,17 @@
+use crate::annotate::barcodes::BarcodeType;
 use crate::filter::pattern::*;
 use crate::{
     pattern_from_str,
     trim::trim::{LabelConfig, LabelSide},
 };
 use std::sync::LazyLock;
+
+// Adapters
+const ADAPTER_NATIVE_TOP: &str = "TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCT";
+const ADAPTER_NATIVE_BOTTOM: &str = "ACGTAACTGAACGAAGTACAGG"; // Reverse complement to top, so we just use top
+
+#[allow(dead_code)]
+const ADAPTER_RAPID_TOP: &str = "TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCT"; // Same as native top adapter
 
 //From https://github.com/nanoporetech/dorado/blob/e72f14925cd435fff823ebf244ce2195b135a863/dorado/utils/barcode_kits.cpp
 const RAB_1ST_FRONT: &str = "CCGTGAC";
@@ -72,24 +80,17 @@ impl LabelRange {
     }
 }
 
-// Template support for arbitrary multi-part patterns
-#[derive(Copy, Clone)]
-pub enum TemplateBarcodeType {
-    Left,
-    Right,
-}
-
 #[derive(Copy, Clone, PartialEq)]
 pub enum TemplateType {
     Default,
     Extended, // Including fusion, shorter templates, etc. - losing reads but better quality
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct TemplateSpec {
     pub parts: &'static [&'static str],
     pub barcodes: LabelRange,
-    pub barcode_type: TemplateBarcodeType,
+    pub barcode_type: BarcodeType,
     pub template_type: TemplateType,
 }
 
@@ -235,13 +236,13 @@ static TEMPLATES_16S: &[TemplateSpec] = &[
     TemplateSpec {
         parts: &[RAB_1ST_FRONT, "{BAR}", RAB_1ST_REAR],
         barcodes: LabelRange::new("BC01", "BC24"),
-        barcode_type: TemplateBarcodeType::Left,
+        barcode_type: BarcodeType::Ftag,
         template_type: TemplateType::Default,
     },
     TemplateSpec {
         parts: &[RAB_2ND_FRONT, "{BAR}", RAB_2ND_REAR],
         barcodes: LabelRange::new("BC01", "BC24"),
-        barcode_type: TemplateBarcodeType::Right,
+        barcode_type: BarcodeType::Rtag,
         template_type: TemplateType::Default,
     },
 ];
@@ -250,13 +251,13 @@ static TEMPLATES_LWB: &[TemplateSpec] = &[
     TemplateSpec {
         parts: &[LWB_1ST_FRONT, "{BAR}", LWB_1ST_REAR],
         barcodes: LabelRange::new("BC01", "BC12"),
-        barcode_type: TemplateBarcodeType::Left,
+        barcode_type: BarcodeType::Ftag,
         template_type: TemplateType::Default,
     },
     TemplateSpec {
         parts: &[LWB_2ND_FRONT, "{BAR}", LWB_2ND_REAR],
         barcodes: LabelRange::new("BC01", "BC12"),
-        barcode_type: TemplateBarcodeType::Right,
+        barcode_type: BarcodeType::Rtag,
         template_type: TemplateType::Default,
     },
 ];
@@ -265,13 +266,13 @@ static TEMPLATES_LWB24: &[TemplateSpec] = &[
     TemplateSpec {
         parts: &[LWB_1ST_FRONT, "{BAR}", LWB_1ST_REAR],
         barcodes: LabelRange::new("BC01", "BC24"),
-        barcode_type: TemplateBarcodeType::Left,
+        barcode_type: BarcodeType::Ftag,
         template_type: TemplateType::Default,
     },
     TemplateSpec {
         parts: &[LWB_2ND_FRONT, "{BAR}", LWB_2ND_REAR],
         barcodes: LabelRange::new("BC01", "BC24"),
-        barcode_type: TemplateBarcodeType::Right,
+        barcode_type: BarcodeType::Rtag,
         template_type: TemplateType::Default,
     },
 ];
@@ -279,35 +280,49 @@ static TEMPLATES_LWB24: &[TemplateSpec] = &[
 static TEMPLATES_NB12: &[TemplateSpec] = &[TemplateSpec {
     parts: &[NB_1ST_FRONT, "{BAR}", NB_1ST_REAR],
     barcodes: LabelRange::new("NB01", "NB12"),
-    barcode_type: TemplateBarcodeType::Left,
+    barcode_type: BarcodeType::Ftag,
     template_type: TemplateType::Default,
 }];
 
 static TEMPLATES_NB24: &[TemplateSpec] = &[TemplateSpec {
     parts: &[NB_1ST_FRONT, "{BAR}", NB_1ST_REAR],
     barcodes: LabelRange::new("NB01", "NB24"),
-    barcode_type: TemplateBarcodeType::Left,
+    barcode_type: BarcodeType::Ftag,
     template_type: TemplateType::Default,
 }];
 
-static TEMPLATES_NB96: &[TemplateSpec] = &[TemplateSpec {
-    parts: &[NB_1ST_FRONT, "{BAR}", NB_1ST_REAR],
-    barcodes: LabelRange::new("NB01", "NB96"),
-    barcode_type: TemplateBarcodeType::Left,
-    template_type: TemplateType::Default,
-}];
+static TEMPLATES_NB96: &[TemplateSpec] = &[
+    TemplateSpec {
+        parts: &[NB_1ST_FRONT, "{BAR}", NB_1ST_REAR],
+        barcodes: LabelRange::new("NB01", "NB96"),
+        barcode_type: BarcodeType::Ftag,
+        template_type: TemplateType::Default,
+    },
+    TemplateSpec {
+        parts: &[ADAPTER_NATIVE_TOP],
+        barcodes: LabelRange::new("", ""),
+        barcode_type: BarcodeType::Fadapter,
+        template_type: TemplateType::Default,
+    },
+    TemplateSpec {
+        parts: &[ADAPTER_NATIVE_BOTTOM],
+        barcodes: LabelRange::new("", ""),
+        barcode_type: BarcodeType::Radapter,
+        template_type: TemplateType::Default,
+    },
+];
 
 static TEMPLATES_RAB: &[TemplateSpec] = &[
     TemplateSpec {
         parts: &[RAB_1ST_FRONT, "{BAR}", RAB_1ST_REAR],
         barcodes: LabelRange::new("BC01", "BC12"),
-        barcode_type: TemplateBarcodeType::Left,
+        barcode_type: BarcodeType::Ftag,
         template_type: TemplateType::Default,
     },
     TemplateSpec {
         parts: &[RAB_2ND_FRONT, "{BAR}", RAB_2ND_REAR],
         barcodes: LabelRange::new("BC01", "BC12"),
-        barcode_type: TemplateBarcodeType::Right,
+        barcode_type: BarcodeType::Rtag,
         template_type: TemplateType::Default,
     },
 ];
@@ -315,28 +330,28 @@ static TEMPLATES_RAB: &[TemplateSpec] = &[
 static TEMPLATES_RBK96: &[TemplateSpec] = &[TemplateSpec {
     parts: &[RBK4_FRONT, "{BAR}", RBK4_REAR],
     barcodes: LabelRange::new("RBK01", "RBK96"),
-    barcode_type: TemplateBarcodeType::Left,
+    barcode_type: BarcodeType::Ftag,
     template_type: TemplateType::Default,
 }];
 
 static TEMPLATES_RBK4: &[TemplateSpec] = &[TemplateSpec {
     parts: &[RBK4_FRONT, "{BAR}", RBK4_REAR],
     barcodes: LabelRange::new("BC01", "BC12"),
-    barcode_type: TemplateBarcodeType::Left,
+    barcode_type: BarcodeType::Ftag,
     template_type: TemplateType::Default,
 }];
 
 static TEMPLATES_RLB: &[TemplateSpec] = &[TemplateSpec {
     parts: &[RLB_FRONT, "{BAR}", RLB_REAR],
     barcodes: LabelRange::new("BC01", "BC12A"),
-    barcode_type: TemplateBarcodeType::Left,
+    barcode_type: BarcodeType::Ftag,
     template_type: TemplateType::Default,
 }];
 
 static TEMPLATES_NB13_24: &[TemplateSpec] = &[TemplateSpec {
     parts: &[NB_1ST_FRONT, "{BAR}", NB_1ST_REAR],
     barcodes: LabelRange::new("NB13", "NB24"),
-    barcode_type: TemplateBarcodeType::Left,
+    barcode_type: BarcodeType::Ftag,
     template_type: TemplateType::Default,
 }];
 
@@ -344,13 +359,13 @@ static TEMPLATES_PCR12: &[TemplateSpec] = &[
     TemplateSpec {
         parts: &[BC_1ST_FRONT, "{BAR}", BC_1ST_REAR],
         barcodes: LabelRange::new("BC01", "BC12"),
-        barcode_type: TemplateBarcodeType::Left,
+        barcode_type: BarcodeType::Ftag,
         template_type: TemplateType::Default,
     },
     TemplateSpec {
         parts: &[BC_2ND_FRONT, "{BAR}", BC_2ND_REAR],
         barcodes: LabelRange::new("BC01", "BC12"),
-        barcode_type: TemplateBarcodeType::Right,
+        barcode_type: BarcodeType::Rtag,
         template_type: TemplateType::Default,
     },
 ];
@@ -359,13 +374,13 @@ static TEMPLATES_PCR96: &[TemplateSpec] = &[
     TemplateSpec {
         parts: &[BC_1ST_FRONT, "{BAR}", BC_1ST_REAR],
         barcodes: LabelRange::new("BC01", "BC96"),
-        barcode_type: TemplateBarcodeType::Left,
+        barcode_type: BarcodeType::Ftag,
         template_type: TemplateType::Default,
     },
     TemplateSpec {
         parts: &[BC_2ND_FRONT, "{BAR}", BC_2ND_REAR],
         barcodes: LabelRange::new("BC01", "BC96"),
-        barcode_type: TemplateBarcodeType::Right,
+        barcode_type: BarcodeType::Rtag,
         template_type: TemplateType::Default,
     },
 ];
@@ -373,14 +388,14 @@ static TEMPLATES_PCR96: &[TemplateSpec] = &[
 static TEMPLATES_RBK12: &[TemplateSpec] = &[TemplateSpec {
     parts: &[RBK_FRONT, "{BAR}", RBK_REAR],
     barcodes: LabelRange::new("BC01", "BC12"),
-    barcode_type: TemplateBarcodeType::Left,
+    barcode_type: BarcodeType::Ftag,
     template_type: TemplateType::Default,
 }];
 
 static TEMPLATES_RBK24: &[TemplateSpec] = &[TemplateSpec {
     parts: &[RBK4_FRONT, "{BAR}", RBK4_REAR],
     barcodes: LabelRange::new("RBK01", "RBK24"),
-    barcode_type: TemplateBarcodeType::Left,
+    barcode_type: BarcodeType::Ftag,
     template_type: TemplateType::Default,
 }];
 
@@ -388,7 +403,7 @@ static TEMPLATES_RBK96_KIT14: &[TemplateSpec] = &[
     TemplateSpec {
         parts: &[RBK4_KIT14_FRONT, "{BAR}", RBK4_KIT14_REAR],
         barcodes: LabelRange::new("RBK01", "RBK96"),
-        barcode_type: TemplateBarcodeType::Left,
+        barcode_type: BarcodeType::Ftag,
         template_type: TemplateType::Default,
     },
     // In case of fusions we can have rear, bar, rear match
@@ -396,44 +411,49 @@ static TEMPLATES_RBK96_KIT14: &[TemplateSpec] = &[
     TemplateSpec {
         parts: &[RKB4_FRONT_FUSION, "{BAR}", RBK4_REAR],
         barcodes: LabelRange::new("RBK01", "RBK96"),
-        barcode_type: TemplateBarcodeType::Left,
+        barcode_type: BarcodeType::Ftag,
         template_type: TemplateType::Extended,
     },
-    // // Recognition sides in RBK are long enough so we can also
-    // // add a 'short' version for odd concatenations we observed
-    // TemplateSpec {
-    //     parts: &[RBK4_KIT14_FRONT, "{BAR}", RKB4_FRONT_FUSION],
-    //     barcodes: LabelRange::new("RBK01", "RBK96"),
-    //     barcode_type: TemplateBarcodeType::Left,
-    //     template_type: TemplateType::Extended,
-    // },
+    TemplateSpec {
+        parts: &[ADAPTER_RAPID_TOP],
+        barcodes: LabelRange::new("", ""),
+        barcode_type: BarcodeType::Fadapter,
+        template_type: TemplateType::Default,
+    }, // // Recognition sides in RBK are long enough so we can also
+       // // add a 'short' version for odd concatenations we observed
+       // TemplateSpec {
+       //     parts: &[RBK4_KIT14_FRONT, "{BAR}", RKB4_FRONT_FUSION],
+       //     barcodes: LabelRange::new("RBK01", "RBK96"),
+       //     barcode_type: BarcodeType::Ftag,
+       //     template_type: TemplateType::Extended,
+       // },
 ];
 
 static TEMPLATES_RBK24_KIT14: &[TemplateSpec] = &[TemplateSpec {
     parts: &[RBK4_KIT14_FRONT, "{BAR}", RBK4_KIT14_REAR],
     barcodes: LabelRange::new("RBK01", "RBK24"),
-    barcode_type: TemplateBarcodeType::Left,
+    barcode_type: BarcodeType::Ftag,
     template_type: TemplateType::Default,
 }];
 
 static TEMPLATES_RPB24_KIT14: &[TemplateSpec] = &[TemplateSpec {
     parts: &[RLB_FRONT, "{BAR}", RLB_REAR],
     barcodes: LabelRange::new("BC01", "BC24"),
-    barcode_type: TemplateBarcodeType::Left,
+    barcode_type: BarcodeType::Ftag,
     template_type: TemplateType::Default,
 }];
 
 static TEMPLATES_VMK: &[TemplateSpec] = &[TemplateSpec {
     parts: &[RBK_FRONT, "{BAR}", RBK_REAR],
     barcodes: LabelRange::new("BC01", "BC04"),
-    barcode_type: TemplateBarcodeType::Left,
+    barcode_type: BarcodeType::Ftag,
     template_type: TemplateType::Default,
 }];
 
 static TEMPLATES_VMK4: &[TemplateSpec] = &[TemplateSpec {
     parts: &[RBK4_FRONT, "{BAR}", RBK4_REAR],
     barcodes: LabelRange::new("BC01", "BC10"),
-    barcode_type: TemplateBarcodeType::Left,
+    barcode_type: BarcodeType::Ftag,
     template_type: TemplateType::Default,
 }];
 

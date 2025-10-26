@@ -10,6 +10,8 @@ pub enum BarcodeType {
     Rtag,
     Fflank, // Not public, in case Fbar is not detected
     Rflank, // Not public, in case Rbar is not detected
+    Fadapter,
+    Radapter,
 }
 
 impl BarcodeType {
@@ -17,7 +19,11 @@ impl BarcodeType {
         match self {
             BarcodeType::Ftag => BarcodeType::Fflank,
             BarcodeType::Rtag => BarcodeType::Rflank,
-            _ => panic!("Cannot convert {self:?} to flank"),
+            // If already flank just return it again
+            BarcodeType::Fflank => BarcodeType::Fflank,
+            BarcodeType::Rflank => BarcodeType::Rflank,
+            BarcodeType::Fadapter => BarcodeType::Fadapter,
+            BarcodeType::Radapter => BarcodeType::Radapter,
         }
     }
 
@@ -27,6 +33,8 @@ impl BarcodeType {
             BarcodeType::Rtag => "Rtag",
             BarcodeType::Fflank => "Fflank",
             BarcodeType::Rflank => "Rflank",
+            BarcodeType::Fadapter => "Fadapter",
+            BarcodeType::Radapter => "Radapter",
         }
     }
 }
@@ -77,9 +85,22 @@ impl BarcodeGroup {
         // Often a group shares shared flanks, we assume they do for now, and extract
         // their prefix and suffixes, if present
         if query_seqs.len() == 1 {
-            panic!(
-                "For now we only support 'groups' if you only have one query, just add a 'random' second query to your fasta file with the same left and right flank, just chnge the barcode"
-            )
+            // Only allow if the user was aware these are considered adapters
+            if barcode_type != BarcodeType::Fadapter && barcode_type != BarcodeType::Radapter {
+                panic!(
+                    "Only adapters are allowed to be used as single query, use -b Fadapter or -b Radapter (see --help)"
+                );
+            }
+            return Self {
+                flank: query_seqs[0].clone(),
+                flank_prefix: Vec::new(),
+                flank_suffix: Vec::new(),
+                bar_region: (0, 0),
+                pad_region: (0, 0),
+                barcodes: vec![],
+                k_cutoff: None,
+                barcode_type: barcode_type,
+            };
         }
         let query_seqs_refs: Vec<&[u8]> = query_seqs.iter().map(|seq| seq.as_slice()).collect();
         let (prefix, suffix) = Self::get_flanks(&query_seqs_refs);
@@ -207,6 +228,20 @@ impl BarcodeGroup {
         // Always expand templates into groups
         let mut groups = Vec::new();
         for tmpl in kit_config.templates {
+            // If the template is an adapter, we dont need to expand barcodes
+            if tmpl.barcode_type == BarcodeType::Fadapter
+                || tmpl.barcode_type == BarcodeType::Radapter
+            {
+                assert!(tmpl.parts.len() == 1, "Adapters should only have one part");
+                let adapter_seq = tmpl.parts[0].as_bytes().to_vec();
+                groups.push(BarcodeGroup::new(
+                    vec![adapter_seq],
+                    vec![tmpl.barcodes.from.to_string()],
+                    tmpl.barcode_type.clone(),
+                ));
+                continue;
+            }
+
             // Only add extended templates if users allowed it
             if tmpl.template_type == TemplateType::Extended && !also_use_extended {
                 println!("Skipping extended template {kit}");
@@ -240,12 +275,11 @@ impl BarcodeGroup {
                 query_labels.push(barcode_name);
             }
 
-            let btype = match tmpl.barcode_type {
-                TemplateBarcodeType::Left => BarcodeType::Ftag,
-                TemplateBarcodeType::Right => BarcodeType::Rtag,
-            };
-
-            groups.push(BarcodeGroup::new(query_seqs, query_labels, btype));
+            groups.push(BarcodeGroup::new(
+                query_seqs,
+                query_labels,
+                tmpl.barcode_type.clone(),
+            ));
         }
         groups
     }
@@ -338,7 +372,11 @@ impl BarcodeGroup {
 
     /// Get combined length of the flanking sequences
     pub fn get_effective_len(&self) -> usize {
-        // Simply length of prefix + suffix
+        if self.barcode_type == BarcodeType::Fadapter || self.barcode_type == BarcodeType::Radapter
+        {
+            return self.flank.len();
+        }
+        // In any other case (for barcodes) that is length of prefix + suffix
         self.flank_prefix.len() + self.flank_suffix.len()
     }
 }

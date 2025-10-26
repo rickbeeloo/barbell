@@ -1,6 +1,6 @@
 use barbell::annotate::annotator::*;
 use barbell::annotate::barcodes::BarcodeType;
-use barbell::filter::filter::filter_from_text_file;
+use barbell::filter::filter::{FilterStrategy, filter_from_text_file};
 use barbell::inspect::inspect;
 use barbell::kits::use_kit::demux_using_kit;
 use barbell::trim::trim::{LabelSide, trim_matches};
@@ -12,48 +12,6 @@ use colored::*;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
-}
-
-#[derive(Subcommand)]
-enum UtilsCommands {
-    /// Group raw reads by label without trimming
-    Pull {
-        /// Input filtered annotation file
-        #[arg(short = 'i', long)]
-        input: String,
-
-        /// Read FASTQ file
-        #[arg(short = 'r', long)]
-        reads: String,
-
-        /// Output folder path for grouped reads
-        #[arg(short = 'o', long)]
-        output: String,
-
-        /// Disable label in output filenames
-        #[arg(long, default_value_t = false)]
-        no_label: bool,
-
-        /// Disable orientation in output filenames
-        #[arg(long, default_value_t = false)]
-        no_orientation: bool,
-
-        /// Disable flank in output filenames
-        #[arg(long, default_value_t = false)]
-        no_flanks: bool,
-
-        /// Sort barcode labels in output filenames
-        #[arg(long, default_value_t = false)]
-        sort_labels: bool,
-
-        /// Only keep left or right label in output filenames
-        #[arg(long, conflicts_with = "sort_labels")]
-        only_side: Option<LabelSide>,
-
-        /// Write ids of reads with no annotations to this file
-        #[arg(long)]
-        failed_out: Option<String>,
-    },
 }
 
 #[derive(Subcommand)]
@@ -125,6 +83,10 @@ enum Commands {
         /// Write dropped read annotation to this file
         #[arg(long)]
         dropped: Option<String>,
+
+        /// if present, discard reads with internal matches
+        #[arg(long)]
+        discard_internal: bool,
     },
 
     /// Trim and sort reads based on filtered annotations
@@ -231,6 +193,10 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         use_extended: bool,
 
+        /// if present, discard reads with internal matches
+        #[arg(long, default_value_t = false)]
+        discard_internal: bool,
+
         /// Edit cost beyond read boundaries
         #[arg(long = "alpha", default_value_t = 0.4)]
         alpha: f32,
@@ -295,6 +261,8 @@ fn main() {
                 .map(|s| match s.trim() {
                     "Ftag" => BarcodeType::Ftag,
                     "Rtag" => BarcodeType::Rtag,
+                    "Fadapter" => BarcodeType::Fadapter,
+                    "Radapter" => BarcodeType::Radapter,
                     _ => {
                         panic!("Unknown barcode type: {s}, use one of: Ftag, Rtag")
                     }
@@ -324,10 +292,17 @@ fn main() {
             output,
             file,
             dropped,
+            discard_internal,
         } => {
             println!("{}", "Starting filtering...".green());
 
-            match filter_from_text_file(input, file, output, dropped.as_deref()) {
+            let strategy = if *discard_internal {
+                FilterStrategy::DiscardInternal
+            } else {
+                FilterStrategy::KeepAll
+            };
+
+            match filter_from_text_file(input, file, output, dropped.as_deref(), strategy) {
                 Ok(_) => println!("{}", "Filtering successful!".green()),
                 Err(e) => println!("{} {}", "Filtering failed:".red(), e),
             }
@@ -386,7 +361,14 @@ fn main() {
             failed_out,
             use_extended,
             alpha,
+            discard_internal,
         } => {
+            let strategy = if *discard_internal {
+                FilterStrategy::DiscardInternal
+            } else {
+                FilterStrategy::KeepAll
+            };
+
             demux_using_kit(
                 kit.as_str(),
                 input,
@@ -400,6 +382,7 @@ fn main() {
                 failed_out.clone(),
                 *use_extended,
                 *alpha,
+                strategy,
             );
         }
     }

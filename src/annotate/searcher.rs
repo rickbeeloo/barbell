@@ -241,6 +241,31 @@ impl Demuxer {
 
             let flank_matches = self.overhang_searcher.search(flank, &read, flank_k);
 
+            // If the search was a Fflank/Rflank we only have to search the flanks and not extract the barcode region
+            if barcode_group.barcode_type == BarcodeType::Fadapter
+                || barcode_group.barcode_type == BarcodeType::Radapter
+            {
+                for flank_match in flank_matches.iter() {
+                    results.push(BarbellMatch::new(
+                        flank_match.text_start,
+                        flank_match.text_end,
+                        flank_match.text_start,
+                        flank_match.text_end,
+                        0,
+                        0,
+                        barcode_group.barcode_type.clone(),
+                        flank_match.cost,
+                        flank_match.cost, // Keep same cost as barcode for now
+                        "flank".to_string(),
+                        flank_match.strand,
+                        read.len(),
+                        read_id.to_string(),
+                        rel_dist_to_end(flank_match.text_start as isize, read.len()),
+                        None,
+                    ));
+                }
+            }
+
             for flank_match in flank_matches.iter() {
                 // Get barcode region
                 let (mut mask_start, mut mask_end) = barcode_group.bar_region;
@@ -405,5 +430,127 @@ impl Demuxer {
         }
 
         collapse_overlapping_matches(&results, 0.8)
+    }
+}
+
+mod tests {
+    use super::*;
+    use crate::annotate::barcodes::*;
+    use rand::prelude::*;
+    use rand::seq::SliceRandom;
+    use std::hint::black_box;
+
+    fn edit(seq: &[u8], num_errors: usize) -> Vec<u8> {
+        let mut rng = thread_rng();
+        let mut edited = seq.to_vec();
+
+        for _ in 0..num_errors {
+            // Skip if empty
+            if edited.is_empty() {
+                break;
+            }
+
+            // Choose operation
+            match rng.gen_range(0..3) {
+                // Substitution
+                0 => {
+                    let bases = b"ATGC";
+                    let pos = rng.gen_range(0..edited.len());
+                    let new_base = *bases.choose(&mut rng).unwrap();
+                    edited[pos] = new_base;
+                }
+
+                // Insertion
+                1 => {
+                    let bases = b"ATGC";
+                    let new_base = *bases.choose(&mut rng).unwrap();
+                    let pos = rng.gen_range(0..=edited.len()); // insertion *can* go at the end
+                    edited.insert(pos, new_base);
+                }
+
+                // Deletion
+                2 => {
+                    if !edited.is_empty() {
+                        let pos = rng.gen_range(0..edited.len());
+                        edited.remove(pos);
+                    }
+                }
+
+                _ => unreachable!(),
+            }
+        }
+
+        edited
+    }
+
+    fn reverse_complement(seq: &[u8]) -> Vec<u8> {
+        let mut rng = thread_rng();
+        let mut seq = seq.to_vec();
+        seq.reverse();
+        seq.iter_mut().for_each(|base| {
+            *base = match base {
+                b'A' => b'T',
+                b'C' => b'G',
+                b'G' => b'C',
+                b'T' => b'A',
+                _ => unreachable!(),
+            }
+        });
+        seq
+    }
+
+    #[test]
+    #[ignore]
+    fn fuzz_demuxer() {
+        let mut rng = thread_rng();
+
+        let mut demuxer = Demuxer::new(0.8, false, 0.2, 0.1);
+        let query_groups: Vec<BarcodeGroup> = BarcodeGroup::new_from_kit("SQK-RBK114-96", false);
+        for group in query_groups {
+            demuxer.add_query_group(group);
+        }
+
+        let left_flank: &[u8] = b"GCTTGGGTGTTTAACC";
+        let barcode: &[u8] = b"AAGAAAGTTGTCGGTGTCTTTGTG";
+        let right_flank: &[u8] = b"GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
+
+        let parts = vec![left_flank, barcode, right_flank];
+        let attempts = 1_000_000;
+
+        for _ in 0..attempts {
+            // Choose a random subset of parts (size 1–3)
+            let num_parts = rng.gen_range(1..=3);
+            let mut chosen_parts = parts
+                .choose_multiple(&mut rng, num_parts)
+                .cloned()
+                .collect::<Vec<_>>();
+
+            // Random order
+            chosen_parts.shuffle(&mut rng);
+
+            // Concatenate
+            let combined: Vec<u8> = chosen_parts
+                .iter()
+                .flat_map(|p| p.iter().copied())
+                .collect();
+
+            // Apply random number of edits (0–80)
+            let num_edits = rng.gen_range(0..=80);
+            let mut mutated = edit(&combined, num_edits);
+
+            // Lets see if we rc it
+            let rc_bool = rng.gen_bool(0.5);
+            if rc_bool {
+                mutated = reverse_complement(&mutated);
+            }
+
+            // Slice only first 35
+            let slice_end = 35.min(mutated.len());
+            mutated = mutated[..slice_end].to_vec();
+
+            // Run the demuxer and consume result
+            let matches = demuxer.demux("fuzzed", &mutated);
+            black_box(matches);
+        }
     }
 }

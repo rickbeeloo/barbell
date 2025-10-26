@@ -11,3 +11,4 @@ filter.txt
 *.py
 /*.fasta
 *backup*
+tests/

@@ -1,4 +1,5 @@
 use crate::annotate::annotator::annotate_with_kit;
+use crate::filter::filter::FilterStrategy;
 use crate::filter::filter::filter;
 use crate::inspect::inspect::inspect;
 use crate::kits::kits::*;
@@ -19,6 +20,7 @@ pub fn demux_using_kit(
     failed_out: Option<String>,
     use_extended: bool,
     alpha: f32,
+    filter_strategy: FilterStrategy,
 ) {
     // Create output folder if not exists yet
     if !Path::new(output_folder).exists() {
@@ -79,6 +81,7 @@ pub fn demux_using_kit(
         format!("{output_folder}/filtered.tsv").as_str(),
         None,
         patterns,
+        filter_strategy,
     )
     .expect("Filter failed");
 

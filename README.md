@@ -122,7 +122,6 @@ but worth it if quality is essential (i.e. generating consensus sequences).
 
 - **Using a kit other than native or rapid** and observing unexpected annotations: Please report an issue.
 
-
 ---
 
 ## In-depth inspection of Nanopore kit results

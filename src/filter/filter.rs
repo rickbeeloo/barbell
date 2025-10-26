@@ -52,6 +52,7 @@ pub fn filter(
     output_file: &str,
     dropped_out_file: Option<&str>,
     filters: &[Pattern],
+    filter_strategy: FilterStrategy,
 ) -> Result<(), Box<dyn Error>> {
     // Setup progress bar
     let (total_bar, kept_bar, dropped_bar) = create_progress_bar();
@@ -90,7 +91,9 @@ pub fn filter(
             if read_id != &record.read_id {
                 total_bar.inc(1);
                 // Process previous group
-                if check_filter_pass(&mut current_group, filters) {
+                let passed =
+                    check_filter_pass_sub_pattern(&mut current_group, filters, filter_strategy);
+                if passed {
                     kept_bar.inc(1);
                     for annotation in &current_group {
                         writer.serialize(annotation)?;
@@ -121,7 +124,8 @@ pub fn filter(
     // Process the last group
     if !current_group.is_empty() {
         total_bar.inc(1);
-        if check_filter_pass(&mut current_group, filters) {
+        let passed = check_filter_pass_sub_pattern(&mut current_group, filters, filter_strategy);
+        if passed {
             kept_bar.inc(1);
             for annotation in &current_group {
                 writer.serialize(annotation)?;
@@ -165,10 +169,17 @@ pub fn filter_from_pattern_str(
     pattern_str: &str,
     output_file: &str,
     dropped_out_file: Option<&str>,
+    filter_strategy: FilterStrategy,
 ) -> Result<(), Box<dyn Error>> {
     // use pattern macro to convert pattern_str to pattern
     let pattern = pattern_from_str!(pattern_str);
-    filter(annotated_file, output_file, dropped_out_file, &[pattern])
+    filter(
+        annotated_file,
+        output_file,
+        dropped_out_file,
+        &[pattern],
+        filter_strategy,
+    )
 }
 
 pub fn filter_from_text_file(
@@ -176,6 +187,7 @@ pub fn filter_from_text_file(
     text_file: &str,
     output_file: &str,
     dropped_out_file: Option<&str>,
+    filter_strategy: FilterStrategy,
 ) -> Result<(), Box<dyn Error>> {
     // read the text file into a vector of strings
     let patterns = std::fs::read_to_string(text_file)?;
@@ -190,17 +202,201 @@ pub fn filter_from_text_file(
         .iter()
         .map(|s| pattern_from_str!(s))
         .collect::<Vec<Pattern>>();
-    filter(annotated_file, output_file, dropped_out_file, &patterns)
+    filter(
+        annotated_file,
+        output_file,
+        dropped_out_file,
+        &patterns,
+        filter_strategy,
+    )
 }
 
-fn check_filter_pass(annotations: &mut [BarbellMatch], patterns: &[Pattern]) -> bool {
+#[derive(Debug)]
+struct Interval {
+    start: usize,
+    end: usize,
+    start_inclusive: bool, // true for [start, false for (start
+    end_inclusive: bool,   // true for end], false for end)
+    cut_idx: usize,
+}
+
+fn greedy_solve(all_cuts: Vec<Vec<(usize, Cut)>>) -> Vec<Vec<(usize, Cut)>> {
+    println!("Greedy solver");
+    for (cut_idx, cut) in all_cuts.iter().enumerate() {
+        println!("\tCut {}: {:?}", cut_idx, cut);
+    }
+
+    let mut intervals = Vec::new();
+
+    for (i, cut) in all_cuts.iter().enumerate() {
+        match cut.len() {
+            1 => {
+                let pos = cut[0].0;
+                match cut[0].1.direction {
+                    CutDirection::After => {
+                        // [pos, ∞) - start is inclusive, end is open (at infinity)
+                        intervals.push(Interval {
+                            start: pos,
+                            end: usize::MAX,
+                            start_inclusive: true,
+                            end_inclusive: false,
+                            cut_idx: i,
+                        });
+                    }
+                    CutDirection::Before => {
+                        // (-∞, pos] - start is open (at -infinity), end is inclusive
+                        intervals.push(Interval {
+                            start: 0,
+                            end: pos,
+                            start_inclusive: false,
+                            end_inclusive: true,
+                            cut_idx: i,
+                        });
+                    }
+                }
+            }
+            2 => {
+                let (pos_a, dir_a) = (cut[0].0, &cut[0].1.direction);
+                let (pos_b, dir_b) = (cut[1].0, &cut[1].1.direction);
+
+                // Determine the interval bounds
+                let (start, end) = (pos_a.min(pos_b), pos_a.max(pos_b));
+
+                // For a closed interval [a, b], we need:
+                // - After at the lower position (cuts after a, so includes a)
+                // - Before at the upper position (cuts before b, so includes b)
+                let start_inclusive = if pos_a < pos_b {
+                    matches!(dir_a, CutDirection::After)
+                } else {
+                    matches!(dir_b, CutDirection::After)
+                };
+
+                let end_inclusive = if pos_a > pos_b {
+                    matches!(dir_a, CutDirection::Before)
+                } else {
+                    matches!(dir_b, CutDirection::Before)
+                };
+
+                intervals.push(Interval {
+                    start,
+                    end,
+                    start_inclusive,
+                    end_inclusive,
+                    cut_idx: i,
+                });
+            }
+            _ => {
+                panic!("Warning: unexpected cut length {}", cut.len());
+            }
+        }
+    }
+
+    // Sort by end coordinate, then by end_inclusive (exclusive ends first to prefer earlier cuts)
+    intervals.sort_by_key(|interval| (interval.end, interval.end_inclusive));
+
+    let mut result = Vec::new();
+    let mut last_interval: Option<Interval> = None;
+
+    for interval in intervals {
+        let overlaps = if let Some(ref last) = last_interval {
+            // Check if intervals overlap
+            // They overlap only if new_start is strictly before last_end
+            // Touching at a single boundary point (start == end) is NOT an overlap
+            interval.start < last.end
+        } else {
+            false
+        };
+
+        if !overlaps {
+            result.push(all_cuts[interval.cut_idx].clone());
+            last_interval = Some(interval);
+        }
+    }
+
+    result
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterStrategy {
+    KeepAll,
+    DiscardInternal,
+}
+
+fn check_filter_pass_sub_pattern(
+    annotations: &mut [BarbellMatch],
+    patterns: &[Pattern],
+    strategy: FilterStrategy,
+) -> bool {
+    // This is simple, if we have any match that is not at the ends we discard it
+    // if the users wants to be strict
+    match strategy {
+        FilterStrategy::KeepAll => {
+            // Do nothing
+        }
+        FilterStrategy::DiscardInternal => {
+            for annotation in annotations.iter() {
+                if annotation.read_start_bar > 250
+                    || annotation.read_end_bar < annotation.read_len - 250
+                {
+                    return false;
+                }
+            }
+        }
+    }
+
+    // We just keep track of every sub pattern we can find for all patterns
+    let mut all_cuts = vec![];
+
+    for (pattern_idx, pattern) in patterns.iter().enumerate() {
+        // cut position is (match_idx, cut)
+        let (is_match, cut_positions) = match_sub_pattern(annotations, pattern);
+
+        if is_match {
+            all_cuts.extend(cut_positions);
+        }
+    }
+
+    if all_cuts.is_empty() {
+        return false;
+    }
+
+    // After collecting all cuts, we have to collapse them to single coverage
+    // for now, use greedy solver
+    let mut best_cut_positions = greedy_solve(all_cuts);
+
+    // Since in sub pattern matching we allow multiple matches our cut ids are not meaninful
+    // we make sure each group has a unique cut id
+    // todo: check input such that each pattern has ONLY at most two cut identifiers (>>, <<)
+    // if not, panic
+    for (id_accum, cut_group) in best_cut_positions.iter_mut().enumerate() {
+        for (_, cut) in cut_group.iter_mut() {
+            cut.group_id = id_accum;
+        }
+    }
+
+    // Per group that we found, we have to update the cuts for all annotations WITHIN
+    // that group
+    for (_cut_id_accumulated, cut_group) in best_cut_positions.iter().enumerate() {
+        for (cut_match_idx, cut) in cut_group {
+            if let Some(existing_cuts) = &mut annotations[*cut_match_idx].cuts {
+                existing_cuts.push((cut.clone(), *cut_match_idx));
+            } else {
+                annotations[*cut_match_idx].cuts = Some(vec![(cut.clone(), *cut_match_idx)]);
+            }
+        }
+    }
+
+    !best_cut_positions.is_empty()
+}
+
+fn check_filter_pass_full_pattern(annotations: &mut [BarbellMatch], patterns: &[Pattern]) -> bool {
     // Track both the maximum number of matches and the cut positions
     let mut max_matches = 0;
     let mut best_cut_positions: Option<Vec<(usize, Cut)>> = None;
 
     for pattern in patterns {
         // cut position is (match_idx, cut)
-        let (is_match, cut_positions) = match_pattern(annotations, pattern);
+        let (is_match, cut_positions) = match_full_pattern(annotations, pattern);
         if is_match {
             let pattern_len = pattern.elements.len();
             if pattern_len > max_matches {
@@ -224,4 +420,142 @@ fn check_filter_pass(annotations: &mut [BarbellMatch], patterns: &[Pattern]) -> 
     }
 
     max_matches == annotations.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::annotate::barcodes::BarcodeType;
+    use crate::annotate::searcher::BarbellMatch;
+    use sassy::Strand;
+
+    #[test]
+    fn test_greedy_solve() {
+        // Say the user supplied two patterns
+        let pattern1 = pattern_from_str!("Ftag[fw, *, @left(0..250), >>]");
+        let pattern2 =
+            pattern_from_str!("Ftag[fw, *, @left(0..250), >>]__Rtag[<<, fw, *, @right(0..250)]");
+
+        let mut matches = vec![
+            BarbellMatch::new(
+                0,   // read_start_bar
+                100, // read_end_bar
+                0,   // read_start_flank
+                100, // read_end_flank
+                0,   // bar_start
+                100, // bar_end
+                BarcodeType::Ftag,
+                0, // flank_cost
+                0, // barcode_cost
+                "XXX".to_string(),
+                Strand::Fwd,
+                250, // read_len
+                "test".to_string(),
+                0,
+                None,
+            ),
+            BarbellMatch::new(
+                100, // read_start_bar
+                200, // read_end_bar
+                100, // read_start_flank
+                200, // read_end_flank
+                0,   // bar_start
+                100, // bar_end
+                BarcodeType::Rtag,
+                0, // flank_cost
+                0, // barcode_cost
+                "XXX".to_string(),
+                Strand::Fwd,
+                250, // read_len
+                "test".to_string(),
+                0,
+                None,
+            ),
+        ];
+
+        // This mutates the matches with cut information
+        let mut matches2 = matches.clone(); // For second test 
+        let passed = check_filter_pass_sub_pattern(
+            &mut matches,
+            &[pattern1, pattern2],
+            FilterStrategy::KeepAll,
+        );
+        assert!(passed);
+        let match1 = matches[0].clone();
+        let match2 = matches[1].clone();
+        // If indeed greedy, second pattern Ftag__Rtag should be used
+        // meaning first match should have Before label, and second should have After label
+        assert_eq!(
+            match1.cuts,
+            Some(vec![(
+                Cut {
+                    group_id: 0,
+                    direction: CutDirection::After
+                },
+                0
+            )])
+        );
+        assert_eq!(
+            match2.cuts,
+            Some(vec![(
+                Cut {
+                    group_id: 0,
+                    direction: CutDirection::Before
+                },
+                1
+            )])
+        );
+
+        // Say we did the same using two patterns seperate, it should still pass but being split
+        let pattern1 = pattern_from_str!("Ftag[fw, *, @left(0..250), >>]");
+        let pattern2 = pattern_from_str!("Rtag[<<, fw, *, @right(0..250)]");
+        let pattern3 = pattern_from_str!("Rtag[fw, *, @right(0..250), >>]");
+
+        // This is a complex case, first of all both the Ftag and Rtag
+        // effectively cover the same region, just from two different directions
+        // we should just pick one (arbitrary). The second complicated thing is
+        // that the second Rtag is the same Rtag in this case as the first one
+        // just that we have to cut it to the right now
+        /*
+           Ftag---------Rtag-------
+           [>>>>>>>>>>>>]
+           [<<<<<<<<<<<<] (label based on Ftag,Rtag)
+                        [>>>>>>>>>>>] (label based on Rtag)
+                        ^ Note, Rtag should have two cuts in this case one Before, and one After
+        */
+        let first_expected_cuts = Some(vec![(
+            Cut {
+                group_id: 0,
+                direction: CutDirection::After,
+            },
+            0,
+        )]);
+
+        let second_expected_cuts = Some(vec![
+            (
+                Cut {
+                    group_id: 0,
+                    direction: CutDirection::Before,
+                },
+                1,
+            ),
+            (
+                Cut {
+                    group_id: 1, // In this case indicating second pattern cut
+                    direction: CutDirection::After,
+                },
+                1,
+            ),
+        ]);
+
+        let passed = check_filter_pass_sub_pattern(
+            &mut matches2,
+            &[pattern1, pattern2, pattern3],
+            FilterStrategy::KeepAll,
+        );
+        assert!(passed);
+        assert_eq!(matches2.len(), 2);
+        assert_eq!(matches2[0].cuts, first_expected_cuts);
+        assert_eq!(matches2[1].cuts, second_expected_cuts);
+    }
 }
