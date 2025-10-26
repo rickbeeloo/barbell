@@ -72,7 +72,6 @@ pub fn annotate_with_files(
         } else {
             // Determine based on formula
             let edit_cut_off = get_edit_cut_off(query_group.get_effective_len());
-            println!("Auto edit flank cut off: {edit_cut_off}");
             query_group.set_flank_threshold(edit_cut_off);
         }
         query_groups.push(query_group);
@@ -176,8 +175,13 @@ pub fn annotate(
     ));
 
     // Dispaly to user
-    for (i, query_group) in query_groups.iter().enumerate() {
-        println!("{}: {}", query_group.barcode_type.as_str(), i);
+    for query_group in query_groups.iter() {
+        let edit_cut_off = query_group.k_cutoff.unwrap_or(0);
+        println!(
+            "{}: (auto edit cut off: {})",
+            query_group.barcode_type.as_str(),
+            edit_cut_off
+        );
         query_group.display(5);
     }
 
