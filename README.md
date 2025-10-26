@@ -3,8 +3,8 @@
 
 > [!IMPORTANT]  
 > This is a work in progress to recognize "sub-patterns" such that 
-> a read like `Ftag----Rtag------` can still be slices to `Ftag--Rtag` discarding 
-> the trailing part `----`. This also allows more flexibility around adapter
+> a read like `Ftag----Rtag------` can still be sliced to `Ftag--Rtag` discarding 
+> the trailing part (`----`). This also allows more flexibility around adapters
 > such as `Ftag-----adapter------`, we can still salvage the prefix `Ftag-----`
 
 ## Why Barbell?
