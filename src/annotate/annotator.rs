@@ -138,7 +138,7 @@ pub fn annotate_with_groups(
             } else {
                 // Determine based on formula
                 let edit_cut_off = get_edit_cut_off(query_group.get_effective_len());
-                println!("Auto edit flank cut off: {edit_cut_off}");
+                // println!("Auto edit flank cut off: {edit_cut_off}");
                 query_group.set_flank_threshold(edit_cut_off);
             }
             query_group
