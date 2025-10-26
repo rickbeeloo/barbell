@@ -1,3 +1,4 @@
+use crate::annotate::barcodes::BarcodeType;
 use crate::annotate::searcher::BarbellMatch;
 use crate::filter::pattern::*;
 use crate::pattern_from_str;
@@ -350,9 +351,9 @@ impl FilterStrategy {
 }
 
 fn check_internal(annotations: &mut [BarbellMatch]) -> bool {
-    println!("Checking internal");
+    // println!("Checking internal");
     for annotation in annotations.iter() {
-        if annotation.read_start_bar > 250 || annotation.read_end_bar < annotation.read_len - 250 {
+        if annotation.read_start_bar > 250 && annotation.read_end_bar < annotation.read_len - 250 {
             return false;
         }
     }
@@ -362,9 +363,11 @@ fn check_internal(annotations: &mut [BarbellMatch]) -> bool {
 fn check_diff_barcodes(annotations: &mut [BarbellMatch]) -> bool {
     let mut unique = HashSet::new();
     for a in annotations.iter() {
-        unique.insert(&a.label);
-        if unique.len() > 1 {
-            return false;
+        if a.match_type == BarcodeType::Ftag || a.match_type == BarcodeType::Rtag {
+            unique.insert(&a.label);
+            if unique.len() > 1 {
+                return false;
+            }
         }
     }
     true
