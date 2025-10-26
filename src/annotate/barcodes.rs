@@ -170,6 +170,13 @@ impl BarcodeGroup {
     }
 
     pub fn display(&self, n: usize) {
+        if self.barcode_type == BarcodeType::Fadapter || self.barcode_type == BarcodeType::Radapter
+        {
+            let adapter_str = String::from_utf8_lossy(&self.flank).blue();
+            println!("Adapter: {adapter_str}");
+            return;
+        }
+
         // This will show with padding, if we get the bar region
         let (mask_start, mask_end) = self.bar_region;
 
