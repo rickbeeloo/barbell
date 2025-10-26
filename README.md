@@ -85,15 +85,22 @@ Barbell includes built-in kit *presets* for many Nanopore kits (most DNA kits; R
 Basic command:
 
 ```bash
-barbell kit -k <kit-name> -i <reads.fastq> -o <output_folder> --maximize
+barbell kit -k <kit-name> -i <reads.fastq> -o <output_folder> 
 ```
 
-The `--maximize` option is recommended (e.g., for assembly) unless you need an ultra-strict barcode configuration.
+Not unlike the `master` branch there is no `--maximize` here instead we can pass a "stategy":
+```bash
+--strategy <STRATEGY>
+          Filtering strategy: 'flexible' (sub-pattern), 'terminal' (no internal matches), 'unique-labels' (no mixed barcodes), or 'complete' (both filters) [default: flexible]
+```
+Here `flexible` (default) slices out as much as it can. 
+
+
 
 ### Native barcoding example (SQK-NBD114-96)
 
 ```bash
-barbell kit -k SQK-NBD114-96 -i reads.fastq -o output_folder --maximize
+barbell kit -k SQK-NBD114-96 -i reads.fastq -o output_folder
 ```
 
 This uses a conservative flank-based edit-distance cutoff. If many reads are missed during `annotate`, you can relax the flank error threshold, for example:
@@ -107,7 +114,7 @@ This uses a conservative flank-based edit-distance cutoff. If many reads are mis
 ### Rapid barcoding example (SQK-RBK114-96)
 
 ```bash
-barbell kit -k SQK-RBK114-96 -i reads.fastq -o output_folder --maximize
+barbell kit -k SQK-RBK114-96 -i reads.fastq -o output_folder
 ```
 
 For a list of supported kits (see `data/supported_kits.txt`). Note that we thoroughly tested the rapid and native kits but not others, if you experience any issues please report them.
