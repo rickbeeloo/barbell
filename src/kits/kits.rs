@@ -12,6 +12,8 @@ const ADAPTER_NATIVE_BOTTOM: &str = "ACGTAACTGAACGAAGTACAGG"; // Reverse complem
 
 #[allow(dead_code)]
 const ADAPTER_RAPID_TOP: &str = "TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCT"; // Same as native top adapter
+// This is just the "flank" from mu transposon but interesting to search for seperatly
+const ADAPTER_RAPID_MU_FLANK: &str = "GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
 
 //From https://github.com/nanoporetech/dorado/blob/e72f14925cd435fff823ebf244ce2195b135a863/dorado/utils/barcode_kits.cpp
 const RAB_1ST_FRONT: &str = "CCGTGAC";
@@ -427,14 +429,21 @@ static TEMPLATES_RBK96_KIT14: &[TemplateSpec] = &[
         barcodes: LabelRange::new("", ""),
         barcode_type: BarcodeType::Fadapter,
         template_type: TemplateType::Default,
-    }, // // Recognition sides in RBK are long enough so we can also
-       // // add a 'short' version for odd concatenations we observed
-       // TemplateSpec {
-       //     parts: &[RBK4_KIT14_FRONT, "{BAR}", RKB4_FRONT_FUSION],
-       //     barcodes: LabelRange::new("RBK01", "RBK96"),
-       //     barcode_type: BarcodeType::Ftag,
-       //     template_type: TemplateType::Extended,
-       // },
+    },
+    TemplateSpec {
+        parts: &[ADAPTER_RAPID_MU_FLANK],
+        barcodes: LabelRange::new("", ""),
+        barcode_type: BarcodeType::Radapter,
+        template_type: TemplateType::Default,
+    },
+    // // Recognition sides in RBK are long enough so we can also
+    // // add a 'short' version for odd concatenations we observed
+    // TemplateSpec {
+    //     parts: &[RBK4_KIT14_FRONT, "{BAR}", RKB4_FRONT_FUSION],
+    //     barcodes: LabelRange::new("RBK01", "RBK96"),
+    //     barcode_type: BarcodeType::Ftag,
+    //     template_type: TemplateType::Extended,
+    // },
 ];
 
 static TEMPLATES_RBK24_KIT14: &[TemplateSpec] = &[TemplateSpec {
