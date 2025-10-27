@@ -66,7 +66,13 @@ Then we can install Barbell:
 
 ```bash
 rustup default nightly
-RUSTFLAGS="-C target-cpu=native" cargo install --git https://github.com/rickbeeloo/barbell barbell
+RUSTFLAGS="-C target-cpu=native" cargo install --git https://github.com/rickbeeloo/barbell --branch subpatterns barbell
+```
+
+Verify:
+```bash
+barbell --version
+barbell 0.2.1
 ```
 
 ---

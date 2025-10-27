@@ -166,10 +166,6 @@ enum Commands {
         #[arg(short = 'o', long)]
         output: String,
 
-        /// Add more 'risky' patterns to demuxing to maximize assigned reads
-        #[arg(long, default_value_t = false)]
-        maximize: bool,
-
         /// Enable verbose output for debugging
         #[arg(long, default_value_t = false)]
         verbose: bool,
@@ -362,7 +358,6 @@ fn main() {
             input,
             threads,
             output,
-            maximize,
             verbose,
             min_score,
             min_score_diff,
