@@ -5,6 +5,13 @@ pub fn collapse_overlapping_matches(
     matches: &[BarbellMatch],
     filter_overlap: f32,
 ) -> Vec<BarbellMatch> {
+    // for m in matches.iter() {
+    //     println!(
+    //         "Match type: {:?} - {} - {} - {}",
+    //         m.match_type, m.read_start_flank, m.read_end_flank, m.label
+    //     );
+    // }
+
     if matches.is_empty() {
         return Vec::new();
     }

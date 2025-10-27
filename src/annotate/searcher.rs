@@ -429,7 +429,8 @@ impl Demuxer {
             }
         }
 
-        collapse_overlapping_matches(&results, 0.8)
+        let results = collapse_overlapping_matches(&results, 0.99);
+        results
     }
 }
 
