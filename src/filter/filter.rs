@@ -386,7 +386,9 @@ fn check_if_clean(annotations: &mut [BarbellMatch]) -> bool {
         cov += end - start;
     }
 
-    if cov < (read_len as f32 * 0.75) as usize {
+    let cov_perc = cov as f32 / read_len as f32;
+
+    if cov_perc < 0.5 {
         return true;
     }
 
