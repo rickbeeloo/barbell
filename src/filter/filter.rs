@@ -366,7 +366,11 @@ fn check_internal(annotations: &mut [BarbellMatch]) -> bool {
 fn check_diff_barcodes(annotations: &mut [BarbellMatch]) -> bool {
     let mut unique = HashSet::new();
     for a in annotations.iter() {
-        if a.match_type == BarcodeType::Ftag || a.match_type == BarcodeType::Rtag {
+        if a.match_type == BarcodeType::Ftag
+            || a.match_type == BarcodeType::Rtag
+            || a.match_type == BarcodeType::Fbar
+            || a.match_type == BarcodeType::Rbar
+        {
             unique.insert(&a.label);
             if unique.len() > 1 {
                 return false;
@@ -496,7 +500,7 @@ fn check_filter_pass_sub_pattern(
 
     // Per group that we found, we have to update the cuts for all annotations WITHIN
     // that group
-    for (_cut_id_accumulated, cut_group) in best_cut_positions.iter().enumerate() {
+    for cut_group in best_cut_positions.iter() {
         for (cut_match_idx, cut) in cut_group {
             if let Some(existing_cuts) = &mut annotations[*cut_match_idx].cuts {
                 existing_cuts.push((cut.clone(), *cut_match_idx));
