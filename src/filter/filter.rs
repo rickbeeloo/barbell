@@ -318,6 +318,7 @@ pub enum FilterStrategy {
     Flexible, // Use sub pattern matching without any prefilters
     Terminal,
     UniqueLabels,
+    Clean,    // We discard all reads that are 75% or more contaminated
     Complete, // better name ideas?
 }
 
@@ -333,6 +334,7 @@ impl std::fmt::Debug for FilterStrategy {
             FilterStrategy::Complete => {
                 "Complete (combines 'Terminal' and 'UniqueLabels' prefilters)"
             }
+            FilterStrategy::Clean => "Clean (discard all reads that are 75% or more contaminated)",
         };
         write!(f, "FilterStrategy::{:?}: {}", self.as_str(), description)
     }
@@ -346,6 +348,7 @@ impl FilterStrategy {
             FilterStrategy::Terminal => "Terminal",
             FilterStrategy::UniqueLabels => "UniqueLabels",
             FilterStrategy::Complete => "Complete",
+            FilterStrategy::Clean => "Clean",
         }
     }
 }
@@ -373,6 +376,23 @@ fn check_diff_barcodes(annotations: &mut [BarbellMatch]) -> bool {
     true
 }
 
+fn check_if_clean(annotations: &mut [BarbellMatch]) -> bool {
+    let read_len = annotations[0].read_len;
+
+    let mut cov = 0;
+    for a in annotations.iter() {
+        let start = a.read_start_flank;
+        let end = a.read_end_flank;
+        cov += end - start;
+    }
+
+    if cov < (read_len as f32 * 0.75) as usize {
+        return false;
+    }
+
+    true
+}
+
 fn filter_annotations(
     annotations: &mut [BarbellMatch],
     patterns: &[Pattern],
@@ -387,7 +407,12 @@ fn filter_annotations(
         FilterStrategy::Flexible => true,
         FilterStrategy::Terminal => check_internal(annotations),
         FilterStrategy::UniqueLabels => check_diff_barcodes(annotations),
-        FilterStrategy::Complete => check_internal(annotations) && check_diff_barcodes(annotations),
+        FilterStrategy::Clean => check_if_clean(annotations),
+        FilterStrategy::Complete => {
+            check_internal(annotations)
+                && check_diff_barcodes(annotations)
+                && check_if_clean(annotations)
+        }
         _ => unreachable!("Exact is already handled above"),
     };
 

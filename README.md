@@ -80,8 +80,6 @@ barbell 0.2.1
 ## 📸 Preview
 <img src="data/barbell_example.gif" alt="Demo GIF" width="700">
 
-
-
 ---
 
 ## Quickstart
