@@ -113,7 +113,7 @@ fn check_match_type_and_label(m: &BarbellMatch, pattern_element: &PatternElement
         // If Ftag/Rtag, and we have a label in the pattern
         // the pattern label should match, otherwise we assume pattern
         // is label *, and can match any label
-        BarcodeType::Ftag | BarcodeType::Rtag => {
+        BarcodeType::Ftag | BarcodeType::Rtag | BarcodeType::Fbar | BarcodeType::Rbar => {
             if let Some(ref expected_label) = pattern_element.label {
                 // Labels are not the same
                 if expected_label.starts_with("~") {

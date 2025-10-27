@@ -65,6 +65,10 @@ enum Commands {
         /// Edit cost beyond read boundaries
         #[arg(long = "alpha", default_value_t = 0.4)]
         alpha: f32,
+
+        /// To search for lonely barcodes, might have FPs but can reduce potential contamination
+        #[arg(long, default_value_t = false)]
+        lonely_bars: bool,
     },
     /// Filter annotation files based on pattern
     Filter {
@@ -198,6 +202,10 @@ enum Commands {
         /// Edit cost beyond read boundaries
         #[arg(long = "alpha", default_value_t = 0.4)]
         alpha: f32,
+
+        /// To search for lonely barcodes, might have FPs but can reduce potential contamination
+        #[arg(long, default_value_t = false)]
+        lonely_bars: bool,
     },
 }
 
@@ -219,6 +227,7 @@ fn main() {
             min_score_diff,
             use_extended,
             alpha,
+            lonely_bars,
         } => {
             println!("{}", "Starting annotation...".green());
 
@@ -234,6 +243,7 @@ fn main() {
                     *min_score,
                     *min_score_diff,
                     *use_extended,
+                    *lonely_bars,
                 ) {
                     Ok(_) => println!("{}", "Annotation complete!".green()),
                     Err(e) => println!("{} {}", "Error during processing:".red(), e),
@@ -277,6 +287,7 @@ fn main() {
                 *verbose,
                 *min_score,
                 *min_score_diff,
+                *lonely_bars,
             ) {
                 // Convert fractions to raw scores
                 Ok(_) => println!("{}", "Annotation complete!".green()),
@@ -366,6 +377,7 @@ fn main() {
             use_extended,
             strategy,
             alpha,
+            lonely_bars,
         } => {
             let f_strategy = match strategy.as_str() {
                 "exact" => FilterStrategy::Exact,
@@ -394,6 +406,7 @@ fn main() {
                 *use_extended,
                 *alpha,
                 f_strategy,
+                *lonely_bars,
             );
         }
     }

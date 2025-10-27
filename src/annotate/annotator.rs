@@ -62,6 +62,7 @@ pub fn annotate_with_files(
     verbose: bool,
     min_score: f64,
     min_score_diff: f64,
+    search_lonely_bars: bool,
 ) -> anyhow::Result<()> {
     // Get query groups
     let mut query_groups = Vec::new();
@@ -85,6 +86,7 @@ pub fn annotate_with_files(
         verbose,
         min_score,
         min_score_diff,
+        search_lonely_bars,
     )
 }
 
@@ -100,6 +102,7 @@ pub fn annotate_with_kit(
     min_score: f64,
     min_score_diff: f64,
     use_extended: bool,
+    search_lonely_bars: bool,
 ) -> anyhow::Result<()> {
     let query_groups: Vec<BarcodeGroup> = BarcodeGroup::new_from_kit(kit, use_extended);
     annotate_with_groups(
@@ -112,6 +115,7 @@ pub fn annotate_with_kit(
         verbose,
         min_score,
         min_score_diff,
+        search_lonely_bars,
     )
 }
 
@@ -126,6 +130,7 @@ pub fn annotate_with_groups(
     verbose: bool,
     min_score: f64,
     min_score_diff: f64,
+    search_lonely_bars: bool,
 ) -> anyhow::Result<()> {
     // Hmm not sure: fixme: think about where flank error should be set
     // Cannot mutate query_groups because it's not mutable (Vec<BarcodeGroup> is not mutable when passed by value and iterated by reference).
@@ -153,6 +158,7 @@ pub fn annotate_with_groups(
         verbose,
         min_score,
         min_score_diff,
+        search_lonely_bars,
     )
 }
 
@@ -165,6 +171,7 @@ pub fn annotate(
     verbose: bool,
     min_score: f64,
     min_score_diff: f64,
+    search_lonely_bars: bool,
 ) -> anyhow::Result<()> {
     let reader = Reader::from_path(read_file).unwrap();
     let writer = Arc::new(Mutex::new(
@@ -220,7 +227,7 @@ pub fn annotate(
                 // Use the demuxer through thread-local storage
                 let matches: Vec<crate::annotate::searcher::BarbellMatch> = DEMUXER.with(|cell| {
                     if let Some(ref mut demuxer) = *cell.borrow_mut() {
-                        demuxer.demux(record.id().unwrap(), record.seq())
+                        demuxer.demux(record.id().unwrap(), record.seq(), search_lonely_bars)
                     } else {
                         panic!("Demuxer not initialized");
                     }

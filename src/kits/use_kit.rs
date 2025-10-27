@@ -20,6 +20,7 @@ pub fn demux_using_kit(
     use_extended: bool,
     alpha: f32,
     filter_strategy: FilterStrategy,
+    search_lonely_bars: bool,
 ) {
     // Create output folder if not exists yet
     if !Path::new(output_folder).exists() {
@@ -48,6 +49,7 @@ pub fn demux_using_kit(
         min_score,
         min_score_diff,
         use_extended,
+        search_lonely_bars,
     )
     .expect("Annotation failed");
 

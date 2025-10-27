@@ -8,6 +8,8 @@ use pa_types::{CigarOp, Cost};
 use sassy::profiles::Iupac;
 use sassy::{Match, Searcher, Strand};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+// remove later
+use crate::annotate::edit_model::*;
 
 pub struct Demuxer {
     queries: Vec<BarcodeGroup>,
@@ -231,8 +233,47 @@ impl Demuxer {
 
     //fixme: would beneift from some more clean up
     /// Demultiplex read
-    pub fn demux(&mut self, read_id: &str, read: &[u8]) -> Vec<BarbellMatch> {
+    pub fn demux(
+        &mut self,
+        read_id: &str,
+        read: &[u8],
+        search_lonely_bars: bool,
+    ) -> Vec<BarbellMatch> {
         let mut results: Vec<BarbellMatch> = Vec::new();
+
+        if search_lonely_bars {
+            for (group_i, barcode_group) in self.queries.iter().enumerate() {
+                for barcode_and_flank in barcode_group.barcodes.iter() {
+                    let just_bar = &barcode_and_flank.seq
+                        [crate::PADDING..barcode_and_flank.seq.len() - crate::PADDING];
+                    let cut_off = get_edit_cut_off(just_bar.len());
+
+                    // Looking for just barcode match
+                    let just_bar_region_match =
+                        self.regular_searcher.search(just_bar, &read, cut_off);
+
+                    for flank_match in just_bar_region_match {
+                        results.push(BarbellMatch::new(
+                            flank_match.text_start,
+                            flank_match.text_end,
+                            flank_match.text_start,
+                            flank_match.text_end,
+                            flank_match.pattern_start,
+                            flank_match.pattern_end,
+                            barcode_group.barcode_type.as_bar(),
+                            flank_match.cost,
+                            flank_match.cost, // Keep same cost as barcode for now
+                            barcode_and_flank.label.clone(),
+                            flank_match.strand,
+                            read.len(),
+                            read_id.to_string(),
+                            rel_dist_to_end(flank_match.text_start as isize, read.len()),
+                            None,
+                        ));
+                    }
+                }
+            }
+        }
 
         for (group_i, barcode_group) in self.queries.iter().enumerate() {
             let flank = &barcode_group.flank;
@@ -550,7 +591,7 @@ mod tests {
             mutated = mutated[..slice_end].to_vec();
 
             // Run the demuxer and consume result
-            let matches = demuxer.demux("fuzzed", &mutated);
+            let matches = demuxer.demux("fuzzed", &mutated, false);
             black_box(matches);
         }
     }

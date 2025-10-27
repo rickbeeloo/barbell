@@ -56,14 +56,16 @@ fn select_best_match(group: Vec<BarbellMatch>) -> BarbellMatch {
         // Define priority levels
         let priority_a = match a.match_type {
             BarcodeType::Ftag | BarcodeType::Rtag => 1, // Highest priority - actual barcode matches
-            BarcodeType::Fflank | BarcodeType::Rflank => 2, // Medium priority - full flank matches
-            BarcodeType::Fadapter | BarcodeType::Radapter => 3, // Low priority - adapter matches
+            BarcodeType::Fbar | BarcodeType::Rbar => 2,
+            BarcodeType::Fflank | BarcodeType::Rflank => 3, // Medium priority - full flank matches
+            BarcodeType::Fadapter | BarcodeType::Radapter => 4, // Low priority - adapter matches
         };
 
         let priority_b = match b.match_type {
-            BarcodeType::Ftag | BarcodeType::Rtag => 1,
-            BarcodeType::Fflank | BarcodeType::Rflank => 2,
-            BarcodeType::Fadapter | BarcodeType::Radapter => 3,
+            BarcodeType::Ftag | BarcodeType::Rtag => 1, // Highest priority - actual barcode matches
+            BarcodeType::Fbar | BarcodeType::Rbar => 2,
+            BarcodeType::Fflank | BarcodeType::Rflank => 3, // Medium priority - full flank matches
+            BarcodeType::Fadapter | BarcodeType::Radapter => 4,
         };
 
         // First sort by priority level

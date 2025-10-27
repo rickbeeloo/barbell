@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 pub enum BarcodeType {
     Ftag,
     Rtag,
+    Fbar,
+    Rbar,
     Fflank, // Not public, in case Fbar is not detected
     Rflank, // Not public, in case Rbar is not detected
     Fadapter,
@@ -19,7 +21,8 @@ impl BarcodeType {
         match self {
             BarcodeType::Ftag => BarcodeType::Fflank,
             BarcodeType::Rtag => BarcodeType::Rflank,
-            // If already flank just return it again
+            BarcodeType::Fbar => BarcodeType::Fflank,
+            BarcodeType::Rbar => BarcodeType::Rflank,
             BarcodeType::Fflank => BarcodeType::Fflank,
             BarcodeType::Rflank => BarcodeType::Rflank,
             BarcodeType::Fadapter => BarcodeType::Fadapter,
@@ -27,8 +30,18 @@ impl BarcodeType {
         }
     }
 
+    pub fn as_bar(&self) -> Self {
+        match self {
+            BarcodeType::Ftag => BarcodeType::Fbar,
+            BarcodeType::Rtag => BarcodeType::Rbar,
+            _ => panic!("Cannot convert {:?} to bar", self),
+        }
+    }
+
     pub fn as_str(&self) -> &str {
         match self {
+            BarcodeType::Fbar => "Fbar",
+            BarcodeType::Rbar => "Rbar",
             BarcodeType::Ftag => "Ftag",
             BarcodeType::Rtag => "Rtag",
             BarcodeType::Fflank => "Fflank",
