@@ -387,10 +387,10 @@ fn check_if_clean(annotations: &mut [BarbellMatch]) -> bool {
     }
 
     if cov < (read_len as f32 * 0.75) as usize {
-        return false;
+        return true;
     }
 
-    true
+    false
 }
 
 fn filter_annotations(
