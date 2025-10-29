@@ -34,7 +34,7 @@ impl BarcodeType {
         match self {
             BarcodeType::Ftag => BarcodeType::Fbar,
             BarcodeType::Rtag => BarcodeType::Rbar,
-            _ => panic!("Cannot convert {:?} to bar", self),
+            _ => panic!("Cannot convert {self:?} to bar"),
         }
     }
 
@@ -53,14 +53,14 @@ impl BarcodeType {
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
-pub struct Barcode {
+pub struct Seq {
     pub seq: Vec<u8>,
     pub label: String,
     pub match_type: BarcodeType,
     pub k_cutoff: Option<usize>, // Should be 'tuned'
 }
 
-impl Barcode {
+impl Seq {
     pub fn new(seq: &[u8], label: &str, match_type: BarcodeType) -> Self {
         if !Iupac::valid_seq(seq) {
             panic!("Sequence contains character not supported by IUPAC");
@@ -84,8 +84,12 @@ pub struct BarcodeGroup {
     pub bar_region: (usize, usize),
     // Where the barcode + padding is in the sequence
     pub pad_region: (usize, usize),
-    pub barcodes: Vec<Barcode>,
-    pub k_cutoff: Option<usize>,
+
+    pub padded_barcodes: Vec<Seq>,
+    pub barcodes: Vec<Seq>,
+
+    pub flank_k_cutoff: Option<usize>,
+    pub barcode_k_cutoff: Option<usize>,
     pub barcode_type: BarcodeType,
 }
 
@@ -110,9 +114,11 @@ impl BarcodeGroup {
                 flank_suffix: Vec::new(),
                 bar_region: (0, 0),
                 pad_region: (0, 0),
+                padded_barcodes: vec![],
                 barcodes: vec![],
-                k_cutoff: None,
-                barcode_type: barcode_type,
+                flank_k_cutoff: None,
+                barcode_k_cutoff: None,
+                barcode_type,
             };
         }
         let query_seqs_refs: Vec<&[u8]> = query_seqs.iter().map(|seq| seq.as_slice()).collect();
@@ -145,6 +151,7 @@ impl BarcodeGroup {
 
         // Slice out all the masked region sequences
         let mut barcodes = Vec::new();
+        let mut padded_barcodes = Vec::new();
 
         // Our barcode padding is 10bp on the left and 10bp on the right (IF possible)
         let (pad_start, pad_end) = (
@@ -155,10 +162,21 @@ impl BarcodeGroup {
         for (i, seq) in query_seqs.iter().enumerate() {
             let start = pad_start;
             let end: usize = pad_end.min(seq.len());
-            barcodes.push(Barcode::new(
+
+            // Barcode + Padding for better anchoring
+            padded_barcodes.push(Seq::new(
                 &seq[start..end],
                 &query_labels[i],
                 barcode_type.clone(),
+            ));
+
+            // Just barcode searching, this does not use subsequence scoring
+            // just the edit distance as there is no reliable way to anchor
+            // in such cases
+            barcodes.push(Seq::new(
+                &seq[prefix_len..prefix_len + mask_size],
+                &query_labels[i],
+                barcode_type.as_bar(),
             ));
         }
         /*
@@ -176,8 +194,10 @@ impl BarcodeGroup {
             flank_suffix: suffix.clone().unwrap_or_default(),
             bar_region: (prefix_len, prefix_len + mask_size - 1), //inclsuve
             pad_region: (pad_start, pad_end),
+            padded_barcodes,
             barcodes,
-            k_cutoff: None,
+            flank_k_cutoff: None,
+            barcode_k_cutoff: None,
             barcode_type,
         }
     }
@@ -203,7 +223,7 @@ impl BarcodeGroup {
         println!("{left_flank_str}{mask_str}{right_flank_str}");
 
         let left_flank_len = self.flank_prefix.len();
-        for barcode in self.barcodes.iter().take(n) {
+        for barcode in self.padded_barcodes.iter().take(n) {
             // We have "padding" which we remove before printing
             let (pad_start, _pad_end) = self.pad_region;
             let (bar_start, bar_end) = self.bar_region;
@@ -306,6 +326,7 @@ impl BarcodeGroup {
 
     /// Create Barcodegroup based on fasta file
     pub fn new_from_fasta(fasta_file: &str, bar_type: BarcodeType) -> Self {
+        println!("Parsing: {}", fasta_file);
         let mut reader = parse_fastx_file(fasta_file).expect("Query file not found");
         let mut bar_seqs: Vec<Vec<u8>> = Vec::new();
         let mut labels = Vec::new();
@@ -322,7 +343,12 @@ impl BarcodeGroup {
 
     /// Number of edits allowed in flanking sequences (combined)
     pub fn set_flank_threshold(&mut self, flank_threshold: usize) {
-        self.k_cutoff = Some(flank_threshold);
+        self.flank_k_cutoff = Some(flank_threshold);
+    }
+
+    /// Number of edits allowed in barcode sequences
+    pub fn set_barcode_threshold(&mut self, barcode_treshold: usize) {
+        self.barcode_k_cutoff = Some(barcode_treshold);
     }
 
     /// Get shared prefix and suffix for input sequences
@@ -399,6 +425,11 @@ impl BarcodeGroup {
         // In any other case (for barcodes) that is length of prefix + suffix
         self.flank_prefix.len() + self.flank_suffix.len()
     }
+
+    /// Length of just barcode sequence
+    pub fn get_barcode_len(&self) -> usize {
+        self.bar_region.1 - self.bar_region.0 + 1
+    }
 }
 
 #[cfg(test)]
@@ -457,11 +488,14 @@ mod tests {
         );
         assert_eq!(barcode_group.flank, b"AAANNNGGG".to_vec());
         assert_eq!(barcode_group.bar_region, (3, 5));
-        assert_eq!(barcode_group.barcodes.len(), 2);
+        assert_eq!(barcode_group.padded_barcodes.len(), 2);
         // We add a 10bp padding on each side of the mask, but since we don't have 10 chars
         // here it just maxes out and takes full flanks
-        assert_eq!(barcode_group.barcodes[0].seq, b"AAATTTGGG".to_vec());
-        assert_eq!(barcode_group.barcodes[1].seq, b"AAACCCGGG".to_vec());
+        assert_eq!(barcode_group.padded_barcodes[0].seq, b"AAATTTGGG".to_vec());
+        assert_eq!(barcode_group.padded_barcodes[1].seq, b"AAACCCGGG".to_vec());
+        // Also test if we correctly extracted the barcodes themselves
+        assert_eq!(barcode_group.barcodes[0].seq, b"TTT");
+        assert_eq!(barcode_group.barcodes[1].seq, b"CCC");
     }
 
     #[test]
@@ -501,7 +535,7 @@ mod tests {
         assert_eq!(&flank[16..=39], b"NNNNNNNNNNNNNNNNNNNNNNNN");
         assert_eq!(barcode_group.barcodes.len(), 96);
         assert_eq!(
-            &barcode_group.barcodes[0].seq[10..10 + 24],
+            &barcode_group.padded_barcodes[0].seq[10..10 + 24],
             b"AAGAAAGTTGTCGGTGTCTTTGTG".to_vec() // NB01 fwd
         );
     }
@@ -509,8 +543,9 @@ mod tests {
     #[test]
     fn new_from_kit_rapid_barcodes() {
         let groups = BarcodeGroup::new_from_kit("SQK-NBD114-96", false);
-        for group in groups {
+        for group in groups.iter() {
             group.display(10);
         }
+        assert_eq!(groups[0].get_barcode_len(), 24);
     }
 }

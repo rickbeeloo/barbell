@@ -1,6 +1,7 @@
-use crate::annotate::barcodes::{Barcode, BarcodeGroup, BarcodeType};
+use crate::annotate::barcodes::{BarcodeGroup, BarcodeType, Seq};
 use crate::annotate::cigar_parse::*;
 use crate::annotate::interval::collapse_overlapping_matches;
+use crate::annotate::search_strategies::*;
 use crate::filter::pattern::Cut;
 use cigar_lodhi_rs::*;
 use pa_types::*;
@@ -8,8 +9,6 @@ use pa_types::{CigarOp, Cost};
 use sassy::profiles::Iupac;
 use sassy::{Match, Searcher, Strand};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-// remove later
-use crate::annotate::edit_model::*;
 
 pub struct Demuxer {
     queries: Vec<BarcodeGroup>,
@@ -231,73 +230,28 @@ impl Demuxer {
         self.lodhi.compute(&perfect)
     }
 
-    //fixme: would beneift from some more clean up
-    /// Demultiplex read
-    pub fn demux(
-        &mut self,
-        read_id: &str,
-        read: &[u8],
-        search_lonely_bars: bool,
-    ) -> Vec<BarbellMatch> {
-        let mut results: Vec<BarbellMatch> = Vec::new();
+    fn handle_just_bars(&mut self, read: &[u8], read_id: &str, results: &mut Vec<BarbellMatch>) {
+        for barcode_group in self.queries.iter() {
+            for barcode in barcode_group.barcodes.iter() {
+                // Looking for just barcode match
+                let just_bar_region_match = self.regular_searcher.search(
+                    &barcode.seq,
+                    &read,
+                    barcode_group.barcode_k_cutoff.unwrap_or(0),
+                );
 
-        if search_lonely_bars {
-            for (group_i, barcode_group) in self.queries.iter().enumerate() {
-                for barcode_and_flank in barcode_group.barcodes.iter() {
-                    let just_bar = &barcode_and_flank.seq
-                        [crate::PADDING..barcode_and_flank.seq.len() - crate::PADDING];
-                    let cut_off = get_edit_cut_off(just_bar.len());
-
-                    // Looking for just barcode match
-                    let just_bar_region_match =
-                        self.regular_searcher.search(just_bar, &read, cut_off);
-
-                    for flank_match in just_bar_region_match {
-                        results.push(BarbellMatch::new(
-                            flank_match.text_start,
-                            flank_match.text_end,
-                            flank_match.text_start,
-                            flank_match.text_end,
-                            flank_match.pattern_start,
-                            flank_match.pattern_end,
-                            barcode_group.barcode_type.as_bar(),
-                            flank_match.cost,
-                            flank_match.cost, // Keep same cost as barcode for now
-                            barcode_and_flank.label.clone(),
-                            flank_match.strand,
-                            read.len(),
-                            read_id.to_string(),
-                            rel_dist_to_end(flank_match.text_start as isize, read.len()),
-                            None,
-                        ));
-                    }
-                }
-            }
-        }
-
-        for (group_i, barcode_group) in self.queries.iter().enumerate() {
-            let flank = &barcode_group.flank;
-            let flank_k = barcode_group.k_cutoff.unwrap_or(0);
-            let perfect_bar_score = self.perfect_scores[group_i];
-
-            let flank_matches = self.overhang_searcher.search(flank, &read, flank_k);
-
-            // If the search was a Fflank/Rflank we only have to search the flanks and not extract the barcode region
-            if barcode_group.barcode_type == BarcodeType::Fadapter
-                || barcode_group.barcode_type == BarcodeType::Radapter
-            {
-                for flank_match in flank_matches.iter() {
+                for flank_match in just_bar_region_match {
                     results.push(BarbellMatch::new(
                         flank_match.text_start,
                         flank_match.text_end,
                         flank_match.text_start,
                         flank_match.text_end,
-                        0,
-                        0,
-                        barcode_group.barcode_type.clone(),
+                        flank_match.pattern_start,
+                        flank_match.pattern_end,
+                        barcode_group.barcode_type.as_bar(),
                         flank_match.cost,
                         flank_match.cost, // Keep same cost as barcode for now
-                        "flank".to_string(),
+                        barcode.label.clone(),
                         flank_match.strand,
                         read.len(),
                         read_id.to_string(),
@@ -306,6 +260,46 @@ impl Demuxer {
                     ));
                 }
             }
+        }
+    }
+
+    fn handle_adapters(&mut self, read: &[u8], read_id: &str, results: &mut Vec<BarbellMatch>) {
+        for barcode_group in self.queries.iter().filter(|x| {
+            x.barcode_type == BarcodeType::Fadapter || x.barcode_type == BarcodeType::Radapter
+        }) {
+            let query_seq = &barcode_group.flank;
+            let adapter_k = barcode_group.flank_k_cutoff.unwrap_or(0);
+            let adapter_matches = self.overhang_searcher.search(query_seq, &read, adapter_k);
+            for adapter_match in adapter_matches.iter() {
+                results.push(BarbellMatch::new(
+                    adapter_match.text_start,
+                    adapter_match.text_end,
+                    adapter_match.text_start,
+                    adapter_match.text_end,
+                    0,
+                    0,
+                    barcode_group.barcode_type.clone(),
+                    adapter_match.cost,
+                    adapter_match.cost, // Keep same cost as barcode for now
+                    "flank".to_string(),
+                    adapter_match.strand,
+                    read.len(),
+                    read_id.to_string(),
+                    rel_dist_to_end(adapter_match.text_start as isize, read.len()),
+                    None,
+                ));
+            }
+        }
+    }
+
+    //fixme: would beneift from some more clean up
+    fn handle_tags(&mut self, read: &[u8], read_id: &str, results: &mut Vec<BarbellMatch>) {
+        for (group_i, barcode_group) in self.queries.iter().enumerate() {
+            let flank = &barcode_group.flank;
+            let flank_k: usize = barcode_group.flank_k_cutoff.unwrap_or(0);
+            let perfect_bar_score = self.perfect_scores[group_i];
+
+            let flank_matches = self.overhang_searcher.search(flank, &read, flank_k);
 
             for flank_match in flank_matches.iter() {
                 // Get barcode region
@@ -335,9 +329,9 @@ impl Demuxer {
                     (flank_match.text_start + barcode_region_end + crate::PADDING).min(read.len());
 
                 let barcode_region = &read[barcode_region_start..barcode_region_end];
-                let mut candidates: Vec<(Match, &Barcode)> = Vec::new();
+                let mut candidates: Vec<(Match, &Seq)> = Vec::new();
 
-                for barcode_and_flank in barcode_group.barcodes.iter() {
+                for barcode_and_flank in barcode_group.padded_barcodes.iter() {
                     let fwd_best_hit = self
                         .regular_searcher
                         .search(
@@ -377,8 +371,7 @@ impl Demuxer {
                 }
 
                 // Score using Lodhi
-                let mut scored: Vec<(f64, f64, Match, &Barcode)> =
-                    Vec::with_capacity(candidates.len());
+                let mut scored: Vec<(f64, f64, Match, &Seq)> = Vec::with_capacity(candidates.len());
 
                 for (m, b) in candidates.into_iter() {
                     let s = self.lodhi.compute(&m.cigar);
@@ -397,7 +390,7 @@ impl Demuxer {
                     Important here is the structure:
                     ---------------------------------------- seq
                         |                |     pad_start, pad_end <- the query in the search
-                         ===          ===      "padding"
+                        ===          ===      "padding"
                             |         |        bar_start, bar_end (here 'mask')
 
 
@@ -469,19 +462,40 @@ impl Demuxer {
                 }
             }
         }
+    }
 
-        let results = collapse_overlapping_matches(&results, 0.99);
-        results
+    /// Demultiplex read
+    pub fn demux(
+        &mut self,
+        read_id: &str,
+        read: &[u8],
+        strategy: &SearchStrategy,
+    ) -> Vec<BarbellMatch> {
+        let mut results: Vec<BarbellMatch> = Vec::new();
+
+        if strategy.just_bars_enabled() {
+            self.handle_just_bars(read, read_id, &mut results);
+        }
+
+        if strategy.adapter_enabled() {
+            self.handle_adapters(read, read_id, &mut results);
+        }
+
+        if strategy.bars_and_flanks_enabled() {
+            self.handle_tags(read, read_id, &mut results);
+        }
+
+        collapse_overlapping_matches(&results, 0.99)
     }
 }
 
 mod tests {
     use super::*;
-    use crate::annotate::barcodes::*;
     use rand::prelude::*;
     use rand::seq::SliceRandom;
     use std::hint::black_box;
 
+    #[allow(dead_code)]
     fn edit(seq: &[u8], num_errors: usize) -> Vec<u8> {
         let mut rng = thread_rng();
         let mut edited = seq.to_vec();
@@ -525,8 +539,8 @@ mod tests {
         edited
     }
 
+    #[allow(dead_code)]
     fn reverse_complement(seq: &[u8]) -> Vec<u8> {
-        let mut rng = thread_rng();
         let mut seq = seq.to_vec();
         seq.reverse();
         seq.iter_mut().for_each(|base| {
@@ -591,7 +605,8 @@ mod tests {
             mutated = mutated[..slice_end].to_vec();
 
             // Run the demuxer and consume result
-            let matches = demuxer.demux("fuzzed", &mutated, false);
+            let strategy = SearchStrategy::from_modes(&[SearchMode::BarsAndFlanks]);
+            let matches = demuxer.demux("fuzzed", &mutated, &strategy);
             black_box(matches);
         }
     }

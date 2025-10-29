@@ -1,5 +1,6 @@
 use crate::annotate::barcodes::BarcodeType;
 use crate::annotate::searcher::BarbellMatch;
+use crate::filter::filter_strategy::FilterStrategy;
 use crate::filter::pattern::*;
 use crate::pattern_from_str;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -54,10 +55,12 @@ pub fn filter(
     output_file: &str,
     dropped_out_file: Option<&str>,
     filters: &[Pattern],
-    filter_strategy: FilterStrategy,
+    filter_strategy: &FilterStrategy,
 ) -> Result<(), Box<dyn Error>> {
     // Setup progress bar
     let (total_bar, kept_bar, dropped_bar) = create_progress_bar();
+
+    println!("{}", filter_strategy.display());
 
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(b'\t')
@@ -170,7 +173,7 @@ pub fn filter_from_pattern_str(
     pattern_str: &str,
     output_file: &str,
     dropped_out_file: Option<&str>,
-    filter_strategy: FilterStrategy,
+    filter_strategy: &FilterStrategy,
 ) -> Result<(), Box<dyn Error>> {
     // use pattern macro to convert pattern_str to pattern
     let pattern = pattern_from_str!(pattern_str);
@@ -179,7 +182,7 @@ pub fn filter_from_pattern_str(
         output_file,
         dropped_out_file,
         &[pattern],
-        filter_strategy,
+        &filter_strategy,
     )
 }
 
@@ -188,7 +191,7 @@ pub fn filter_from_text_file(
     text_file: &str,
     output_file: &str,
     dropped_out_file: Option<&str>,
-    filter_strategy: FilterStrategy,
+    filter_strategy: &FilterStrategy,
 ) -> Result<(), Box<dyn Error>> {
     // read the text file into a vector of strings
     let patterns = std::fs::read_to_string(text_file)?;
@@ -208,7 +211,7 @@ pub fn filter_from_text_file(
         output_file,
         dropped_out_file,
         &patterns,
-        filter_strategy,
+        &filter_strategy,
     )
 }
 
@@ -216,8 +219,7 @@ pub fn filter_from_text_file(
 struct Interval {
     start: usize,
     end: usize,
-    start_inclusive: bool, // true for [start, false for (start
-    end_inclusive: bool,   // true for end], false for end)
+    end_inclusive: bool, // true for end], false for end)
     cut_idx: usize,
 }
 
@@ -234,7 +236,6 @@ fn greedy_solve(all_cuts: Vec<Vec<(usize, Cut)>>) -> Vec<Vec<(usize, Cut)>> {
                         intervals.push(Interval {
                             start: pos,
                             end: usize::MAX,
-                            start_inclusive: true,
                             end_inclusive: false,
                             cut_idx: i,
                         });
@@ -244,7 +245,6 @@ fn greedy_solve(all_cuts: Vec<Vec<(usize, Cut)>>) -> Vec<Vec<(usize, Cut)>> {
                         intervals.push(Interval {
                             start: 0,
                             end: pos,
-                            start_inclusive: false,
                             end_inclusive: true,
                             cut_idx: i,
                         });
@@ -261,12 +261,6 @@ fn greedy_solve(all_cuts: Vec<Vec<(usize, Cut)>>) -> Vec<Vec<(usize, Cut)>> {
                 // For a closed interval [a, b], we need:
                 // - After at the lower position (cuts after a, so includes a)
                 // - Before at the upper position (cuts before b, so includes b)
-                let start_inclusive = if pos_a < pos_b {
-                    matches!(dir_a, CutDirection::After)
-                } else {
-                    matches!(dir_b, CutDirection::After)
-                };
-
                 let end_inclusive = if pos_a > pos_b {
                     matches!(dir_a, CutDirection::Before)
                 } else {
@@ -276,7 +270,6 @@ fn greedy_solve(all_cuts: Vec<Vec<(usize, Cut)>>) -> Vec<Vec<(usize, Cut)>> {
                 intervals.push(Interval {
                     start,
                     end,
-                    start_inclusive,
                     end_inclusive,
                     cut_idx: i,
                 });
@@ -312,51 +305,10 @@ fn greedy_solve(all_cuts: Vec<Vec<(usize, Cut)>>) -> Vec<Vec<(usize, Cut)>> {
     result
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum FilterStrategy {
-    Exact,
-    Flexible, // Use sub pattern matching without any prefilters
-    Terminal,
-    UniqueLabels,
-    Clean,    // We discard all reads that are 75% or more contaminated
-    Complete, // better name ideas?
-}
-
-impl std::fmt::Debug for FilterStrategy {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let description = match self {
-            FilterStrategy::Exact => "Exact (require exact pattern match)",
-            FilterStrategy::Flexible => "Flexible (find any subpattern match, no prefilters)",
-            FilterStrategy::Terminal => "Terminal (prefilter for internal placement required)",
-            FilterStrategy::UniqueLabels => {
-                "UniqueLabels (all annotations must have the same label)"
-            }
-            FilterStrategy::Complete => {
-                "Complete (combines 'Terminal' and 'UniqueLabels' prefilters)"
-            }
-            FilterStrategy::Clean => "Clean (discard all reads that are 75% or more contaminated)",
-        };
-        write!(f, "FilterStrategy::{:?}: {}", self.as_str(), description)
-    }
-}
-
-impl FilterStrategy {
-    fn as_str(&self) -> &'static str {
-        match self {
-            FilterStrategy::Exact => "Exact",
-            FilterStrategy::Flexible => "Flexible",
-            FilterStrategy::Terminal => "Terminal",
-            FilterStrategy::UniqueLabels => "UniqueLabels",
-            FilterStrategy::Complete => "Complete",
-            FilterStrategy::Clean => "Clean",
-        }
-    }
-}
-
-fn check_internal(annotations: &mut [BarbellMatch]) -> bool {
-    // println!("Checking internal");
+fn no_internal(annotations: &mut [BarbellMatch]) -> bool {
     for annotation in annotations.iter() {
-        if annotation.read_start_bar > 250 && annotation.read_end_bar < annotation.read_len - 250 {
+        let end_diff = annotation.read_len.saturating_sub(250);
+        if annotation.read_start_flank > 250 && annotation.read_end_flank < end_diff {
             return false;
         }
     }
@@ -402,32 +354,34 @@ fn check_if_clean(annotations: &mut [BarbellMatch]) -> bool {
 fn filter_annotations(
     annotations: &mut [BarbellMatch],
     patterns: &[Pattern],
-    strategy: FilterStrategy,
+    strategy: &FilterStrategy,
 ) -> bool {
-    if strategy == FilterStrategy::Exact {
+    // In case exact is necessary, we just a custom filtering
+    // where the read *only* passes when the matches exactly match the pattern
+    if strategy.exact_enabled() {
         return check_filter_pass_full_pattern(annotations, patterns);
     }
 
     // In case not exact we first use the prefilters
-    let prefilter_pass = match strategy {
-        FilterStrategy::Flexible => true,
-        FilterStrategy::Terminal => check_internal(annotations),
-        FilterStrategy::UniqueLabels => check_diff_barcodes(annotations),
-        FilterStrategy::Clean => check_if_clean(annotations),
-        FilterStrategy::Complete => {
-            check_internal(annotations)
-                && check_diff_barcodes(annotations)
-                && check_if_clean(annotations)
-        }
-        _ => unreachable!("Exact is already handled above"),
-    };
+    let mut passed = true;
+    if strategy.terminal_enabled() {
+        passed = passed && no_internal(annotations);
+    } else if strategy.unique_labels_enabled() {
+        passed = passed && check_diff_barcodes(annotations);
+    } else if strategy.clean_enabled() {
+        passed = passed && check_if_clean(annotations);
+    } else if strategy.flexible_enabled() {
+        // No extra check here
+    } else {
+        unreachable!("Exact is already handled above")
+    }
 
-    if !prefilter_pass {
+    if !passed {
         return false;
     }
 
     // If the prefilter passed, we can now match the patterns
-    check_filter_pass_sub_pattern(annotations, patterns, strategy)
+    check_filter_pass_sub_pattern(annotations, patterns)
 }
 
 fn check_filter_pass_full_pattern(annotations: &mut [BarbellMatch], patterns: &[Pattern]) -> bool {
@@ -463,15 +417,11 @@ fn check_filter_pass_full_pattern(annotations: &mut [BarbellMatch], patterns: &[
     max_matches == annotations.len()
 }
 
-fn check_filter_pass_sub_pattern(
-    annotations: &mut [BarbellMatch],
-    patterns: &[Pattern],
-    strategy: FilterStrategy,
-) -> bool {
+fn check_filter_pass_sub_pattern(annotations: &mut [BarbellMatch], patterns: &[Pattern]) -> bool {
     // We just keep track of every sub pattern we can find for all patterns
     let mut all_cuts = vec![];
 
-    for (pattern_idx, pattern) in patterns.iter().enumerate() {
+    for pattern in patterns.iter() {
         // cut position is (match_idx, cut)
         let (is_match, cut_positions) = match_sub_pattern(annotations, pattern);
 
@@ -518,6 +468,7 @@ mod tests {
     use super::*;
     use crate::annotate::barcodes::BarcodeType;
     use crate::annotate::searcher::BarbellMatch;
+    use crate::filter::filter_strategy::FilterMode;
     use sassy::Strand;
 
     #[test]
@@ -566,11 +517,7 @@ mod tests {
 
         // This mutates the matches with cut information
         let mut matches2 = matches.clone(); // For second test 
-        let passed = check_filter_pass_sub_pattern(
-            &mut matches,
-            &[pattern1, pattern2],
-            FilterStrategy::Flexible,
-        );
+        let passed = check_filter_pass_sub_pattern(&mut matches, &[pattern1, pattern2]);
         assert!(passed);
         let match1 = matches[0].clone();
         let match2 = matches[1].clone();
@@ -639,11 +586,7 @@ mod tests {
             ),
         ]);
 
-        let passed = check_filter_pass_sub_pattern(
-            &mut matches2,
-            &[pattern1, pattern2, pattern3],
-            FilterStrategy::Flexible,
-        );
+        let passed = check_filter_pass_sub_pattern(&mut matches2, &[pattern1, pattern2, pattern3]);
         assert!(passed);
         assert_eq!(matches2.len(), 2);
         assert_eq!(matches2[0].cuts, first_expected_cuts);
@@ -657,7 +600,7 @@ mod tests {
         let pattern2 =
             pattern_from_str!("Ftag[fw, *, @left(0..250), >>]__Rtag[<<, fw, *, @right(0..250)]");
 
-        let mut matches = vec![
+        let matches = vec![
             BarbellMatch::new(
                 0,   // read_start_bar
                 100, // read_end_bar
@@ -700,7 +643,7 @@ mod tests {
         let passed = filter_annotations(
             &mut matches_test_1,
             &[pattern1.clone(), pattern2.clone()],
-            FilterStrategy::Exact,
+            &FilterStrategy::from_modes(&[FilterMode::Exact]),
         );
         // Without any sub patttern strategy all of them should pass
         assert!(passed);
@@ -710,7 +653,7 @@ mod tests {
         let passed = filter_annotations(
             &mut matches_test_2,
             &[pattern1.clone(), pattern2.clone()],
-            FilterStrategy::Flexible,
+            &FilterStrategy::from_modes(&[FilterMode::Flexible]),
         );
         assert!(passed);
 
@@ -719,18 +662,22 @@ mod tests {
         let passed = filter_annotations(
             &mut matches_test_3,
             &[pattern1.clone(), pattern2.clone()],
-            FilterStrategy::Terminal,
+            &FilterStrategy::from_modes(&[FilterMode::Terminal]),
         );
         assert!(passed);
 
         // However if we changed the read len to 1K or so
         // the terminal filter should fail
         let mut matches_test_4 = matches.clone();
-        matches_test_4.iter_mut().for_each(|m| m.read_len = 1000);
+        matches_test_4.iter_mut().for_each(|m| {
+            m.read_len = 1000;
+            m.read_start_flank = 251;
+        });
+
         let passed = filter_annotations(
             &mut matches_test_4,
             &[pattern1.clone(), pattern2.clone()],
-            FilterStrategy::Terminal,
+            &FilterStrategy::from_modes(&[FilterMode::Terminal]),
         );
         assert!(!passed);
 
@@ -740,7 +687,11 @@ mod tests {
         let passed = filter_annotations(
             &mut matches_test_5,
             &[pattern1.clone(), pattern2.clone()],
-            FilterStrategy::Complete,
+            &FilterStrategy::from_modes(&[
+                FilterMode::Exact,
+                FilterMode::Clean,
+                FilterMode::Terminal,
+            ]),
         );
         assert!(!passed);
     }

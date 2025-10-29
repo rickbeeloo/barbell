@@ -932,7 +932,7 @@ mod tests {
         let pattern =
             pattern_from_str!("Ftag[fw, ?1, @left(0..250)]__Rtag[fw, ?2, @right(0..250)]");
         println!("Pattern: {:?}", pattern);
-        let mut matches = vec![
+        let matches = vec![
             BarbellMatch::new(
                 0,   // read_start_bar
                 100, // read_end_bar
@@ -980,7 +980,7 @@ mod tests {
             "Ftag[fw, ?1, @left(0..250)]__Ftag[fw, ?2, @prev_left(0..250)]__Ftag[fw, ?1, @left(0..250)]"
         );
         println!("Pattern: {:?}", pattern);
-        let mut matches = vec![
+        let matches = vec![
             BarbellMatch::new(
                 0,   // read_start_bar
                 100, // read_end_bar

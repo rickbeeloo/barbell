@@ -1,6 +1,8 @@
 use barbell::annotate::annotator::*;
 use barbell::annotate::barcodes::BarcodeType;
-use barbell::filter::filter::{FilterStrategy, filter_from_text_file};
+use barbell::annotate::search_strategies::{SearchMode, SearchStrategy};
+use barbell::filter::filter::filter_from_text_file;
+use barbell::filter::filter_strategy::{FilterMode, FilterStrategy};
 use barbell::inspect::inspect;
 use barbell::kits::use_kit::demux_using_kit;
 use barbell::trim::trim::{LabelSide, trim_matches};
@@ -66,9 +68,9 @@ enum Commands {
         #[arg(long = "alpha", default_value_t = 0.4)]
         alpha: f32,
 
-        /// To search for lonely barcodes, might have FPs but can reduce potential contamination
-        #[arg(long, default_value_t = false)]
-        lonely_bars: bool,
+        /// Search modes to enable (comma-separated: adapter,just-bars,bars-and-flanks)
+        #[arg(long, default_value = "adapter,bars-and-flanks", help = SearchMode::help_text(), value_parser = clap::value_parser!(SearchStrategy))]
+        search_strategy: SearchStrategy,
     },
     /// Filter annotation files based on pattern
     Filter {
@@ -88,10 +90,10 @@ enum Commands {
         #[arg(long)]
         dropped: Option<String>,
 
-        /// Filtering strategy: 'exact' (default), 'flexible' (sub-pattern), 'terminal' (no internal matches),
-        /// 'unique-labels' (no mixed barcodes), or 'complete' (both filters)
-        #[arg(long, default_value = "exact")]
-        strategy: String,
+        /// Filtering strategies, comma separated 'flexible' (default), 'exact' (only exact matches), 'terminal' (no internal matches),
+        /// 'unique-labels' (no mixed barcodes)
+        #[arg(long, default_value = "flexible", help = FilterMode::help_text(), value_parser = clap::value_parser!(FilterStrategy))]
+        filter_strategy: FilterStrategy,
     },
 
     /// Trim and sort reads based on filtered annotations
@@ -194,18 +196,16 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         use_extended: bool,
 
-        /// Filtering strategy: 'flexible' (sub-pattern), 'terminal' (no internal matches),
-        /// 'unique-labels' (no mixed barcodes), or 'complete' (both filters)
-        #[arg(long, default_value = "flexible")]
-        strategy: String,
-
         /// Edit cost beyond read boundaries
         #[arg(long = "alpha", default_value_t = 0.4)]
         alpha: f32,
 
-        /// To search for lonely barcodes, might have FPs but can reduce potential contamination
-        #[arg(long, default_value_t = false)]
-        lonely_bars: bool,
+        /// Search modes to enable (comma-separated: adapter,just-bars,bars-and-flanks)
+        #[arg(long, default_value = "adapter,bars-and-flanks", help = SearchMode::help_text(), value_parser = clap::value_parser!(SearchStrategy))]
+        search_strategy: SearchStrategy,
+
+        #[arg(long, default_value = "flexible", help = FilterMode::help_text(), value_parser = clap::value_parser!(FilterStrategy))]
+        filter_strategy: FilterStrategy,
     },
 }
 
@@ -227,7 +227,7 @@ fn main() {
             min_score_diff,
             use_extended,
             alpha,
-            lonely_bars,
+            search_strategy,
         } => {
             println!("{}", "Starting annotation...".green());
 
@@ -243,7 +243,7 @@ fn main() {
                     *min_score,
                     *min_score_diff,
                     *use_extended,
-                    *lonely_bars,
+                    search_strategy,
                 ) {
                     Ok(_) => println!("{}", "Annotation complete!".green()),
                     Err(e) => println!("{} {}", "Error during processing:".red(), e),
@@ -287,7 +287,7 @@ fn main() {
                 *verbose,
                 *min_score,
                 *min_score_diff,
-                *lonely_bars,
+                search_strategy,
             ) {
                 // Convert fractions to raw scores
                 Ok(_) => println!("{}", "Annotation complete!".green()),
@@ -300,25 +300,11 @@ fn main() {
             output,
             file,
             dropped,
-            strategy,
+            filter_strategy,
         } => {
             println!("{}", "Starting filtering...".green());
 
-            let f_strategy = match strategy.as_str() {
-                "exact" => FilterStrategy::Exact,
-                "flexible" => FilterStrategy::Flexible,
-                "terminal" => FilterStrategy::Terminal,
-                "unique-labels" => FilterStrategy::UniqueLabels,
-                "complete" => FilterStrategy::Complete,
-                _ => {
-                    eprintln!(
-                        "Unknown filter strategy: {strategy}. Use: exact, flexible, terminal, unique-labels, or complete"
-                    );
-                    return;
-                }
-            };
-
-            match filter_from_text_file(input, file, output, dropped.as_deref(), f_strategy) {
+            match filter_from_text_file(input, file, output, dropped.as_deref(), filter_strategy) {
                 Ok(_) => println!("{}", "Filtering successful!".green()),
                 Err(e) => println!("{} {}", "Filtering failed:".red(), e),
             }
@@ -375,24 +361,10 @@ fn main() {
             flank_max_errors,
             failed_out,
             use_extended,
-            strategy,
             alpha,
-            lonely_bars,
+            search_strategy,
+            filter_strategy,
         } => {
-            let f_strategy = match strategy.as_str() {
-                "exact" => FilterStrategy::Exact,
-                "flexible" => FilterStrategy::Flexible,
-                "terminal" => FilterStrategy::Terminal,
-                "unique-labels" => FilterStrategy::UniqueLabels,
-                "complete" => FilterStrategy::Complete,
-                _ => {
-                    eprintln!(
-                        "Unknown filter strategy: {strategy}. Use: exact, flexible, terminal, unique-labels, or complete"
-                    );
-                    return;
-                }
-            };
-
             demux_using_kit(
                 kit.as_str(),
                 input,
@@ -405,8 +377,8 @@ fn main() {
                 failed_out.clone(),
                 *use_extended,
                 *alpha,
-                f_strategy,
-                *lonely_bars,
+                filter_strategy,
+                search_strategy,
             );
         }
     }

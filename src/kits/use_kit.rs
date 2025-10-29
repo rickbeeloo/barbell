@@ -1,10 +1,12 @@
 use crate::annotate::annotator::annotate_with_kit;
-use crate::filter::filter::FilterStrategy;
-use crate::filter::filter::filter;
+use crate::annotate::search_strategies::SearchStrategy;
+use crate::filter::filter::*;
+use crate::filter::filter_strategy::FilterStrategy;
 use crate::inspect::inspect::inspect;
 use crate::kits::kits::*;
 use crate::trim::trim::{LabelSide, trim_matches};
 use colored::*;
+use core::str;
 use std::path::Path;
 
 pub fn demux_using_kit(
@@ -19,8 +21,8 @@ pub fn demux_using_kit(
     failed_out: Option<String>,
     use_extended: bool,
     alpha: f32,
-    filter_strategy: FilterStrategy,
-    search_lonely_bars: bool,
+    filter_strategy: &FilterStrategy,
+    search_strategy: &SearchStrategy,
 ) {
     // Create output folder if not exists yet
     if !Path::new(output_folder).exists() {
@@ -36,8 +38,6 @@ pub fn demux_using_kit(
         println!("Barcodes: {} - {}", tmpl.barcodes.from, tmpl.barcodes.to);
     }
 
-    // If the default values are
-    println!("\n{}", "Annotating reads...".purple().bold());
     annotate_with_kit(
         fastq_file,
         format!("{output_folder}/annotation.tsv").as_str(),
@@ -49,7 +49,7 @@ pub fn demux_using_kit(
         min_score,
         min_score_diff,
         use_extended,
-        search_lonely_bars,
+        search_strategy,
     )
     .expect("Annotation failed");
 
@@ -70,10 +70,10 @@ pub fn demux_using_kit(
     // Filter
     println!("\n{}", "Filtering reads...".purple().bold());
 
-    let patterns = if filter_strategy == FilterStrategy::Exact {
+    let patterns = if filter_strategy.exact_enabled() {
         (kit_info.safe_patterns)()
     } else {
-        // Uses @any tags to plae matches wherever
+        // Uses @any tags to place matches wherever
         (kit_info.maximize_patterns)()
     };
 

@@ -1,9 +1,11 @@
 use crate::annotate::barcodes::{BarcodeGroup, BarcodeType};
 use crate::annotate::edit_model::get_edit_cut_off;
+use crate::annotate::search_strategies::*;
 use crate::annotate::searcher::Demuxer;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use seq_io::fastq::{Reader, Record};
 use seq_io::parallel::read_parallel;
+use std::process;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread_local;
@@ -62,10 +64,18 @@ pub fn annotate_with_files(
     verbose: bool,
     min_score: f64,
     min_score_diff: f64,
-    search_lonely_bars: bool,
+    search_strategy: &SearchStrategy,
 ) -> anyhow::Result<()> {
     // Get query groups
     let mut query_groups = Vec::new();
+
+    if query_types.len() != query_files.len() {
+        eprintln!(
+            "Please use -b to specify the sequence type of all your input files (in -q), e.g. -b Ftag,Fadapter, see --help"
+        );
+        process::exit(1);
+    }
+
     for (query_file, query_type) in query_files.iter().zip(query_types.iter()) {
         let mut query_group = BarcodeGroup::new_from_fasta(query_file, query_type.clone());
         if let Some(max_flank_errors) = max_flank_errors {
@@ -86,7 +96,7 @@ pub fn annotate_with_files(
         verbose,
         min_score,
         min_score_diff,
-        search_lonely_bars,
+        search_strategy,
     )
 }
 
@@ -102,7 +112,7 @@ pub fn annotate_with_kit(
     min_score: f64,
     min_score_diff: f64,
     use_extended: bool,
-    search_lonely_bars: bool,
+    search_strategy: &SearchStrategy,
 ) -> anyhow::Result<()> {
     let query_groups: Vec<BarcodeGroup> = BarcodeGroup::new_from_kit(kit, use_extended);
     annotate_with_groups(
@@ -115,7 +125,7 @@ pub fn annotate_with_kit(
         verbose,
         min_score,
         min_score_diff,
-        search_lonely_bars,
+        search_strategy,
     )
 }
 
@@ -130,7 +140,7 @@ pub fn annotate_with_groups(
     verbose: bool,
     min_score: f64,
     min_score_diff: f64,
-    search_lonely_bars: bool,
+    search_strategy: &SearchStrategy,
 ) -> anyhow::Result<()> {
     // Hmm not sure: fixme: think about where flank error should be set
     // Cannot mutate query_groups because it's not mutable (Vec<BarcodeGroup> is not mutable when passed by value and iterated by reference).
@@ -143,6 +153,13 @@ pub fn annotate_with_groups(
             } else {
                 // Determine based on formula
                 let edit_cut_off = get_edit_cut_off(query_group.get_effective_len());
+
+                if query_group.barcode_type == BarcodeType::Ftag
+                    || query_group.barcode_type == BarcodeType::Rtag
+                {
+                    let barcode_cutoff = get_edit_cut_off(query_group.get_barcode_len()); // This is constant across kits anyway
+                    query_group.set_barcode_threshold(barcode_cutoff);
+                }
                 // println!("Auto edit flank cut off: {edit_cut_off}");
                 query_group.set_flank_threshold(edit_cut_off);
             }
@@ -158,7 +175,7 @@ pub fn annotate_with_groups(
         verbose,
         min_score,
         min_score_diff,
-        search_lonely_bars,
+        search_strategy,
     )
 }
 
@@ -171,7 +188,7 @@ pub fn annotate(
     verbose: bool,
     min_score: f64,
     min_score_diff: f64,
-    search_lonely_bars: bool,
+    search_strategy: &SearchStrategy,
 ) -> anyhow::Result<()> {
     let reader = Reader::from_path(read_file).unwrap();
     let writer = Arc::new(Mutex::new(
@@ -183,7 +200,7 @@ pub fn annotate(
 
     // Dispaly to user
     for query_group in query_groups.iter() {
-        let edit_cut_off = query_group.k_cutoff.unwrap_or(0);
+        let edit_cut_off = query_group.flank_k_cutoff.unwrap_or(0);
         println!(
             "{}: (auto edit cut off: {})",
             query_group.barcode_type.as_str(),
@@ -191,6 +208,8 @@ pub fn annotate(
         );
         query_group.display(5);
     }
+
+    println!("{}", search_strategy.display());
 
     let (total_bar, found_bar, missed_bar) = create_progress_bar();
 
@@ -227,7 +246,7 @@ pub fn annotate(
                 // Use the demuxer through thread-local storage
                 let matches: Vec<crate::annotate::searcher::BarbellMatch> = DEMUXER.with(|cell| {
                     if let Some(ref mut demuxer) = *cell.borrow_mut() {
-                        demuxer.demux(record.id().unwrap(), record.seq(), search_lonely_bars)
+                        demuxer.demux(record.id().unwrap(), record.seq(), &search_strategy)
                     } else {
                         panic!("Demuxer not initialized");
                     }
