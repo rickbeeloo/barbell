@@ -9,7 +9,7 @@ pub enum SearchMode {
 }
 
 impl SearchMode {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_str(s: &str) -> Option<Self> {
         // Try parsing as number first
         if let Ok(num) = s.parse::<u8>() {
             return match num {
@@ -165,7 +165,7 @@ impl std::str::FromStr for SearchStrategy {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut strategy = SearchStrategy::new();
         for part in s.split(',') {
-            let mode = SearchMode::from_str(part.trim()).ok_or_else(|| {
+            let mode = SearchMode::parse_str(part.trim()).ok_or_else(|| {
                 format!("Invalid search mode: '{part}'. {}", SearchMode::help_text())
             })?;
             strategy.enable(mode);
