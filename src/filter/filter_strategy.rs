@@ -45,7 +45,7 @@ impl FilterMode {
   
   Examples: --filter-strategy exact,terminal
             --filter-strategy 0,2,4
-            --filter-strategy flexible,clean"
+            --filter-strategy flexible,clean\n"
     }
 
     pub fn description(&self) -> &'static str {

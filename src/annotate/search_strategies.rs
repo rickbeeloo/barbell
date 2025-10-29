@@ -37,7 +37,7 @@ impl SearchMode {
   
   Examples: --search-strategy adapter,just-bars
             --search-strategy 0,1
-            --search-strategy bars-and-flanks"
+            --search-strategy bars-and-flanks\n"
     }
 
     pub fn description(&self) -> &'static str {
