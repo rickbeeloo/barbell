@@ -246,7 +246,7 @@ pub fn annotate(
                 // Use the demuxer through thread-local storage
                 let matches: Vec<crate::annotate::searcher::BarbellMatch> = DEMUXER.with(|cell| {
                     if let Some(ref mut demuxer) = *cell.borrow_mut() {
-                        demuxer.demux(record.id().unwrap(), record.seq(), &search_strategy)
+                        demuxer.demux(record.id().unwrap(), record.seq(), search_strategy)
                     } else {
                         panic!("Demuxer not initialized");
                     }

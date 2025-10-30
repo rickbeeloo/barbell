@@ -235,11 +235,8 @@ impl Demuxer {
         for barcode_group in self.queries.iter() {
             for barcode in barcode_group.padded_barcodes.iter() {
                 // Looking for just barcode match
-                let just_bar_region_match = self.regular_searcher.search(
-                    &barcode.seq,
-                    &read,
-                    get_edit_cut_off(barcode.seq.len()),
-                );
+                let k = get_edit_cut_off(barcode.seq.len());
+                let just_bar_region_match = self.overhang_searcher.search(&barcode.seq, &read, k);
 
                 for flank_match in just_bar_region_match {
                     results.push(BarbellMatch::new(
