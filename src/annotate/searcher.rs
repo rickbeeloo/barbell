@@ -1,5 +1,6 @@
 use crate::annotate::barcodes::{BarcodeGroup, BarcodeType, Seq};
 use crate::annotate::cigar_parse::*;
+use crate::annotate::edit_model::get_edit_cut_off;
 use crate::annotate::interval::collapse_overlapping_matches;
 use crate::annotate::search_strategies::*;
 use crate::filter::pattern::Cut;
@@ -232,12 +233,12 @@ impl Demuxer {
 
     fn handle_just_bars(&mut self, read: &[u8], read_id: &str, results: &mut Vec<BarbellMatch>) {
         for barcode_group in self.queries.iter() {
-            for barcode in barcode_group.barcodes.iter() {
+            for barcode in barcode_group.padded_barcodes.iter() {
                 // Looking for just barcode match
                 let just_bar_region_match = self.regular_searcher.search(
                     &barcode.seq,
                     &read,
-                    barcode_group.barcode_k_cutoff.unwrap_or(0),
+                    get_edit_cut_off(barcode.seq.len()),
                 );
 
                 for flank_match in just_bar_region_match {
