@@ -328,6 +328,10 @@ impl Demuxer {
                 let barcode_region_end =
                     (flank_match.text_start + barcode_region_end + crate::PADDING).min(read.len());
 
+                if barcode_region_start >= read.len() {
+                    continue;
+                }
+
                 let barcode_region = &read[barcode_region_start..barcode_region_end];
                 let mut candidates: Vec<(Match, &Seq)> = Vec::new();
 
