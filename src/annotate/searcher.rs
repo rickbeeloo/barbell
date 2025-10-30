@@ -236,9 +236,7 @@ impl Demuxer {
             for barcode in barcode_group.padded_barcodes.iter() {
                 // Looking for just barcode match
                 let k = get_edit_cut_off(barcode.seq.len());
-                let just_bar_region_match = self.overhang_searcher.search(&barcode.seq, &read, k);
-
-                for flank_match in just_bar_region_match {
+                for flank_match in self.overhang_searcher.search(&barcode.seq, &read, k) {
                     results.push(BarbellMatch::new(
                         flank_match.text_start,
                         flank_match.text_end,

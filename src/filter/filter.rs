@@ -364,16 +364,21 @@ fn filter_annotations(
 
     // In case not exact we first use the prefilters
     let mut passed = true;
+
     if strategy.terminal_enabled() {
-        passed = passed && no_internal(annotations);
-    } else if strategy.unique_labels_enabled() {
-        passed = passed && check_diff_barcodes(annotations);
-    } else if strategy.clean_enabled() {
-        passed = passed && check_if_clean(annotations);
-    } else if strategy.flexible_enabled() {
+        passed &= no_internal(annotations);
+    }
+
+    if strategy.unique_labels_enabled() {
+        passed &= check_diff_barcodes(annotations);
+    }
+
+    if strategy.clean_enabled() {
+        passed &= check_if_clean(annotations);
+    }
+
+    if strategy.flexible_enabled() {
         // No extra check here
-    } else {
-        unreachable!("Exact is already handled above")
     }
 
     if !passed {
