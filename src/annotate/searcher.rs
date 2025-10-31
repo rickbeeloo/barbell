@@ -232,11 +232,50 @@ impl Demuxer {
     }
 
     fn handle_just_bars(&mut self, read: &[u8], read_id: &str, results: &mut Vec<BarbellMatch>) {
+        // We first search the entire read for the *padded* barcodes
+        // to reduce FP hits as we do see FP hits using just barcodes
         for barcode_group in self.queries.iter() {
-            for barcode in barcode_group.padded_barcodes.iter() {
+            for padded_barcode in barcode_group.padded_barcodes.iter() {
                 // Looking for just barcode match
+                let k = get_edit_cut_off(padded_barcode.seq.len());
+                for flank_match in self.overhang_searcher.search(&padded_barcode.seq, &read, k) {
+                    results.push(BarbellMatch::new(
+                        flank_match.text_start,
+                        flank_match.text_end,
+                        flank_match.text_start,
+                        flank_match.text_end,
+                        flank_match.pattern_start,
+                        flank_match.pattern_end,
+                        barcode_group.barcode_type.as_bar(),
+                        flank_match.cost,
+                        flank_match.cost, // Keep same cost as barcode for now
+                        padded_barcode.label.clone(),
+                        flank_match.strand,
+                        read.len(),
+                        read_id.to_string(),
+                        rel_dist_to_end(flank_match.text_start as isize, read.len()),
+                        None,
+                    ));
+                }
+            }
+        }
+
+        // If read is less than 100bp we do a single search
+
+        // Just the ends, around 100bp we search for barcodes without padding
+        // risking trimming is probably worth having barcodes left
+        let left_end = &read[..100.min(read.len())];
+        let right_end = if read.len() < 100 {
+            None // empty slice if too short
+        } else {
+            Some(&read[read.len() - 100..])
+        };
+
+        for barcode_group in self.queries.iter() {
+            for barcode in barcode_group.barcodes.iter() {
                 let k = get_edit_cut_off(barcode.seq.len());
-                for flank_match in self.overhang_searcher.search(&barcode.seq, &read, k) {
+
+                for flank_match in self.overhang_searcher.search(&barcode.seq, &left_end, k) {
                     results.push(BarbellMatch::new(
                         flank_match.text_start,
                         flank_match.text_end,
@@ -254,6 +293,28 @@ impl Demuxer {
                         rel_dist_to_end(flank_match.text_start as isize, read.len()),
                         None,
                     ));
+                }
+
+                if let Some(right_end) = right_end {
+                    for flank_match in self.overhang_searcher.search(&barcode.seq, &right_end, k) {
+                        results.push(BarbellMatch::new(
+                            read.len() - 100 + flank_match.text_start,
+                            read.len() - 100 + flank_match.text_end,
+                            read.len() - 100 + flank_match.text_start,
+                            read.len() - 100 + flank_match.text_end,
+                            flank_match.pattern_start,
+                            flank_match.pattern_end,
+                            barcode_group.barcode_type.as_bar(),
+                            flank_match.cost,
+                            flank_match.cost, // Keep same cost as barcode for now
+                            barcode.label.clone(),
+                            flank_match.strand,
+                            read.len(),
+                            read_id.to_string(),
+                            rel_dist_to_end(flank_match.text_start as isize, read.len()),
+                            None,
+                        ));
+                    }
                 }
             }
         }

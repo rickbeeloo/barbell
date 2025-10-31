@@ -93,11 +93,11 @@ dependencies = [
  "itertools",
  "needletail",
  "once_cell",
- "pa-types",
+ "pa-types 1.2.0",
  "plotpy",
  "rand 0.8.5",
  "rayon",
- "sassy",
+ "sassy 0.1.4 (git+https://github.com/RagnarGrootKoerkamp/sassy.git)",
  "seq_io",
  "serde",
  "serde_json",
@@ -116,7 +116,7 @@ dependencies = [
  "needletail",
  "once_cell",
  "rand 0.9.2",
- "sassy",
+ "sassy 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -187,9 +187,9 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 [[package]]
 name = "cigar-lodhi-rs"
 version = "0.1.0"
-source = "git+https://github.com/rickbeeloo/cigar-lodhi-rs.git#4ed18b184f5887a5be99d6f3d10bb33b24ac8634"
+source = "git+https://github.com/rickbeeloo/cigar-lodhi-rs.git#23df78cbe279d422030b08bf38d922e772e9c6e5"
 dependencies = [
- "pa-types",
+ "pa-types 1.2.0",
 ]
 
 [[package]]
@@ -247,6 +247,12 @@ dependencies = [
  "lazy_static",
  "windows-sys 0.59.0",
 ]
+
+[[package]]
+name = "colored_text"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a62f25f939069d43c25a069fde8e1dcfee5f0aaaaaee12a89f49adb9b68ac08f"
 
 [[package]]
 name = "console"
@@ -658,6 +664,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pa-types"
+version = "1.2.0"
+source = "git+https://github.com/pairwise-alignment/pa-types#c878261b883c6385b9b721374d3b7d9962a01edf"
+dependencies = [
+ "derive_more",
+ "itertools",
+ "serde",
+]
+
+[[package]]
 name = "pkg-config"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -864,7 +880,22 @@ dependencies = [
  "log",
  "needletail",
  "num_cpus",
- "pa-types",
+ "pa-types 1.1.0",
+ "rand 0.9.2",
+]
+
+[[package]]
+name = "sassy"
+version = "0.1.4"
+source = "git+https://github.com/RagnarGrootKoerkamp/sassy.git#95f2835666c633b5619a6b988dd422cb9caabbe6"
+dependencies = [
+ "clap",
+ "colored_text",
+ "env_logger",
+ "log",
+ "needletail",
+ "num_cpus",
+ "pa-types 1.2.0",
  "rand 0.9.2",
 ]
 
