@@ -546,7 +546,7 @@ impl Demuxer {
             self.handle_tags(read, read_id, &mut results);
         }
 
-        collapse_overlapping_matches(&results, 0.99)
+        collapse_overlapping_matches(results, 0.99)
     }
 }
 

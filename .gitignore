@@ -12,3 +12,5 @@ filter.txt
 /*.fasta
 *backup*
 tests/
+*perf*
+*flamegraph*

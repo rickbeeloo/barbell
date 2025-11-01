@@ -3,6 +3,10 @@ name = "benchmarks"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "profile_demux"
+path = "src/profile_demux.rs"
+
 [dependencies]
 barbell = { path = ".." }
 clap = { version = "4.5.40", features = ["derive"] } 
@@ -11,3 +15,4 @@ needletail = "0.6.3"
 glob = "0.3.2"
 sassy ="0.1.4"
 once_cell = "1.19.0"
+anyhow = "1.0"

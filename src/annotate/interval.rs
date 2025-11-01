@@ -2,29 +2,49 @@ use crate::annotate::barcodes::BarcodeType;
 use crate::annotate::searcher::BarbellMatch;
 
 pub fn collapse_overlapping_matches(
-    matches: &[BarbellMatch],
+    mut sorted: Vec<BarbellMatch>,
     filter_overlap: f32,
 ) -> Vec<BarbellMatch> {
-    if matches.is_empty() {
+    if sorted.is_empty() {
         return Vec::new();
     }
-    let mut sorted = matches.to_vec();
-    sorted.sort_by_key(|m| m.read_start_flank);
 
-    let mut groups = Vec::new();
-    let mut group = vec![sorted[0].clone()];
+    // Sort in place
+    sorted.sort_unstable_by_key(|m| m.read_start_flank);
 
-    for m in sorted.into_iter().skip(1) {
-        if group.iter().any(|g| is_overlap(g, &m, filter_overlap)) {
-            group.push(m);
+    // Work in-place: compact the sorted vec by moving best matches to the front
+    let mut write_idx = 0;
+    let mut group_start = 0;
+    let mut group_end = 1;
+
+    while group_end <= sorted.len() {
+        if group_end == sorted.len() {
+            // End of array - finalize current group
+            let best_idx = find_best_match_idx(&sorted[group_start..group_end]) + group_start;
+            sorted.swap(write_idx, best_idx);
+            write_idx += 1;
+            break;
+        }
+
+        // Check if current element overlaps with any in current group
+        let overlaps = (group_start..group_end)
+            .any(|i| is_overlap(&sorted[i], &sorted[group_end], filter_overlap));
+
+        if overlaps {
+            group_end += 1;
         } else {
-            groups.push(std::mem::take(&mut group));
-            group.push(m);
+            // No overlap - finalize current group and start new one
+            let best_idx = find_best_match_idx(&sorted[group_start..group_end]) + group_start;
+            sorted.swap(write_idx, best_idx);
+            write_idx += 1;
+            group_start = group_end;
+            group_end = group_start + 1;
         }
     }
-    groups.push(group);
 
-    groups.into_iter().map(select_best_match).collect()
+    // Truncate to only keep the selected matches
+    sorted.truncate(write_idx);
+    sorted
 }
 
 fn is_overlap(a: &BarbellMatch, b: &BarbellMatch, threshold: f32) -> bool {
@@ -41,45 +61,57 @@ fn is_overlap(a: &BarbellMatch, b: &BarbellMatch, threshold: f32) -> bool {
     (overlap as f32 / min_len as f32) >= threshold
 }
 
-fn select_best_match(group: Vec<BarbellMatch>) -> BarbellMatch {
-    let mut candidates: Vec<_> = group.into_iter().collect();
+fn get_priority(match_type: &BarcodeType) -> u8 {
+    match match_type {
+        BarcodeType::Ftag | BarcodeType::Rtag => 1, // Highest priority - actual barcode matches
+        BarcodeType::Fbar | BarcodeType::Rbar => 2,
+        BarcodeType::Fflank | BarcodeType::Rflank => 3, // Medium priority - full flank matches
+        BarcodeType::Fadapter | BarcodeType::Radapter => 4, // Low priority - adapter matches
+    }
+}
 
-    // Priority order: 1) Ftag/Rtag (barcode matches), 2) Fflank/Rflank (flank matches)
-    candidates.sort_by(|a, b| {
-        // Define priority levels
-        let priority_a = match a.match_type {
-            BarcodeType::Ftag | BarcodeType::Rtag => 1, // Highest priority - actual barcode matches
-            BarcodeType::Fbar | BarcodeType::Rbar => 2,
-            BarcodeType::Fflank | BarcodeType::Rflank => 3, // Medium priority - full flank matches
-            BarcodeType::Fadapter | BarcodeType::Radapter => 4, // Low priority - adapter matches
-        };
+fn find_best_match_idx(group: &[BarbellMatch]) -> usize {
+    if group.len() == 1 {
+        return 0;
+    }
 
-        let priority_b = match b.match_type {
-            BarcodeType::Ftag | BarcodeType::Rtag => 1, // Highest priority - actual barcode matches
-            BarcodeType::Fbar | BarcodeType::Rbar => 2,
-            BarcodeType::Fflank | BarcodeType::Rflank => 3, // Medium priority - full flank matches
-            BarcodeType::Fadapter | BarcodeType::Radapter => 4,
-        };
+    // Find best match index without allocating
+    let mut best_idx = 0;
+    for i in 1..group.len() {
+        let a = &group[best_idx];
+        let b = &group[i];
 
-        // First sort by priority level
-        priority_a.cmp(&priority_b).then_with(|| {
-            // If both are Ftag/Rtag, prioritize by barcode_cost, then flank_cost
-            if priority_a == 1 && priority_b == 1 {
-                a.barcode_cost
-                    .cmp(&b.barcode_cost)
-                    .then_with(|| a.flank_cost.cmp(&b.flank_cost))
-            } else if priority_a == 2 && priority_b == 2 {
-                // If both are Fflank/Rflank, prioritize by longest flank length
-                let length_a = a.read_end_flank - a.read_start_flank;
-                let length_b = b.read_end_flank - b.read_start_flank;
-                length_b.cmp(&length_a) // Longer length first (reverse order)
-            } else {
-                std::cmp::Ordering::Equal
+        let priority_a = get_priority(&a.match_type);
+        let priority_b = get_priority(&b.match_type);
+
+        let is_better = match priority_a.cmp(&priority_b) {
+            std::cmp::Ordering::Less => true,
+            std::cmp::Ordering::Greater => false,
+            std::cmp::Ordering::Equal => {
+                // If both are Ftag/Rtag, prioritize by barcode_cost, then flank_cost
+                if priority_a == 1 {
+                    match b.barcode_cost.cmp(&a.barcode_cost) {
+                        std::cmp::Ordering::Less => true,
+                        std::cmp::Ordering::Greater => false,
+                        std::cmp::Ordering::Equal => b.flank_cost < a.flank_cost,
+                    }
+                } else if priority_a == 2 {
+                    // If both are Fflank/Rflank, prioritize by longest flank length
+                    let length_a = a.read_end_flank - a.read_start_flank;
+                    let length_b = b.read_end_flank - b.read_start_flank;
+                    length_b > length_a
+                } else {
+                    false
+                }
             }
-        })
-    });
+        };
 
-    candidates[0].clone()
+        if is_better {
+            best_idx = i;
+        }
+    }
+
+    best_idx
 }
 
 #[cfg(test)]
@@ -159,7 +191,7 @@ mod tests {
     fn test_empty_input() {
         // Test empty input
         let matches: Vec<BarbellMatch> = Vec::new();
-        let result = collapse_overlapping_matches(&matches, 0.5);
+        let result = collapse_overlapping_matches(matches, 0.5);
         assert_eq!(result.len(), 0);
     }
 
@@ -167,7 +199,7 @@ mod tests {
     fn test_single_match() {
         // Test single match
         let matches = vec![create_match_template(0, 10, BarcodeType::Ftag, 3, "test1")];
-        let result = collapse_overlapping_matches(&matches, 0.5);
+        let result = collapse_overlapping_matches(matches, 0.5);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].label, "test1");
     }
@@ -179,7 +211,7 @@ mod tests {
             create_match_template(0, 10, BarcodeType::Ftag, 3, "test1"),
             create_match_template(10, 20, BarcodeType::Ftag, 3, "test2"),
         ];
-        let result = collapse_overlapping_matches(&matches, 0.5);
+        let result = collapse_overlapping_matches(matches, 0.5);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].label, "test1");
         assert_eq!(result[1].label, "test2");
@@ -192,7 +224,7 @@ mod tests {
             create_match_template(0, 20, BarcodeType::Ftag, 0, "test1"),
             create_match_template(15, 20, BarcodeType::Ftag, 3, "test2"),
         ];
-        let result = collapse_overlapping_matches(&matches, 0.5);
+        let result = collapse_overlapping_matches(matches, 0.5);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].label, "test1");
     }
@@ -204,11 +236,11 @@ mod tests {
             create_match_template(10, 35, BarcodeType::Ftag, 3, "test2"),
         ];
         // They now overlap at 5, which is 50% of the smaller length
-        let result = collapse_overlapping_matches(&matches, 0.5);
+        let result = collapse_overlapping_matches(matches.clone(), 0.5);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].label, "test1");
         // If we now change it to 0.6, it should not collapse
-        let result = collapse_overlapping_matches(&matches, 0.6);
+        let result = collapse_overlapping_matches(matches, 0.6);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].label, "test1");
         assert_eq!(result[1].label, "test2");
@@ -226,7 +258,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _ in 0..10 {
             matches.shuffle(&mut rng);
-            let result = collapse_overlapping_matches(&matches, 0.5);
+            let result = collapse_overlapping_matches(matches.clone(), 0.5);
             assert_eq!(result.len(), 2);
             assert_eq!(result[0].label, "test1");
             assert_eq!(result[1].label, "test3");
@@ -242,7 +274,7 @@ mod tests {
         for _ in 0..4 {
             matches[1].read_start_flank -= 1;
             matches[1].read_end_flank -= 1;
-            let result = collapse_overlapping_matches(&matches, 0.5);
+            let result = collapse_overlapping_matches(matches.clone(), 0.5);
             println!(
                 "Match 1 from {} to {}",
                 matches[1].read_start_flank, matches[1].read_end_flank
@@ -254,7 +286,7 @@ mod tests {
         // Going one more would put it at 15, and thus trigger collapse
         matches[1].read_start_flank -= 1;
         matches[1].read_end_flank -= 1;
-        let result = collapse_overlapping_matches(&matches, 0.5);
+        let result = collapse_overlapping_matches(matches, 0.5);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].label, "test2");
     }
