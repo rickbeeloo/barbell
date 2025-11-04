@@ -14,8 +14,8 @@ name = "barbell"
 path = "bin/main.rs"
 
 [dependencies]
-sassy = "0.1.4"
-pa-types = "1.0.0"
+sassy.git = "https://github.com/RagnarGrootKoerkamp/sassy.git"
+pa-types.git = "https://github.com/pairwise-alignment/pa-types"
 seq_io = "0.3.4"
 rand = "0.8"
 spinners = "4.1.1"
