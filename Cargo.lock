@@ -86,18 +86,18 @@ dependencies = [
  "anyhow",
  "cigar-lodhi-rs",
  "clap",
- "colored 2.2.0",
+ "colored",
  "csv",
  "glob",
  "indicatif",
  "itertools",
  "needletail",
  "once_cell",
- "pa-types 1.2.0",
+ "pa-types",
  "plotpy",
  "rand 0.8.5",
  "rayon",
- "sassy 0.1.4 (git+https://github.com/RagnarGrootKoerkamp/sassy.git)",
+ "sassy",
  "seq_io",
  "serde",
  "serde_json",
@@ -116,7 +116,7 @@ dependencies = [
  "needletail",
  "once_cell",
  "rand 0.9.2",
- "sassy 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sassy",
 ]
 
 [[package]]
@@ -187,9 +187,9 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 [[package]]
 name = "cigar-lodhi-rs"
 version = "0.1.0"
-source = "git+https://github.com/rickbeeloo/cigar-lodhi-rs.git#23df78cbe279d422030b08bf38d922e772e9c6e5"
+source = "git+https://github.com/rickbeeloo/cigar-lodhi-rs.git#35520451e112f21c8bdb77fde9cc895e008e27da"
 dependencies = [
- "pa-types 1.2.0",
+ "pa-types",
 ]
 
 [[package]]
@@ -245,15 +245,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "colored"
-version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fde0e0ec90c9dfb3b4b1a0891a7dcd0e2bffde2f7efed5fe7c9bb00e5bfb915e"
-dependencies = [
  "windows-sys 0.59.0",
 ]
 
@@ -657,19 +648,9 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "pa-types"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f33ced13e6583732fdad9693bef54a584fa8bd5e0fa55602fe393d4bd51ecf33"
-dependencies = [
- "derive_more",
- "itertools",
- "serde",
-]
-
-[[package]]
-name = "pa-types"
 version = "1.2.0"
-source = "git+https://github.com/pairwise-alignment/pa-types#2bb3e7a1d8d080f4a472944bbd3415d2b4f664a6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dce74cc17b677d21e674bc9058928144c9c001b7bd95c487fbb52554667d6fb0"
 dependencies = [
  "derive_more",
  "itertools",
@@ -883,23 +864,7 @@ dependencies = [
  "log",
  "needletail",
  "num_cpus",
- "pa-types 1.1.0",
- "rand 0.9.2",
-]
-
-[[package]]
-name = "sassy"
-version = "0.1.4"
-source = "git+https://github.com/RagnarGrootKoerkamp/sassy.git#921f0f446462952df20ff2232305ed8479e1ccb3"
-dependencies = [
- "clap",
- "colored 3.0.0",
- "either",
- "env_logger",
- "log",
- "needletail",
- "num_cpus",
- "pa-types 1.2.0",
+ "pa-types",
  "rand 0.9.2",
 ]
 
