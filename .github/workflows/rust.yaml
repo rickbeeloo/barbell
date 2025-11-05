@@ -16,11 +16,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install nightly toolchain
+    - name: Install toolchain
       uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        override: true
 
     - name: Build
       run: |
