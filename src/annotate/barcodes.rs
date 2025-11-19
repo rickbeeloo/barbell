@@ -87,6 +87,11 @@ impl BarcodeGroup {
 
         let prefix_len = prefix.as_ref().unwrap_or(&Vec::new()).len();
         let suffix_len = suffix.as_ref().unwrap_or(&Vec::new()).len();
+        if prefix_len + suffix_len >= query_seqs[0].len() {
+            panic!(
+                "No barcode region found, are you sure the input is unique sequences of <prefix><barcode><suffix>?"
+            );
+        }
         let mask_size = query_seqs[0].len() - prefix_len - suffix_len;
 
         if prefix_len == 0 && suffix_len == 0 {
@@ -97,6 +102,11 @@ impl BarcodeGroup {
                 "Your input only has a flank on one side, that works but we can better anchor your barcodes with a left and right flank"
             );
         }
+
+        assert!(
+            mask_size > 0,
+            "No barcode region found within input seqeunce"
+        );
 
         // Add prefix if present
         if let Some(p) = &prefix {
