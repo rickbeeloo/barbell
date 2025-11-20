@@ -42,8 +42,9 @@ const LWB_1ST_REAR: &str = "ACTTGCCTGTCGCTCTATCTTC";
 const LWB_2ND_FRONT: &str = "CCGTGAC";
 const LWB_2ND_REAR: &str = "TTTCTGTTGGTGCTGATATTGC";
 
-// const MAB_FRONT: &str = "GCTTGGGTGTTTAACC";
-// const MAB_REAR: &str = "CCATATCCGTGTCGCCCTT";
+// 16s_mix_F
+const MAB_FRONT: &str = "GCTTGGGTGTTTAACC";
+const MAB_REAR: &str = "CCATATCCGTGTCGCCCTT";
 
 // Storing all options like dorado takes up too much of the binary so
 // we just create views as subsets of the full list
@@ -56,6 +57,11 @@ const ALL_BARS: [&str; 96] = [
     "BC61", "BC62", "BC63", "BC64", "BC65", "BC66", "BC67", "BC68", "BC69", "BC70", "BC71", "BC72",
     "BC73", "BC74", "BC75", "BC76", "BC77", "BC78", "BC79", "BC80", "BC81", "BC82", "BC83", "BC84",
     "BC85", "BC86", "BC87", "BC88", "BC89", "BC90", "BC91", "BC92", "BC93", "BC94", "BC95", "BC96",
+];
+
+const ALL_AMPLICON_BARS: [&str; 24] = [
+    "AB01", "AB02", "AB03", "AB04", "AB05", "AB06", "AB07", "AB08", "AB09", "AB10", "AB11", "AB12",
+    "AB13", "AB14", "AB15", "AB16", "AB17", "AB18", "AB19", "AB20", "AB21", "AB22", "AB23", "AB24",
 ];
 
 // RBK_1_96 is the same as BC_1_96 except for 26, 39, 40, 48, 54 and 60.
@@ -437,6 +443,21 @@ static TEMPLATES_VMK4: &[TemplateSpec] = &[TemplateSpec {
     template_type: TemplateType::Default,
 }];
 
+static TEMPLATES_MAB: &[TemplateSpec] = &[TemplateSpec {
+    parts: &[MAB_FRONT, "{BAR}", MAB_REAR],
+    barcodes: LabelRange::new("AB01", "AB24"),
+    barcode_type: TemplateBarcodeType::Left,
+    template_type: TemplateType::Default,
+}];
+
+const KIT_MAB: KitConfig = KitConfig::new(
+    "MAB",
+    SINGLE_LABEL_CONFIG,
+    single_label_patterns_safe,
+    single_label_patterns_maximize,
+    TEMPLATES_MAB,
+);
+
 const KIT_16S: KitConfig = KitConfig::new(
     "16S",
     DOUBLE_LABEL_CONFIG_KEEP_SINGLE,
@@ -655,6 +676,8 @@ pub fn get_kit_info(kit: &str) -> KitConfig {
         "VSK-VMK001" => KIT_VMK,
         // VMK4
         "VSK-VMK004" => KIT_VMK4,
+        // MAB
+        "SQK-MAB114-24" => KIT_MAB,
         // if name contains "." try to replace it and run again
         _ => {
             if kit.contains(".") {
@@ -705,6 +728,7 @@ pub fn get_barcodes(from_label: &str, to_label: &str) -> Vec<String> {
     let (pf_from, from_num, from_a) = parse_label_simple(from_label);
     let (pf_to, to_num, to_a) = parse_label_simple(to_label);
 
+    println!("pf_from: {pf_from}, pf_to: {pf_to}");
     assert!(
         pf_from == pf_to,
         "Mismatched label prefixes: {pf_from} vs {pf_to}"
@@ -719,10 +743,18 @@ pub fn get_barcodes(from_label: &str, to_label: &str) -> Vec<String> {
     // Base slice uses BC labels 1..=96
     let slice_from = start - 1;
     let slice_to = end;
-    let mut slice: Vec<String> = ALL_BARS[slice_from..slice_to]
-        .iter()
-        .map(|&s| s.to_string())
-        .collect();
+
+    let mut slice: Vec<String> = if pf_from != "AB" {
+        ALL_BARS[slice_from..slice_to]
+            .iter()
+            .map(|&s| s.to_string())
+            .collect()
+    } else {
+        ALL_AMPLICON_BARS[slice_from..slice_to]
+            .iter()
+            .map(|&s| s.to_string())
+            .collect()
+    };
 
     // 12A handling: if either boundary has 'A' and the range includes 12
     let use_12a = (from_a || to_a) && (start <= 12 && 12 <= end);
@@ -741,6 +773,14 @@ pub fn get_barcodes(from_label: &str, to_label: &str) -> Vec<String> {
                 *item = item.replacen("BC", "NB", 1);
             }
         });
+    }
+
+    if pf_from == "AB" {
+        // Use amplicon bars instead \
+        slice = ALL_AMPLICON_BARS[slice_from..slice_to]
+            .iter()
+            .map(|&s| s.to_string())
+            .collect();
     }
 
     // RBK kit: relabel specific indices to RBK
@@ -988,6 +1028,33 @@ const NB_SEQS: [&str; 96] = [
     "CTGAACGGTCATAGAGTCCACCAT",
 ];
 
+const AB_SEQS: [&str; 24] = [
+    "GCACCTGGAACTTGTGCCTTCCAC",
+    "CCGAAATAGGTTATCTGTTGTTGT",
+    "ATCAATCGCTGGACGATGGATTAG",
+    "CCACCCGCTCCTGCCGGTGGGCGT",
+    "AGACTCTTGGGCTCGCCACGTCCC",
+    "TCTGTATCCGGAGACGGGATGGAC",
+    "TTTCGGATCAATCGACCGCAAACG",
+    "ACTCAAACATTCTGTTAGATCGCG",
+    "AAATGGAACCCGGATATGTTTACT",
+    "TAAATCGACCTATGATGAACACAG",
+    "ACATGTTGGAGTGAAAGTCGGGTA",
+    "CCTGGACCACGATCATTGTAACAT",
+    "TATGGTGGATCTCCCTCTATCTTC",
+    "AAGTAAATGGGACGCCCACTCCGA",
+    "TGTTCGCGGCTTGATCTAATATTA",
+    "AGAGAGCTTCCCGGGAGGGTGGTC",
+    "TTGTGAATATCTGTCACAAACACC",
+    "CAATCGTACCAGGGAACATAAAGT",
+    "CACACCCAAACAATATGGACCCGT",
+    "AATAACCACATCCGCCCTCCGCAC",
+    "TCCTAATAATGTGTAGATCGGTCC",
+    "AGTCGATGGAACAAGAGAAGTTAT",
+    "AAACTCACTGTATGTCGTTTCTAT",
+    "TGACATCACTGATCGAGGAAGATC",
+];
+
 // 12A special (used for RLB kit and as BC12A/NB12A when requested)
 const BC12A_SEQ: &str = "GTTGAGTTACAAAGCACCGATCAG";
 
@@ -1007,6 +1074,7 @@ pub fn lookup_barcode_seq(label: &str) -> Option<&'static str> {
             }
             NB_SEQS.get(number.saturating_sub(1)).copied()
         }
+        "AB" => AB_SEQS.get(number.saturating_sub(1)).copied(),
         "BP" => BP_SEQS.get(number.saturating_sub(1)).copied(),
         "RBK" => match number {
             26 => Some("ACTATGCCTTTCCGTGAAACAGTT"),

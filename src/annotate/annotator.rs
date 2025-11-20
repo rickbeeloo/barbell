@@ -231,7 +231,7 @@ pub fn annotate(
         },
         |record_sets| {
             while let Some(result) = record_sets.next() {
-                let (record_set, found_result) = result.unwrap();
+                let (record_set, found_result) = result.expect("Does not seem valid fastq?");
                 let n_records = record_set.len();
                 total.fetch_add(n_records, Ordering::Relaxed);
                 if let Some((record_set_results, found_count)) = found_result {
