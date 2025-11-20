@@ -728,7 +728,6 @@ pub fn get_barcodes(from_label: &str, to_label: &str) -> Vec<String> {
     let (pf_from, from_num, from_a) = parse_label_simple(from_label);
     let (pf_to, to_num, to_a) = parse_label_simple(to_label);
 
-    println!("pf_from: {pf_from}, pf_to: {pf_to}");
     assert!(
         pf_from == pf_to,
         "Mismatched label prefixes: {pf_from} vs {pf_to}"
