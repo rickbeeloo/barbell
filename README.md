@@ -281,7 +281,7 @@ you have a single-end or dual-end experiment.
 
 ### Creating a query Fasta
 If you have your own barcodes/primers/adapters, create FASTA files containing the full expected sequences. 
-Note that each FASTA contains all sequences that <u>share the same prefix/suffix</u>.
+Note that each FASTA contains all sequences that <u>share the same prefix/suffix</u>, and are **unique**. 
 
 The Fasta format should be as follows:
 ```text
