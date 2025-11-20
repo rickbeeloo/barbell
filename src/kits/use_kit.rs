@@ -89,7 +89,7 @@ pub fn demux_using_kit(
         fastq_file,
         output_folder,
         true,
-        true,
+        false, // probalby nobody using kits uses this (only for custom)
         false,
         false,
         Some(LabelSide::Left),
