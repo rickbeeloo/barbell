@@ -88,6 +88,7 @@ dependencies = [
  "clap",
  "colored 2.2.0",
  "csv",
+ "ensure_simd",
  "glob",
  "indicatif",
  "itertools",
@@ -362,6 +363,12 @@ name = "encode_unicode"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
+
+[[package]]
+name = "ensure_simd"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c45a25613230d2ee8b1b68510f44ed8d765b6ef9a597d9ad5489e3d0ddfdc61d"
 
 [[package]]
 name = "env_filter"

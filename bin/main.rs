@@ -238,6 +238,9 @@ enum Commands {
 }
 
 fn main() {
+    // Make sure that AVX2 is supported by the current CPU if it was used during compilation.
+    ensure_simd::ensure_simd();
+
     print_banner();
 
     let cli = Cli::parse();

@@ -45,7 +45,13 @@ See the paper for more details on the Barbell scoring and comparisons with other
 Barbell is written in Rust.
 
 ### Executables
-Download the latest release from [releases](https://github.com/rickbeeloo/barbell/releases)
+Download the latest release from
+[releases](https://github.com/rickbeeloo/barbell/releases). These are also
+available via
+
+``` bash
+cargo binstall barbell
+```
 
 ### From source (recommended)
 Check whether Rust is installed:
@@ -54,13 +60,18 @@ Check whether Rust is installed:
 rustc --version
 ```
 
-If not install it via [rustup](https://rustup.rs/), more info in their [docs](https://rust-lang.github.io/rustup/installation/index.html).
+If not install it via [rustup](https://rustup.rs/), more info in their
+[docs](https://rust-lang.github.io/rustup/installation/index.html). Use `rustup
+update` to get the latest stable version.
 
 Then we can install Barbell:
 
 ```bash
 RUSTFLAGS="-C target-cpu=native" cargo install --git https://github.com/rickbeeloo/barbell barbell
 ```
+
+See [here](https://github.com/ragnargrootkoerkamp/ensure_simd) for
+details on `target-cpu=native`.
 
 ---
 
