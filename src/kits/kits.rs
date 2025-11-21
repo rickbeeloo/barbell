@@ -43,8 +43,8 @@ const LWB_2ND_FRONT: &str = "CCGTGAC";
 const LWB_2ND_REAR: &str = "TTTCTGTTGGTGCTGATATTGC";
 
 // 16s_mix_F
-const MAB_FRONT: &str = "GCTTGGGTGTTTAACC";
-const MAB_REAR: &str = "CCATATCCGTGTCGCCCTT";
+const MAB_FRONT: &str = "TTTAACC";
+const MAB_REAR: &str = "CCATATCCGTGTC";
 
 // Storing all options like dorado takes up too much of the binary so
 // we just create views as subsets of the full list
