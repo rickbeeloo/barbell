@@ -50,7 +50,7 @@ Download the latest release from
 available via
 
 ``` bash
-cargo binstall barbell
+cargo binstall --git https://github.com/rickbeeloo/barbell barbell
 ```
 
 ### From source (recommended)
