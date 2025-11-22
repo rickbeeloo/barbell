@@ -52,6 +52,11 @@ available via
 ``` bash
 cargo binstall --git https://github.com/rickbeeloo/barbell barbell
 ```
+or via conda/mamba/pixi:
+
+``` sh
+conda install -c bioconda barbell
+```
 
 ### From source (recommended)
 Check whether Rust is installed:
