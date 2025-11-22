@@ -194,7 +194,8 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 [[package]]
 name = "cigar-lodhi-rs"
 version = "0.1.0"
-source = "git+https://github.com/rickbeeloo/cigar-lodhi-rs.git#35520451e112f21c8bdb77fde9cc895e008e27da"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d13f3342c20f35a74eee818a1dc3500bb6cd3f201a53ee25c721d9438801415"
 dependencies = [
  "pa-types",
 ]

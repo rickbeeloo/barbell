@@ -34,7 +34,7 @@ thread-id = "5.0.0"
 plotpy = "1.13.0"
 itertools = "*"
 glob = "*"
-cigar-lodhi-rs = {git = "https://github.com/rickbeeloo/cigar-lodhi-rs.git"}
+cigar-lodhi-rs =  "0.1.0"
 ensure_simd = "0.1.0"
 
 
