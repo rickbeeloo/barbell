@@ -2,8 +2,10 @@
 name = "barbell"
 version = "0.2.2"
 edition = "2024"
+license = "MIT"
+repository = "https://github.com/rickbeeloo/barbell"
+keywords = ["bioinformatics", "demultiplexing", "nanopore", "ONT"]
 
-repository = "https://github.com/rickbeeloo/barbell-sg"
 
 [lib]
 name = "barbell"
