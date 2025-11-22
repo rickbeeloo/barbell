@@ -50,7 +50,7 @@ Download the latest release from
 available via
 
 ``` bash
-cargo binstall --git https://github.com/rickbeeloo/barbell barbell
+cargo binstall barbell
 ```
 or via conda/mamba/pixi:
 
@@ -72,7 +72,7 @@ update` to get the latest stable version.
 Then we can install Barbell:
 
 ```bash
-RUSTFLAGS="-C target-cpu=native" cargo install --git https://github.com/rickbeeloo/barbell barbell
+RUSTFLAGS="-C target-cpu=native" cargo install barbell
 ```
 
 See [here](https://github.com/ragnargrootkoerkamp/ensure_simd) for
