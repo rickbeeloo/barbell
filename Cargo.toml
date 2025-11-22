@@ -5,7 +5,7 @@ edition = "2024"
 license = "MIT"
 repository = "https://github.com/rickbeeloo/barbell"
 keywords = ["bioinformatics", "demultiplexing", "nanopore", "ONT"]
-
+description = "Extremely fast and accurate Nanopore demultiplexing"
 
 [lib]
 name = "barbell"
