@@ -45,17 +45,13 @@ pub fn get_matching_region(m: &Match, start: usize, end: usize) -> Option<(usize
     let path = m.to_path();
     let (start, end) = (start as i32, end as i32);
 
-    let pattern_offset = m.pattern_start;
+    let mut sub_path = path
+        .iter()
+        .filter(|Pos(q_pos, _)| *q_pos >= start && *q_pos <= end);
 
-    let mut sub_path = path.iter().filter(|Pos(q_pos, _)| {
-        let adj_q_pos = *q_pos + pattern_offset as i32;
-        adj_q_pos >= start && adj_q_pos <= end
-    });
-
-    let start = sub_path.next()?.0 as usize;
-    let end = sub_path.next_back()?.0 as usize;
-
-    Some((start, end))
+    let start = sub_path.next()?.1 as usize;
+    let end = sub_path.next_back()?.1 as usize;
+    Some((start.min(end), end.max(start)))
 }
 
 #[cfg(test)]

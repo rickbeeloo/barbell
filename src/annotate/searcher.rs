@@ -243,16 +243,7 @@ impl Demuxer {
 
             for flank_match in flank_matches.iter() {
                 // Get barcode region
-                let (mut mask_start, mut mask_end) = barcode_group.bar_region;
-
-                // If the match is in reverse complement we have to flip the locations based
-                // on the length
-                if flank_match.strand == Strand::Rc {
-                    let flank_len = flank.len();
-                    let (start, end) = barcode_group.bar_region;
-                    mask_start = flank_len - end;
-                    mask_end = flank_len - start;
-                }
+                let (mask_start, mask_end) = barcode_group.bar_region;
 
                 // Extract read positions for barcode matching region
                 let Some((barcode_region_start, barcode_region_end)) =
@@ -263,10 +254,8 @@ impl Demuxer {
 
                 // We have the barcode match region but to align against it we add some
                 // padding on both sides of the barcode to anchor the alignment
-                let barcode_region_start =
-                    (flank_match.text_start + barcode_region_start).saturating_sub(crate::PADDING);
-                let barcode_region_end =
-                    (flank_match.text_start + barcode_region_end + crate::PADDING).min(read.len());
+                let barcode_region_start = barcode_region_start.saturating_sub(crate::PADDING);
+                let barcode_region_end = (barcode_region_end + crate::PADDING).min(read.len());
 
                 let barcode_region = &read[barcode_region_start..barcode_region_end];
                 let mut candidates: Vec<(Match, &Barcode)> = Vec::new();

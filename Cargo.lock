@@ -887,13 +887,14 @@ dependencies = [
 
 [[package]]
 name = "sassy"
-version = "0.1.6"
+version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8da80c2d4b282a5aae8ff3bc1b45bc2b17453af9fcf7eb02d902ddc739b50f8d"
+checksum = "59c4316104ee6de04f5cc1bfe585a074a7a17bc70f126d4eca285ecb0f6c15e2"
 dependencies = [
  "clap",
  "colored 3.0.0",
  "either",
+ "ensure_simd",
  "env_logger",
  "log",
  "needletail",
