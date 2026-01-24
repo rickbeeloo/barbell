@@ -339,7 +339,6 @@ impl Demuxer {
                     &scored[0].2,
                     rel_bar_start as i32,
                     rel_bar_end as i32,
-                    false, // With newer sassy cigar is always in pattern direction now
                 );
 
                 let ((bar_start, bar_end), (read_bar_start, read_bar_end), bar_cost) =

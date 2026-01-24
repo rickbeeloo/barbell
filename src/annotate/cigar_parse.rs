@@ -9,19 +9,13 @@ pub fn map_pat_to_text(
     m: &Match,
     p_start: i32,
     p_end: i32,
-    rev_path: bool,
 ) -> Option<((usize, usize), (usize, usize))> {
     let mut start_pair: Option<Pos> = None;
     let mut end_pair: Option<Pos> = None;
 
     let path = m.to_path();
-    let iter: Box<dyn Iterator<Item = &Pos>> = if rev_path {
-        Box::new(path.iter().rev())
-    } else {
-        Box::new(path.iter())
-    };
 
-    for &Pos(i, j) in iter {
+    for &Pos(i, j) in path.iter() {
         if i >= p_start && i < p_end {
             if start_pair.is_none() {
                 start_pair = Some(Pos(i, j));
@@ -47,7 +41,6 @@ pub fn map_pat_to_text_with_cost(
     m: &Match,
     p_start: i32,
     p_end: i32,
-    rev_path: bool,
 ) -> Option<((usize, usize), (usize, usize), u32)> {
     // Track positions (Pos) as offsets in the pattern and text
     let mut start_pair: Option<Pos> = None;
@@ -59,13 +52,8 @@ pub fn map_pat_to_text_with_cost(
     let mut end_idx: Option<usize> = None;
 
     let path = m.to_path();
-    let iter: Box<dyn Iterator<Item = (usize, &Pos)>> = if rev_path {
-        Box::new(path.iter().enumerate().rev())
-    } else {
-        Box::new(path.iter().enumerate())
-    };
 
-    for (idx, &Pos(i, j)) in iter {
+    for (idx, &Pos(i, j)) in path.iter().enumerate() {
         if i >= p_start && i < p_end {
             if start_pair.is_none() {
                 start_pair = Some(Pos(i, j));
@@ -142,6 +130,20 @@ mod test {
     use sassy::Searcher;
     use sassy::profiles::Iupac;
 
+    fn reverse_complement(seq: &[u8]) -> Vec<u8> {
+        let mut rev = Vec::new();
+        for el in seq.iter().rev() {
+            rev.push(match el {
+                b'A' => b'T',
+                b'T' => b'A',
+                b'C' => b'G',
+                b'G' => b'C',
+                _ => b'N',
+            });
+        }
+        rev
+    }
+
     #[test]
     fn test_mapping_substring_in_cigar() {
         let p = b"AAAAACCCAAAA";
@@ -149,7 +151,7 @@ mod test {
         let mut searcher = Searcher::<Iupac>::new_rc();
         let matches = searcher.search(p, &t, 0);
         let m = matches.first().unwrap();
-        let ((ps, pe), (t_start, t_end)) = map_pat_to_text(m, 5, 7 + 1, false).unwrap();
+        let ((ps, pe), (t_start, t_end)) = map_pat_to_text(m, 5, 7 + 1).unwrap();
         let match_slice = &t[t_start..t_end];
         println!(
             "Text slice: {:?}",
@@ -167,8 +169,15 @@ mod test {
         let mut searcher = Searcher::<Iupac>::new_rc();
         let matches = searcher.search(p, &t, 0);
         let m = matches.first().unwrap();
-        let ((ps, pe), (t_start, t_end), cost) =
-            map_pat_to_text_with_cost(m, 5, 7 + 1, false).unwrap();
+        let ((ps, pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
+        assert_eq!(cost, 0);
+        // Rc'ing it should not change the cost
+        let p_rc = reverse_complement(p);
+        let t_rc = reverse_complement(t);
+        let mut searcher = Searcher::<Iupac>::new_rc();
+        let matches = searcher.search(&p_rc, &t_rc, 0);
+        let m = matches.first().unwrap();
+        let ((ps, pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
         assert_eq!(cost, 0);
     }
 
@@ -179,8 +188,15 @@ mod test {
         let mut searcher = Searcher::<Iupac>::new_rc();
         let matches = searcher.search(p, &t, 1);
         let m = matches.first().unwrap();
-        let ((ps, pe), (t_start, t_end), cost) =
-            map_pat_to_text_with_cost(m, 5, 7 + 1, false).unwrap();
+        let ((ps, pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
+        assert_eq!(cost, 1);
+        // Rc'ing it should not change the cost
+        let p_rc = reverse_complement(p);
+        let t_rc = reverse_complement(t);
+        let mut searcher = Searcher::<Iupac>::new_rc();
+        let matches = searcher.search(&p_rc, &t_rc, 1);
+        let m = matches.first().unwrap();
+        let ((ps, pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
         assert_eq!(cost, 1);
     }
 
@@ -193,8 +209,15 @@ mod test {
         // Sort low to high edits
         matches.sort_by_key(|m| m.cigar.ops.iter().map(|op| op.cnt as usize).sum::<usize>());
         let m = matches.first().unwrap();
-        let ((ps, pe), (t_start, t_end), cost) =
-            map_pat_to_text_with_cost(m, 5, 7 + 1, false).unwrap();
+        let ((ps, pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
+        assert_eq!(cost, 1);
+        // Rc'ing it should not change the cost
+        let p_rc = reverse_complement(p);
+        let t_rc = reverse_complement(t);
+        let mut searcher = Searcher::<Iupac>::new_rc();
+        let matches = searcher.search(&p_rc, &t_rc, 5);
+        let m = matches.first().unwrap();
+        let ((ps, pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
         assert_eq!(cost, 1);
     }
 
@@ -207,8 +230,15 @@ mod test {
         // Sort low to high edits
         matches.sort_by_key(|m| m.cigar.ops.iter().map(|op| op.cnt as usize).sum::<usize>());
         let m = matches.first().unwrap();
-        let ((ps, pe), (t_start, t_end), cost) =
-            map_pat_to_text_with_cost(m, 5, 7 + 1, false).unwrap();
+        let ((ps, pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
+        assert_eq!(cost, 1);
+        // Rc'ing it should not change the cost
+        let p_rc = reverse_complement(p);
+        let t_rc = reverse_complement(t);
+        let mut searcher = Searcher::<Iupac>::new_rc();
+        let matches = searcher.search(&p_rc, &t_rc, 5);
+        let m = matches.first().unwrap();
+        let ((ps, pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
         assert_eq!(cost, 1);
     }
 
@@ -234,7 +264,7 @@ mod test {
         let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.5);
         let matches = searcher.search(p, &t, 3);
         let m = matches.first().unwrap();
-        let ((ps, pe), (t_start, t_end)) = map_pat_to_text(m, 3, 5 + 1, false).unwrap();
+        let ((ps, pe), (t_start, t_end)) = map_pat_to_text(m, 3, 5 + 1).unwrap();
         let match_slice = &t[t_start..t_end];
         println!(
             "Text slice: ({}, {}) - {:?}",
