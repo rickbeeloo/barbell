@@ -335,14 +335,14 @@ impl Demuxer {
                 let rel_bar_start = bar_start - pad_start;
                 let rel_bar_end = pad_end - bar_end + (bar_end - bar_start);
 
-                let bar_read_region = map_pat_to_text(
+                let bar_read_region = map_pat_to_text_with_cost(
                     &scored[0].2,
                     rel_bar_start as i32,
                     rel_bar_end as i32,
-                    scored[0].2.strand == Strand::Rc,
+                    false, // With newer sassy cigar is always in pattern direction now
                 );
 
-                let ((bar_start, bar_end), (read_bar_start, read_bar_end)) =
+                let ((bar_start, bar_end), (read_bar_start, read_bar_end), bar_cost) =
                     bar_read_region.expect("No barcode match region found; unusual");
 
                 // Apply fractional thresholds
@@ -363,7 +363,7 @@ impl Demuxer {
                         barcode_region_start + bar_end,
                         scored[0].3.match_type.clone(),
                         flank_match.cost,
-                        scored[0].2.cost as Cost,
+                        bar_cost as Cost,
                         scored[0].3.label.clone(),
                         scored[0].2.strand,
                         read.len(),
@@ -381,7 +381,10 @@ impl Demuxer {
                         0,
                         barcode_group.barcodes[0].match_type.as_flank().clone(),
                         flank_match.cost,
-                        scored[0].2.cost as Cost,
+                        // Eventhough barcode was "better" than just a flank match
+                        // to keep it consistent among "flank" matches lets also report
+                        // full barcode length cost
+                        barcode_group.barcodes[0].seq.len() as Cost,
                         "flank".to_string(),
                         flank_match.strand,
                         read.len(),
