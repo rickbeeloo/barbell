@@ -341,6 +341,10 @@ impl Demuxer {
                     rel_bar_end as i32,
                 );
 
+                // for _ in 0..10 {
+                //     println!("Match cigar: {:?}", scored[0].2.cigar.to_string());
+                // }
+
                 let ((bar_start, bar_end), (read_bar_start, read_bar_end), bar_cost) =
                     bar_read_region.expect("No barcode match region found; unusual");
 
