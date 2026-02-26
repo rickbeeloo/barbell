@@ -2,8 +2,9 @@ use crate::annotate::barcodes::{BarcodeGroup, BarcodeType};
 use crate::annotate::edit_model::get_edit_cut_off;
 use crate::annotate::progress::{ANNOTATION_PROGRESS_SPECS, ProgressTracker};
 use crate::annotate::searcher::{BarbellMatch, Demuxer};
+use crate::io::io::open_fastq;
 use anyhow::anyhow;
-use seq_io::fastq::{Error as FastqError, Reader, Record, RecordSet};
+use seq_io::fastq::{Error as FastqError, Record, RecordSet};
 use seq_io::parallel::{ParallelRecordsets, read_parallel};
 use std::fmt::Display;
 use std::sync::{Arc, Mutex};
@@ -164,7 +165,7 @@ pub fn annotate(
     min_score: f64,
     min_score_diff: f64,
 ) -> anyhow::Result<()> {
-    let reader = Reader::from_path(read_file)?;
+    let reader = open_fastq(read_file);
     let writer = Arc::new(Mutex::new(
         csv::WriterBuilder::new()
             .delimiter(b'\t')

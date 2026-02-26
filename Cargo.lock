@@ -89,6 +89,7 @@ dependencies = [
  "colored 2.2.0",
  "csv",
  "ensure_simd",
+ "flate2",
  "glob",
  "indicatif",
  "itertools",
