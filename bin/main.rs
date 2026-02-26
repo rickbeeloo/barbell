@@ -164,6 +164,10 @@ enum Commands {
         /// Write ids of failed trimmed reads to this file
         #[arg(long)]
         failed_out: Option<String>,
+
+        /// Don't trim reads
+        #[arg(long, default_value_t = false)]
+        skip_trim: bool,
     },
 
     /// View most common patterns in annotation
@@ -346,6 +350,7 @@ fn main() {
             sort_labels,
             only_side,
             failed_out,
+            skip_trim,
         } => {
             println!("{}", "Starting trimming...".green());
             trim_matches(
@@ -359,6 +364,7 @@ fn main() {
                 *only_side,
                 failed_out.clone(),
                 true, // Maybe make this optional but dont see a reason why you would not want this
+                *skip_trim,
             );
         }
 

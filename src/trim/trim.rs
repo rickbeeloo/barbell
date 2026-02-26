@@ -231,6 +231,7 @@ pub fn process_read_and_anno(
     qual: &[u8],
     annotations: &[BarbellMatch],
     label_config: &LabelConfig,
+    skip_trim: bool,
 ) -> Vec<(Vec<u8>, Vec<u8>, String, String)> {
     let mut results = Vec::new();
     let seq_len = seq.len();
@@ -244,8 +245,18 @@ pub fn process_read_and_anno(
             continue;
         }
 
-        let trimmed_seq = seq[slice.start..slice.end].to_vec();
-        let trimmed_qual = qual[slice.start..slice.end].to_vec();
+        // For now if trimming is disabled, we just
+        // return the full sequence and quality
+        let trimmed_seq = if skip_trim {
+            seq.to_vec()
+        } else {
+            seq[slice.start..slice.end].to_vec()
+        };
+        let trimmed_qual = if skip_trim {
+            qual.to_vec()
+        } else {
+            qual[slice.start..slice.end].to_vec()
+        };
 
         let label_matches: Vec<BarbellMatch> = slice.annotations.clone();
 
@@ -325,6 +336,7 @@ pub fn trim_matches(
     only_side: Option<LabelSide>,
     failed_trimmed_writer: Option<String>, // if provided we write ids of failed trimmed reads to this file, like empty reads
     write_full_header: bool,
+    skip_trim: bool,
 ) {
     // Create output folder if it doesn't exist
     if !Path::new(output_folder).exists() {
@@ -382,8 +394,13 @@ pub fn trim_matches(
         if let Some(annotations) = annotations_by_read.get(&read_id) {
             // mapped_reads += 1;
 
-            let results: Vec<(Vec<u8>, Vec<u8>, String, String)> =
-                process_read_and_anno(record.seq(), record.qual(), annotations, &label_config);
+            let results: Vec<(Vec<u8>, Vec<u8>, String, String)> = process_read_and_anno(
+                record.seq(),
+                record.qual(),
+                annotations,
+                &label_config,
+                skip_trim,
+            );
 
             if !results.is_empty() {
                 trimmed_bar.inc(1);
@@ -500,7 +517,7 @@ mod tests {
         ];
 
         let label_config = LabelConfig::new(true, true, true, true, None);
-        let results = process_read_and_anno(seq, qual, &annotations, &label_config);
+        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false);
 
         assert_eq!(results.len(), 1);
         let (trimmed_seq, trimmed_qual, group_label, _) = &results[0];
@@ -592,7 +609,7 @@ mod tests {
         ];
 
         let label_config = LabelConfig::new(true, true, true, true, None);
-        let results = process_read_and_anno(seq, qual, &annotations, &label_config);
+        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false);
 
         assert_eq!(results.len(), 2);
 
@@ -605,5 +622,58 @@ mod tests {
         assert_eq!(trimmed_seq2, b"GG");
         assert_eq!(trimmed_qual2, b"II");
         assert_eq!(label2, "F2_fw__R2_fw");
+    }
+
+    #[test]
+    fn test_trim_skipping() {
+        let seq = b"CCCCCCCCAAAACCCCCCCCCCCC";
+        let qual = b"________IIII____________";
+
+        let annotations = vec![
+            BarbellMatch::new(
+                4, // read_start_bar
+                8, // read_end_bar
+                4, // read_start_flank
+                8, // read_end_flank
+                0, // bar_start
+                4, // bar_end
+                BarcodeType::Ftag,
+                0, // flank_cost
+                0, // barcode_cost
+                "Fbar".to_string(),
+                Strand::Fwd,
+                seq.len(),
+                "read1".to_string(),
+                0, // rel_dist_to_end
+                Some(vec![(Cut::new(0, CutDirection::After), 8)]),
+            ),
+            BarbellMatch::new(
+                12, // read_start_bar
+                16, // read_end_bar
+                12, // read_start_flank
+                16, // read_end_flank
+                0,  // bar_start
+                4,  // bar_end
+                BarcodeType::Rtag,
+                0, // flank_cost
+                0, // barcode_cost
+                "Rbar".to_string(),
+                Strand::Fwd,
+                seq.len(),
+                "read1".to_string(),
+                0, // rel_dist_to_end
+                Some(vec![(Cut::new(0, CutDirection::Before), 12)]),
+            ),
+        ];
+
+        let label_config = LabelConfig::new(true, true, true, true, None);
+        let results = process_read_and_anno(seq, qual, &annotations, &label_config, true);
+
+        assert_eq!(results.len(), 1);
+        let (trimmed_seq, trimmed_qual, group_label, _) = &results[0];
+        println!("trimmed_seq: {}", String::from_utf8_lossy(trimmed_seq));
+        assert_eq!(trimmed_seq, b"CCCCCCCCAAAACCCCCCCCCCCC");
+        assert_eq!(trimmed_qual, b"________IIII____________");
+        assert_eq!(group_label, "Fbar_fw__Rbar_fw");
     }
 }
