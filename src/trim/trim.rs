@@ -1,10 +1,11 @@
 use crate::annotate::searcher::BarbellMatch;
 use crate::filter::pattern::{Cut, CutDirection};
+use crate::io::io::open_fastq;
 use csv;
 use indicatif::MultiProgress;
 use indicatif::{ProgressBar, ProgressStyle};
 use sassy::Strand;
-use seq_io::fastq::{Reader, Record};
+use seq_io::fastq::Record;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -368,7 +369,7 @@ pub fn trim_matches(
     });
 
     // Process reads
-    let mut reader = Reader::from_path(read_fastq_file).expect("Failed to open FASTQ file");
+    let mut reader = open_fastq(read_fastq_file);
 
     while let Some(record) = reader.next() {
         let record = record.expect("Error reading record");
