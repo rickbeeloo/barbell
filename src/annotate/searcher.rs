@@ -330,10 +330,11 @@ impl Demuxer {
 
                 */
 
-                let (pad_start, pad_end) = barcode_group.pad_region;
+                let (pad_start, _pad_end) = barcode_group.pad_region;
                 let (bar_start, bar_end) = barcode_group.bar_region;
+
                 let rel_bar_start = bar_start - pad_start;
-                let rel_bar_end = pad_end - bar_end + (bar_end - bar_start);
+                let rel_bar_end = bar_end - pad_start;
 
                 let bar_read_region = map_pat_to_text_with_cost(
                     &scored[0].2,

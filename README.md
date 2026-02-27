@@ -295,6 +295,10 @@ BC01.trimmed.fastq  BC11.trimmed.fastq ...
 
 
 ## Custom experiment
+
+> [!IMPORTANT]
+> If trimming fails/crashes you likely have many samples and need to increase ulimit `ulimit -n 65535`
+
 We first create a Fasta, or multiple Fastas containing your queries depending on whether 
 you have a single-end or dual-end experiment.
 
