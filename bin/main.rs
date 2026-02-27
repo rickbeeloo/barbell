@@ -22,7 +22,7 @@ enum UtilsCommands {
         #[arg(short = 'i', long)]
         input: String,
 
-        /// Read FASTQ file
+        /// Read FASTQ file (or FASTQ.gz)
         #[arg(short = 'r', long)]
         reads: String,
 
@@ -60,7 +60,7 @@ enum UtilsCommands {
 enum Commands {
     /// Annotate FASTQ files with barcode information
     Annotate {
-        /// Input FASTQ file
+        /// Input FASTQ file (or FASTQ.gz)
         #[arg(short = 'i', long)]
         input: String,
 
@@ -133,7 +133,7 @@ enum Commands {
         #[arg(short = 'i', long)]
         input: String,
 
-        /// Read FASTQ file
+        /// Read FASTQ file (or FASTQ.gz)
         #[arg(short = 'r', long)]
         reads: String,
 
@@ -195,7 +195,7 @@ enum Commands {
         #[arg(short = 'k', long)]
         kit: String,
 
-        /// Input FASTQ file
+        /// Input FASTQ file (or FASTQ.gz)
         #[arg(short = 'i', long)]
         input: String,
 
@@ -223,7 +223,7 @@ enum Commands {
         #[arg(long = "min-score-diff", default_value_t = 0.1)]
         min_score_diff: f64,
 
-        /// Flank maximum erors in flank, ONLY set manually when you know what you are doing
+        /// Flank maximum errors in flank, ONLY set manually when you know what you are doing
         #[arg(long = "flank-max-errors", value_name = "INT")]
         flank_max_errors: Option<usize>,
 
