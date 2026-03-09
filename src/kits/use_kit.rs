@@ -3,6 +3,7 @@ use crate::filter::filter::filter;
 use crate::inspect::inspect::inspect;
 use crate::kits::kits::*;
 use crate::trim::trim::{LabelSide, trim_matches};
+use anyhow::anyhow;
 use colored::*;
 use std::path::Path;
 
@@ -19,10 +20,10 @@ pub fn demux_using_kit(
     failed_out: Option<String>,
     use_extended: bool,
     alpha: f32,
-) {
+) -> anyhow::Result<()> {
     // Create output folder if not exists yet
     if !Path::new(output_folder).exists() {
-        std::fs::create_dir_all(output_folder).expect("Failed to create output folder");
+        std::fs::create_dir_all(output_folder)?;
     }
 
     let kit_info = get_kit_info(kit_name);
@@ -49,7 +50,7 @@ pub fn demux_using_kit(
         min_score_diff,
         use_extended,
     )
-    .expect("Annotation failed");
+    ?;
 
     // // After annotating we show inspect
     println!("\n{}", "Top 10 most common patterns".purple().bold());
@@ -60,7 +61,7 @@ pub fn demux_using_kit(
         Some(pattern_per_read_out),
         250,
     )
-    .expect("Inspect failed");
+    .map_err(|e| anyhow!("{e}"))?;
     println!(
         "Want to see more patterns? Run: `barbell inspect {output_folder}/annotation.tsv -n 100`"
     );
@@ -80,7 +81,7 @@ pub fn demux_using_kit(
         None,
         patterns,
     )
-    .expect("Filter failed");
+    .map_err(|e| anyhow!("{e}"))?;
 
     // Trimming
     println!("\n{}", "Trimming reads...".purple().bold());
@@ -96,7 +97,9 @@ pub fn demux_using_kit(
         failed_out,
         true,
         false,
-    );
+    )
+    ?;
 
     println!("\n{}", "Done!".green().bold());
+    Ok(())
 }

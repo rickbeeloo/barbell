@@ -1,17 +1,21 @@
+use crate::annotate::progress::{ProgressTracker, TRIM_PROGRESS_SPECS};
 use crate::annotate::searcher::BarbellMatch;
 use crate::filter::pattern::{Cut, CutDirection};
+use anyhow::anyhow;
 use csv;
-use indicatif::MultiProgress;
-use indicatif::{ProgressBar, ProgressStyle};
 use sassy::Strand;
 use seq_io::fastq::{Reader, Record};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
-use std::time::Duration;
 
 use clap::ValueEnum;
+
+const TOTAL_IDX: usize = 0;
+const TRIMMED_IDX: usize = 1;
+const TRIMMED_SPLIT_IDX: usize = 2;
+const FAILED_IDX: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum LabelSide {
@@ -274,55 +278,12 @@ fn clean_read_id(id: &str) -> &str {
     id.split_whitespace().next().unwrap_or(id)
 }
 
-fn create_progress_bar() -> (ProgressBar, ProgressBar, ProgressBar, ProgressBar) {
-    // Create multiprogress bar
-    let multi_progress = MultiProgress::new();
-    let total_bar = multi_progress.add(ProgressBar::new_spinner());
-    let trimmed_bar = multi_progress.add(ProgressBar::new_spinner());
-    let trimmed_split_bar = multi_progress.add(ProgressBar::new_spinner());
-    let failed_bar = multi_progress.add(ProgressBar::new_spinner());
-
-    // Style the progress bars with colors - more compact layout
-    total_bar.set_style(
-        ProgressStyle::with_template(
-            "{spinner:.cyan} {prefix:.bold.white:<8} {msg:.bold.cyan:>6} {elapsed:.dim}",
-        )
-        .unwrap()
-        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
-    );
-    trimmed_bar.set_style(
-        ProgressStyle::with_template(
-            "{spinner:.green} {prefix:.bold.white:<8} {msg:.bold.green:>6} {elapsed:.dim}",
-        )
-        .unwrap()
-        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
-    );
-    trimmed_split_bar.set_style(
-        ProgressStyle::with_template(
-            "{spinner:.green} {prefix:.bold.white:<8} {msg:.bold.red:>6} {elapsed:.dim}",
-        )
-        .unwrap()
-        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
-    );
-    failed_bar.set_style(
-        ProgressStyle::with_template(
-            "{spinner:.red} {prefix:.bold.white:<8} {msg:.bold.red:>6} {elapsed:.dim}",
-        )
-        .unwrap()
-        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
-    );
-
-    total_bar.enable_steady_tick(Duration::from_millis(100));
-    trimmed_bar.enable_steady_tick(Duration::from_millis(120)); // Slightly different timing for visual variety
-    trimmed_split_bar.enable_steady_tick(Duration::from_millis(140));
-    failed_bar.enable_steady_tick(Duration::from_millis(160));
-
-    total_bar.set_prefix("Total:");
-    trimmed_bar.set_prefix("Trimmed:");
-    trimmed_split_bar.set_prefix("Trimmed split:");
-    failed_bar.set_prefix("Failed:");
-
-    (total_bar, trimmed_bar, trimmed_split_bar, failed_bar)
+fn format_output_file_error(output_file: &str, err: &std::io::Error) -> String {
+    let mut msg = format!("Failed to create output file '{output_file}': {err}");
+    if err.raw_os_error() == Some(24) {
+        msg.push_str("\nTry setting ulimit higher: \"ulimit -n 65000\"");
+    }
+    msg
 }
 
 pub fn trim_matches(
@@ -337,7 +298,7 @@ pub fn trim_matches(
     failed_trimmed_writer: Option<String>, // if provided we write ids of failed trimmed reads to this file, like empty reads
     write_full_header: bool,
     skip_trim: bool,
-) {
+) -> anyhow::Result<()> {
     // Create output folder if it doesn't exist
     if !Path::new(output_folder).exists() {
         std::fs::create_dir_all(output_folder).expect("Failed to create output folder");
@@ -352,11 +313,17 @@ pub fn trim_matches(
         only_side,
     );
 
+    if sort_labels && only_side.is_some() {
+        return Err(anyhow!(
+            "Cannot enable only keeping left/right label and sorting; this is ambiguous"
+        ));
+    }
+
     // Read all annotations and group by read ID
     let mut annotations_by_read: HashMap<String, Vec<BarbellMatch>> = HashMap::new();
 
     // Create progress bars
-    let (total_bar, trimmed_bar, trimmed_split_bar, failed_bar) = create_progress_bar();
+    let progress = ProgressTracker::new(&TRIM_PROGRESS_SPECS);
 
     let mut matches_reader = csv::ReaderBuilder::new()
         .delimiter(b'\t')
@@ -388,7 +355,7 @@ pub fn trim_matches(
         let read_id = read_id.to_string();
         let desc: &str = desc.unwrap_or_default();
         let full_header = format!("{read_id} {desc}");
-        total_bar.inc(1);
+        progress.inc(TOTAL_IDX);
 
         // Check if this read has annotations
         if let Some(annotations) = annotations_by_read.get(&read_id) {
@@ -403,9 +370,9 @@ pub fn trim_matches(
             );
 
             if !results.is_empty() {
-                trimmed_bar.inc(1);
+                progress.inc(TRIMMED_IDX);
             } else {
-                failed_bar.inc(1);
+                progress.inc(FAILED_IDX);
                 if let Some(ref mut failed_trimmed_writer) = failed_trimmed_writer {
                     writeln!(failed_trimmed_writer, "{read_id}")
                         .expect("Failed to write to failed trimmed writer");
@@ -413,16 +380,22 @@ pub fn trim_matches(
             }
 
             for (trimmed_seq, trimmed_qual, group, _) in results {
-                trimmed_split_bar.inc(1);
+                progress.inc(TRIMMED_SPLIT_IDX);
 
                 // Get or create writer for this group
-                let writer =
-                    writers.entry(group.clone()).or_insert_with(|| {
-                        let output_file = format!("{output_folder}/{group}.trimmed.fastq");
-                        BufWriter::new(File::create(&output_file).unwrap_or_else(|_| {
-                            panic!("Failed to create output file: {output_file}")
-                        }))
-                    });
+                if !writers.contains_key(&group) {
+                    let output_file = format!("{output_folder}/{group}.trimmed.fastq");
+                    let file = File::create(&output_file).map_err(|err| {
+                        let msg = format_output_file_error(&output_file, &err);
+                        progress.print_error(msg.clone());
+                        progress.clear();
+                        anyhow!(msg)
+                    })?;
+                    writers.insert(group.clone(), BufWriter::new(file));
+                }
+                let writer = writers
+                    .get_mut(&group)
+                    .expect("writer should exist after insertion");
 
                 // Write FASTQ format
                 if write_full_header {
@@ -438,11 +411,7 @@ pub fn trim_matches(
             }
         }
 
-        // Live update messages with current counts
-        total_bar.set_message(total_bar.position().to_string());
-        trimmed_bar.set_message(trimmed_bar.position().to_string());
-        trimmed_split_bar.set_message(trimmed_split_bar.position().to_string());
-        failed_bar.set_message(failed_bar.position().to_string());
+        progress.refresh();
     }
 
     // Flush all writers
@@ -450,22 +419,8 @@ pub fn trim_matches(
         writer.flush().expect("Failed to flush output");
     }
 
-    // Keep totals
-    let total_count = total_bar.position();
-    let trimmed_count = trimmed_bar.position();
-    let trimmed_split_count = trimmed_split_bar.position();
-    let failed_count = failed_bar.position();
-
-    // Final live update before finishing
-    total_bar.set_message(total_count.to_string());
-    trimmed_bar.set_message(trimmed_count.to_string());
-    trimmed_split_bar.set_message(trimmed_split_count.to_string());
-    failed_bar.set_message(failed_count.to_string());
-
-    total_bar.finish_with_message(format!("{total_count} reads"));
-    trimmed_bar.finish_with_message(format!("{trimmed_count} reads"));
-    trimmed_split_bar.finish_with_message(format!("{trimmed_split_count} reads"));
-    failed_bar.finish_with_message(format!("{failed_count} reads"));
+    progress.finish("reads");
+    Ok(())
 }
 
 #[cfg(test)]

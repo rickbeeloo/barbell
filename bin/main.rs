@@ -353,7 +353,7 @@ fn main() {
             skip_trim,
         } => {
             println!("{}", "Starting trimming...".green());
-            trim_matches(
+            match trim_matches(
                 input,
                 reads,
                 output,
@@ -365,7 +365,10 @@ fn main() {
                 failed_out.clone(),
                 true, // Maybe make this optional but dont see a reason why you would not want this
                 *skip_trim,
-            );
+            ) {
+                Ok(_) => println!("{}", "Trimming complete!".green()),
+                Err(e) => println!("{} {}", "Trimming failed:".red(), e),
+            }
         }
 
         Commands::Inspect {
@@ -396,7 +399,7 @@ fn main() {
             use_extended,
             alpha,
         } => {
-            demux_using_kit(
+            if let Err(e) = demux_using_kit(
                 kit.as_str(),
                 input,
                 *threads,
@@ -409,7 +412,9 @@ fn main() {
                 failed_out.clone(),
                 *use_extended,
                 *alpha,
-            );
+            ) {
+                println!("{} {}", "Demultiplexing failed:".red(), e);
+            }
         }
     }
 }
