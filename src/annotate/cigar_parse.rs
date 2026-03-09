@@ -169,7 +169,8 @@ mod test {
         let mut searcher = Searcher::<Iupac>::new_rc();
         let matches = searcher.search(p, &t, 0);
         let m = matches.first().unwrap();
-        let ((ps, pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
+        let ((_ps, _pe), (_t_start, _t_end), cost) =
+            map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
         assert_eq!(cost, 0);
         // Rc'ing it should not change the cost
         let p_rc = reverse_complement(p);
@@ -177,7 +178,8 @@ mod test {
         let mut searcher = Searcher::<Iupac>::new_rc();
         let matches = searcher.search(&p_rc, &t_rc, 0);
         let m = matches.first().unwrap();
-        let ((ps, pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
+        let ((_ps, _pe), (_t_start, _t_end), cost) =
+            map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
         assert_eq!(cost, 0);
     }
 
@@ -188,7 +190,8 @@ mod test {
         let mut searcher = Searcher::<Iupac>::new_rc();
         let matches = searcher.search(p, &t, 1);
         let m = matches.first().unwrap();
-        let ((ps, pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
+        let ((_ps, _pe), (_t_start, _t_end), cost) =
+            map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
         assert_eq!(cost, 1);
         // Rc'ing it should not change the cost
         let p_rc = reverse_complement(p);
@@ -196,7 +199,8 @@ mod test {
         let mut searcher = Searcher::<Iupac>::new_rc();
         let matches = searcher.search(&p_rc, &t_rc, 1);
         let m = matches.first().unwrap();
-        let ((ps, pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
+        let ((_ps, _pe), (_t_start, _t_end), cost) =
+            map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
         assert_eq!(cost, 1);
     }
 
@@ -209,7 +213,8 @@ mod test {
         // Sort low to high edits
         matches.sort_by_key(|m| m.cigar.ops.iter().map(|op| op.cnt as usize).sum::<usize>());
         let m = matches.first().unwrap();
-        let ((ps, pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
+        let ((_ps, _pe), (_t_start, _t_end), cost) =
+            map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
         assert_eq!(cost, 1);
         // Rc'ing it should not change the cost
         let p_rc = reverse_complement(p);
@@ -217,7 +222,8 @@ mod test {
         let mut searcher = Searcher::<Iupac>::new_rc();
         let matches = searcher.search(&p_rc, &t_rc, 5);
         let m = matches.first().unwrap();
-        let ((ps, pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
+        let ((_ps, _pe), (_t_start, _t_end), cost) =
+            map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
         assert_eq!(cost, 1);
     }
 
@@ -230,7 +236,8 @@ mod test {
         // Sort low to high edits
         matches.sort_by_key(|m| m.cigar.ops.iter().map(|op| op.cnt as usize).sum::<usize>());
         let m = matches.first().unwrap();
-        let ((ps, pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
+        let ((_ps, _pe), (_t_start, _t_end), cost) =
+            map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
         assert_eq!(cost, 1);
         // Rc'ing it should not change the cost
         let p_rc = reverse_complement(p);
@@ -238,7 +245,8 @@ mod test {
         let mut searcher = Searcher::<Iupac>::new_rc();
         let matches = searcher.search(&p_rc, &t_rc, 5);
         let m = matches.first().unwrap();
-        let ((ps, pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
+        let ((_ps, _pe), (_t_start, _t_end), cost) =
+            map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
         assert_eq!(cost, 1);
     }
 
