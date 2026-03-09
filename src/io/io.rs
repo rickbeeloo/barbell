@@ -3,15 +3,15 @@ use seq_io::fastq::Reader;
 use std::fs::File;
 use std::io::Read;
 
-/// Open a FASTQ file, transparently decompressing gzip if the path ends in `.gz`
+/// Open a FASTQ file, decompressing gzip if the path ends in `.gz`
 pub fn open_fastq(path: &str) -> Reader<Box<dyn Read + Send>> {
     let reader: Box<dyn Read + Send> = if path.to_ascii_lowercase().ends_with(".gz") {
         let file = File::open(path)
             .unwrap_or_else(|e| panic!("Failed to open gzip FASTQ file '{path}': {e}"));
         Box::new(MultiGzDecoder::new(file))
     } else {
-        let file = File::open(path)
-            .unwrap_or_else(|e| panic!("Failed to open FASTQ file '{path}': {e}"));
+        let file =
+            File::open(path).unwrap_or_else(|e| panic!("Failed to open FASTQ file '{path}': {e}"));
         Box::new(file)
     };
     Reader::new(reader)
@@ -20,8 +20,8 @@ pub fn open_fastq(path: &str) -> Reader<Box<dyn Read + Send>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flate2::write::GzEncoder;
     use flate2::Compression;
+    use flate2::write::GzEncoder;
     use seq_io::fastq::Record;
     use std::io::Write;
     use tempfile::NamedTempFile;
@@ -35,12 +35,15 @@ mod tests {
         tmp.flush().unwrap();
 
         let mut reader = open_fastq(tmp.path().to_str().unwrap());
-        let mut ids: Vec<String> = Vec::new();
+        let mut ids = Vec::new();
+        let mut seqs = Vec::new();
         while let Some(record) = reader.next() {
             let record = record.expect("Error reading record");
             ids.push(record.id().unwrap().to_string());
+            seqs.push(String::from_utf8_lossy(record.seq()).to_string());
         }
         assert_eq!(ids, vec!["read1", "read2"]);
+        assert_eq!(seqs, vec!["ACGTACGT", "TTTTAAAA"]);
     }
 
     #[test]
@@ -52,11 +55,14 @@ mod tests {
         let path = tmp.path().to_str().unwrap().to_string();
 
         let mut reader = open_fastq(&path);
-        let mut ids: Vec<String> = Vec::new();
+        let mut ids = Vec::new();
+        let mut seqs = Vec::new();
         while let Some(record) = reader.next() {
             let record = record.expect("Error reading record");
             ids.push(record.id().unwrap().to_string());
+            seqs.push(String::from_utf8_lossy(record.seq()).to_string());
         }
         assert_eq!(ids, vec!["read1", "read2"]);
+        assert_eq!(seqs, vec!["ACGTACGT", "TTTTAAAA"]);
     }
 }

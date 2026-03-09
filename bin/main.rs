@@ -22,7 +22,7 @@ enum UtilsCommands {
         #[arg(short = 'i', long)]
         input: String,
 
-        /// Read FASTQ file (or FASTQ.gz)
+        /// Read FASTQ file (or FASTQ.gz; slower due to unzipping)
         #[arg(short = 'r', long)]
         reads: String,
 
@@ -60,7 +60,7 @@ enum UtilsCommands {
 enum Commands {
     /// Annotate FASTQ files with barcode information
     Annotate {
-        /// Input FASTQ file (or FASTQ.gz)
+        /// Read FASTQ file (or FASTQ.gz; slower due to unzipping)
         #[arg(short = 'i', long)]
         input: String,
 
@@ -133,7 +133,7 @@ enum Commands {
         #[arg(short = 'i', long)]
         input: String,
 
-        /// Read FASTQ file (or FASTQ.gz)
+        /// Read FASTQ file (or FASTQ.gz; slower due to unzipping)
         #[arg(short = 'r', long)]
         reads: String,
 
@@ -195,7 +195,7 @@ enum Commands {
         #[arg(short = 'k', long)]
         kit: String,
 
-        /// Input FASTQ file (or FASTQ.gz)
+        /// Input FASTQ file (or FASTQ.gz; slower due to unzipping)
         #[arg(short = 'i', long)]
         input: String,
 
