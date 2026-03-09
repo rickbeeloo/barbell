@@ -4,8 +4,6 @@
 
 ## git
 
-## 0.3.2
-
 - Added:
   - Gzip support thanks @Vanishborn
   - Add option to skip trimming (#17)
