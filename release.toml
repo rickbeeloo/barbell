@@ -1,5 +1,4 @@
 pre-release-replacements = [
-  {file="pyproject.toml", search="version = .*", replace="version = \"{{version}}\""},
   {file="CHANGELOG.md", search="## git", replace="## {{version}}", exactly=1},
   {file="CHANGELOG.md", search="<!-- next-header -->", replace="<!-- next-header -->\n\n## git", exactly=1},
 ]
