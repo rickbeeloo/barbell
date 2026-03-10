@@ -169,7 +169,7 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         skip_trim: bool,
 
-        // EXPERIMENTAL, if any Ftag matches rc, reverse complement entire read
+        /// EXPERIMENTAL, if any Ftag matches rc, reverse complement entire read
         #[arg(long, default_value_t = false)]
         flip: bool,
     },
