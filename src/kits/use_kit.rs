@@ -49,8 +49,7 @@ pub fn demux_using_kit(
         min_score,
         min_score_diff,
         use_extended,
-    )
-    ?;
+    )?;
 
     // // After annotating we show inspect
     println!("\n{}", "Top 10 most common patterns".purple().bold());
@@ -97,8 +96,8 @@ pub fn demux_using_kit(
         failed_out,
         true,
         false,
-    )
-    ?;
+        false,
+    )?;
 
     println!("\n{}", "Done!".green().bold());
     Ok(())

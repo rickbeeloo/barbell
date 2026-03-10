@@ -1,3 +1,4 @@
+use crate::annotate::barcodes::BarcodeType;
 use crate::annotate::progress::{ProgressTracker, TRIM_PROGRESS_SPECS};
 use crate::annotate::searcher::BarbellMatch;
 use crate::filter::pattern::{Cut, CutDirection};
@@ -237,6 +238,7 @@ pub fn process_read_and_anno(
     annotations: &[BarbellMatch],
     label_config: &LabelConfig,
     skip_trim: bool,
+    flip: bool,
 ) -> Vec<(Vec<u8>, Vec<u8>, String, String)> {
     let mut results = Vec::new();
     let seq_len = seq.len();
@@ -252,16 +254,21 @@ pub fn process_read_and_anno(
 
         // For now if trimming is disabled, we just
         // return the full sequence and quality
-        let trimmed_seq = if skip_trim {
+        let mut trimmed_seq = if skip_trim {
             seq.to_vec()
         } else {
             seq[slice.start..slice.end].to_vec()
         };
-        let trimmed_qual = if skip_trim {
+        let mut trimmed_qual = if skip_trim {
             qual.to_vec()
         } else {
             qual[slice.start..slice.end].to_vec()
         };
+
+        if flip && should_flip(&slice.annotations) {
+            trimmed_seq = reverse_complement(&trimmed_seq);
+            trimmed_qual.reverse();
+        }
 
         let label_matches: Vec<BarbellMatch> = slice.annotations.clone();
 
@@ -287,6 +294,13 @@ fn format_output_file_error(output_file: &str, err: &std::io::Error) -> String {
     msg
 }
 
+fn should_flip(annotations: &[BarbellMatch]) -> bool {
+    // If we matched an Ftag in rc we flip
+    annotations
+        .iter()
+        .any(|anno| anno.match_type == BarcodeType::Ftag && anno.strand == Strand::Rc)
+}
+
 pub fn trim_matches(
     filtered_match_file: &str,
     read_fastq_file: &str,
@@ -299,6 +313,8 @@ pub fn trim_matches(
     failed_trimmed_writer: Option<String>, // if provided we write ids of failed trimmed reads to this file, like empty reads
     write_full_header: bool,
     skip_trim: bool,
+    // Experimental, if any Ftag = rc, flip it
+    flip: bool,
 ) -> anyhow::Result<()> {
     // Create output folder if it doesn't exist
     if !Path::new(output_folder).exists() {
@@ -368,6 +384,7 @@ pub fn trim_matches(
                 annotations,
                 &label_config,
                 skip_trim,
+                flip,
             );
 
             if !results.is_empty() {
@@ -424,6 +441,56 @@ pub fn trim_matches(
     Ok(())
 }
 
+#[inline(always)]
+fn reverse_complement(seq: &[u8]) -> Vec<u8> {
+    seq.iter().rev().map(|&c| RC[c as usize]).collect()
+}
+
+const RC: [u8; 256] = {
+    let mut rc = [0; 256];
+    let mut i = 0;
+    while i < 256 {
+        rc[i] = i as u8;
+        i += 1;
+    }
+    // Standard bases
+    rc[b'A' as usize] = b'T';
+    rc[b'C' as usize] = b'G';
+    rc[b'T' as usize] = b'A';
+    rc[b'G' as usize] = b'C';
+    rc[b'a' as usize] = b't';
+    rc[b'c' as usize] = b'g';
+    rc[b't' as usize] = b'a';
+    rc[b'g' as usize] = b'c';
+    // IUPAC ambiguity codes
+    rc[b'R' as usize] = b'Y'; // A|G -> T|C
+    rc[b'Y' as usize] = b'R'; // C|T -> G|A
+    rc[b'S' as usize] = b'S'; // G|C -> C|G
+    rc[b'W' as usize] = b'W'; // A|T -> T|A
+    rc[b'K' as usize] = b'M'; // G|T -> C|A
+    rc[b'M' as usize] = b'K'; // A|C -> T|G
+    rc[b'B' as usize] = b'V'; // C|G|T -> G|C|A
+    rc[b'D' as usize] = b'H'; // A|G|T -> T|C|A
+    rc[b'H' as usize] = b'D'; // A|C|T -> T|G|A
+    rc[b'V' as usize] = b'B'; // A|C|G -> T|G|C
+    rc[b'N' as usize] = b'N'; // A|C|G|T -> T|G|C|A
+    rc[b'X' as usize] = b'X';
+    // Lowercase versions
+    rc[b'r' as usize] = b'y';
+    rc[b'y' as usize] = b'r';
+    rc[b's' as usize] = b's';
+    rc[b'w' as usize] = b'w';
+    rc[b'k' as usize] = b'm';
+    rc[b'm' as usize] = b'k';
+    rc[b'b' as usize] = b'v';
+    rc[b'd' as usize] = b'h';
+    rc[b'h' as usize] = b'd';
+    rc[b'v' as usize] = b'b';
+    rc[b'n' as usize] = b'n';
+    rc[b'x' as usize] = b'x';
+    rc
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -473,7 +540,7 @@ mod tests {
         ];
 
         let label_config = LabelConfig::new(true, true, true, true, None);
-        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false);
+        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false, false);
 
         assert_eq!(results.len(), 1);
         let (trimmed_seq, trimmed_qual, group_label, _) = &results[0];
@@ -565,7 +632,7 @@ mod tests {
         ];
 
         let label_config = LabelConfig::new(true, true, true, true, None);
-        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false);
+        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false, false);
 
         assert_eq!(results.len(), 2);
 
@@ -623,7 +690,7 @@ mod tests {
         ];
 
         let label_config = LabelConfig::new(true, true, true, true, None);
-        let results = process_read_and_anno(seq, qual, &annotations, &label_config, true);
+        let results = process_read_and_anno(seq, qual, &annotations, &label_config, true, false);
 
         assert_eq!(results.len(), 1);
         let (trimmed_seq, trimmed_qual, group_label, _) = &results[0];
@@ -631,5 +698,68 @@ mod tests {
         assert_eq!(trimmed_seq, b"CCCCCCCCAAAACCCCCCCCCCCC");
         assert_eq!(trimmed_qual, b"________IIII____________");
         assert_eq!(group_label, "Fbar_fw__Rbar_fw");
+    }
+
+    #[test]
+    fn test_flipping() {
+        let seq = b"CCCCCCCCAGGCCCCCCCCCCCCC";
+        let qual = b"________IIIA____________";
+
+        let mut annotations = vec![
+            BarbellMatch::new(
+                4, // read_start_bar
+                8, // read_end_bar
+                4, // read_start_flank
+                8, // read_end_flank
+                0, // bar_start
+                4, // bar_end
+                BarcodeType::Ftag,
+                0, // flank_cost
+                0, // barcode_cost
+                "Fbar".to_string(),
+                Strand::Rc, // Note RC match we have to flip
+                seq.len(),
+                "read1".to_string(),
+                0, // rel_dist_to_end
+                Some(vec![(Cut::new(0, CutDirection::After), 8)]),
+            ),
+            BarbellMatch::new(
+                12, // read_start_bar
+                16, // read_end_bar
+                12, // read_start_flank
+                16, // read_end_flank
+                0,  // bar_start
+                4,  // bar_end
+                BarcodeType::Rtag,
+                0, // flank_cost
+                0, // barcode_cost
+                "Rbar".to_string(),
+                Strand::Fwd,
+                seq.len(),
+                "read1".to_string(),
+                0, // rel_dist_to_end
+                Some(vec![(Cut::new(0, CutDirection::Before), 12)]),
+            ),
+        ];
+
+        let label_config = LabelConfig::new(true, true, true, true, None);
+        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false, true);
+
+        assert_eq!(results.len(), 1);
+        let (trimmed_seq, trimmed_qual, group_label, _) = &results[0];
+        println!("trimmed_seq: {}", String::from_utf8_lossy(trimmed_seq));
+        assert_eq!(trimmed_seq, b"GCCT");
+        assert_eq!(trimmed_qual, b"AIII");
+        assert_eq!(group_label, "Fbar_rc__Rbar_fw");
+
+        annotations[0].strand = Strand::Fwd;
+        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false, true);
+        let (trimmed_seq, trimmed_qual, group_label, _) = &results[0];
+        println!("trimmed_seq: {}", String::from_utf8_lossy(trimmed_seq));
+        assert_eq!(trimmed_seq, b"AGGC");
+        assert_eq!(trimmed_qual, b"IIIA");
+        assert_eq!(group_label, "Fbar_fw__Rbar_fw");
+
+        // Chaning the strand in Fbar match should give original seq and qual again
     }
 }

@@ -168,6 +168,10 @@ enum Commands {
         /// Don't trim reads
         #[arg(long, default_value_t = false)]
         skip_trim: bool,
+
+        // EXPERIMENTAL, if any Ftag matches rc, reverse complement entire read
+        #[arg(long, default_value_t = false)]
+        flip: bool,
     },
 
     /// View most common patterns in annotation
@@ -351,6 +355,7 @@ fn main() {
             only_side,
             failed_out,
             skip_trim,
+            flip,
         } => {
             println!("{}", "Starting trimming...".green());
             match trim_matches(
@@ -365,6 +370,7 @@ fn main() {
                 failed_out.clone(),
                 true, // Maybe make this optional but dont see a reason why you would not want this
                 *skip_trim,
+                *flip,
             ) {
                 Ok(_) => println!("{}", "Trimming complete!".green()),
                 Err(e) => println!("{} {}", "Trimming failed:".red(), e),
