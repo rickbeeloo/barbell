@@ -125,6 +125,10 @@ enum Commands {
         /// Write dropped read annotation to this file
         #[arg(long)]
         dropped: Option<String>,
+
+        /// Writes log file (total, kept, dropped)
+        #[arg(long, default_value_t = false)]
+        verbose: bool,
     },
 
     /// Trim and sort reads based on filtered annotations
@@ -172,6 +176,10 @@ enum Commands {
         /// EXPERIMENTAL, if any Ftag matches rc, reverse complement entire read
         #[arg(long, default_value_t = false)]
         flip: bool,
+
+        /// Writes log file (total, kept, dropped)
+        #[arg(long, default_value_t = false)]
+        verbose: bool,
     },
 
     /// View most common patterns in annotation
@@ -335,10 +343,11 @@ fn main() {
             output,
             file,
             dropped,
+            verbose,
         } => {
             println!("{}", "Starting filtering...".green());
 
-            match filter_from_text_file(input, file, output, dropped.as_deref()) {
+            match filter_from_text_file(input, file, output, dropped.as_deref(), *verbose) {
                 Ok(_) => println!("{}", "Filtering successful!".green()),
                 Err(e) => println!("{} {}", "Filtering failed:".red(), e),
             }
@@ -356,6 +365,7 @@ fn main() {
             failed_out,
             skip_trim,
             flip,
+            verbose,
         } => {
             println!("{}", "Starting trimming...".green());
             match trim_matches(
@@ -371,6 +381,7 @@ fn main() {
                 true, // Maybe make this optional but dont see a reason why you would not want this
                 *skip_trim,
                 *flip,
+                *verbose,
             ) {
                 Ok(_) => println!("{}", "Trimming complete!".green()),
                 Err(e) => println!("{} {}", "Trimming failed:".red(), e),

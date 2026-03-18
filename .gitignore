@@ -12,3 +12,4 @@ filter.txt
 /*.fasta
 *backup*
 /issue_test/*
+*.log

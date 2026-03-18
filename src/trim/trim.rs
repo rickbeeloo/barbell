@@ -1,8 +1,8 @@
 use crate::annotate::barcodes::BarcodeType;
-use crate::annotate::progress::{ProgressTracker, TRIM_PROGRESS_SPECS};
 use crate::annotate::searcher::BarbellMatch;
 use crate::filter::pattern::{Cut, CutDirection};
 use crate::io::io::open_fastq;
+use crate::progress::progress::{ProgressTracker, TRIM_PROGRESS_SPECS};
 use anyhow::anyhow;
 use csv;
 use sassy::Strand;
@@ -315,6 +315,7 @@ pub fn trim_matches(
     skip_trim: bool,
     // Experimental, if any Ftag = rc, flip it
     flip: bool,
+    verbose: bool,
 ) -> anyhow::Result<()> {
     // Create output folder if it doesn't exist
     if !Path::new(output_folder).exists() {
@@ -340,7 +341,11 @@ pub fn trim_matches(
     let mut annotations_by_read: HashMap<String, Vec<BarbellMatch>> = HashMap::new();
 
     // Create progress bars
-    let progress = ProgressTracker::new(&TRIM_PROGRESS_SPECS);
+    let progress = if verbose {
+        ProgressTracker::new_with_logging(&TRIM_PROGRESS_SPECS, "trim", output_folder)
+    } else {
+        ProgressTracker::new(&TRIM_PROGRESS_SPECS)
+    };
 
     let mut matches_reader = csv::ReaderBuilder::new()
         .delimiter(b'\t')
@@ -397,9 +402,11 @@ pub fn trim_matches(
                 }
             }
 
-            for (trimmed_seq, trimmed_qual, group, _) in results {
+            if results.len() > 1 {
                 progress.inc(TRIMMED_SPLIT_IDX);
+            }
 
+            for (trimmed_seq, trimmed_qual, group, _) in results {
                 // Get or create writer for this group
                 if !writers.contains_key(&group) {
                     let output_file = format!("{output_folder}/{group}.trimmed.fastq");

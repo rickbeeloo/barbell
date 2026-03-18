@@ -1,60 +1,27 @@
 use crate::annotate::searcher::BarbellMatch;
 use crate::filter::pattern::*;
 use crate::pattern_from_str;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use crate::progress::progress::{FILTER_PROGRESS_SPECS, ProgressTracker};
 use std::error::Error;
 use std::fs::File;
-use std::time::Duration;
-
-fn create_progress_bar() -> (ProgressBar, ProgressBar, ProgressBar) {
-    // Create multiprogress bar
-    let multi_progress = MultiProgress::new();
-    let total_bar = multi_progress.add(ProgressBar::new_spinner());
-    let kept_bar = multi_progress.add(ProgressBar::new_spinner());
-    let dropped_bar = multi_progress.add(ProgressBar::new_spinner());
-
-    // Style the progress bars with colors - more compact layout
-    total_bar.set_style(
-        ProgressStyle::with_template(
-            "{spinner:.cyan} {prefix:.bold.white:<8} {msg:.bold.cyan:>6} {elapsed:.dim}",
-        )
-        .unwrap()
-        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
-    );
-    kept_bar.set_style(
-        ProgressStyle::with_template(
-            "{spinner:.green} {prefix:.bold.white:<8} {msg:.bold.green:>6} {elapsed:.dim}",
-        )
-        .unwrap()
-        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
-    );
-    dropped_bar.set_style(
-        ProgressStyle::with_template(
-            "{spinner:.red} {prefix:.bold.white:<8} {msg:.bold.red:>6} {elapsed:.dim}",
-        )
-        .unwrap()
-        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
-    );
-
-    total_bar.enable_steady_tick(Duration::from_millis(100));
-    kept_bar.enable_steady_tick(Duration::from_millis(120)); // Slightly different timing for visual variety
-    dropped_bar.enable_steady_tick(Duration::from_millis(140));
-
-    total_bar.set_prefix("Total:");
-    kept_bar.set_prefix("Kept:");
-    dropped_bar.set_prefix("Dropped:");
-
-    (total_bar, kept_bar, dropped_bar)
-}
+use std::path::Path;
 
 pub fn filter(
     annotated_file: &str,
     output_file: &str,
     dropped_out_file: Option<&str>,
     filters: &[Pattern],
+    verbose: bool,
 ) -> Result<(), Box<dyn Error>> {
-    // Setup progress bar
-    let (total_bar, kept_bar, dropped_bar) = create_progress_bar();
+    // Setup progress tracking using the shared progress module.
+    let progress = if verbose {
+        let log_dir = Path::new(output_file)
+            .parent()
+            .unwrap_or_else(|| Path::new("."));
+        ProgressTracker::new_with_logging(&FILTER_PROGRESS_SPECS, "filter", log_dir)
+    } else {
+        ProgressTracker::new(&FILTER_PROGRESS_SPECS)
+    };
 
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(b'\t')
@@ -88,15 +55,15 @@ pub fn filter(
 
         if let Some(read_id) = &current_read_id {
             if read_id != &record.read_id {
-                total_bar.inc(1);
+                progress.inc(0);
                 // Process previous group
                 if check_filter_pass(&mut current_group, filters) {
-                    kept_bar.inc(1);
+                    progress.inc(1);
                     for annotation in &current_group {
                         writer.serialize(annotation)?;
                     }
                 } else {
-                    dropped_bar.inc(1);
+                    progress.inc(2);
                     if let Some(dropped_writer) = &mut dropped_writer {
                         for annotation in &current_group {
                             dropped_writer.serialize(annotation)?;
@@ -107,9 +74,7 @@ pub fn filter(
                 current_read_id = Some(record.read_id.clone());
 
                 // Update messages with current counts
-                total_bar.set_message(total_bar.position().to_string());
-                kept_bar.set_message(kept_bar.position().to_string());
-                dropped_bar.set_message(dropped_bar.position().to_string());
+                progress.refresh();
             }
         } else {
             current_read_id = Some(record.read_id.clone());
@@ -120,14 +85,14 @@ pub fn filter(
 
     // Process the last group
     if !current_group.is_empty() {
-        total_bar.inc(1);
+        progress.inc(0);
         if check_filter_pass(&mut current_group, filters) {
-            kept_bar.inc(1);
+            progress.inc(1);
             for annotation in &current_group {
                 writer.serialize(annotation)?;
             }
         } else {
-            dropped_bar.inc(1);
+            progress.inc(2);
             if let Some(dropped_writer) = &mut dropped_writer {
                 for annotation in &current_group {
                     dropped_writer.serialize(annotation)?;
@@ -136,9 +101,7 @@ pub fn filter(
         }
 
         // Final live update before finishing
-        total_bar.set_message(total_bar.position().to_string());
-        kept_bar.set_message(kept_bar.position().to_string());
-        dropped_bar.set_message(dropped_bar.position().to_string());
+        progress.refresh();
     }
 
     writer.flush()?;
@@ -149,13 +112,7 @@ pub fn filter(
     }
 
     // Finish the progress bars with final counts
-    let total_count = total_bar.position();
-    let kept_count = kept_bar.position();
-    let dropped_count = dropped_bar.position();
-
-    total_bar.finish_with_message(format!("{total_count} reads"));
-    kept_bar.finish_with_message(format!("{kept_count} reads"));
-    dropped_bar.finish_with_message(format!("{dropped_count} reads"));
+    progress.finish("reads");
 
     Ok(())
 }
@@ -165,10 +122,17 @@ pub fn filter_from_pattern_str(
     pattern_str: &str,
     output_file: &str,
     dropped_out_file: Option<&str>,
+    verbose: bool,
 ) -> Result<(), Box<dyn Error>> {
     // use pattern macro to convert pattern_str to pattern
     let pattern = pattern_from_str!(pattern_str);
-    filter(annotated_file, output_file, dropped_out_file, &[pattern])
+    filter(
+        annotated_file,
+        output_file,
+        dropped_out_file,
+        &[pattern],
+        verbose,
+    )
 }
 
 pub fn filter_from_text_file(
@@ -176,6 +140,7 @@ pub fn filter_from_text_file(
     text_file: &str,
     output_file: &str,
     dropped_out_file: Option<&str>,
+    verbose: bool,
 ) -> Result<(), Box<dyn Error>> {
     // read the text file into a vector of strings
     let patterns = std::fs::read_to_string(text_file)?;
@@ -190,7 +155,13 @@ pub fn filter_from_text_file(
         .iter()
         .map(|s| pattern_from_str!(s))
         .collect::<Vec<Pattern>>();
-    filter(annotated_file, output_file, dropped_out_file, &patterns)
+    filter(
+        annotated_file,
+        output_file,
+        dropped_out_file,
+        &patterns,
+        verbose,
+    )
 }
 
 fn check_filter_pass(annotations: &mut [BarbellMatch], patterns: &[Pattern]) -> bool {

@@ -1,12 +1,13 @@
 use crate::annotate::barcodes::{BarcodeGroup, BarcodeType};
 use crate::annotate::edit_model::get_edit_cut_off;
-use crate::annotate::progress::{ANNOTATION_PROGRESS_SPECS, ProgressTracker};
 use crate::annotate::searcher::{BarbellMatch, Demuxer};
 use crate::io::io::open_fastq;
+use crate::progress::progress::{ANNOTATION_PROGRESS_SPECS, ProgressTracker};
 use anyhow::anyhow;
 use seq_io::fastq::{Error as FastqError, Record, RecordSet};
 use seq_io::parallel::{ParallelRecordsets, read_parallel};
 use std::fmt::Display;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread_local;
 
@@ -179,7 +180,14 @@ pub fn annotate(
         query_group.display(5);
     }
 
-    let progress = ProgressTracker::new(&ANNOTATION_PROGRESS_SPECS);
+    let progress = if verbose {
+        let log_dir = Path::new(out_file)
+            .parent()
+            .unwrap_or_else(|| Path::new("."));
+        ProgressTracker::new_with_logging(&ANNOTATION_PROGRESS_SPECS, "annotate", log_dir)
+    } else {
+        ProgressTracker::new(&ANNOTATION_PROGRESS_SPECS)
+    };
 
     read_parallel(
         reader,

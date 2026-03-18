@@ -39,6 +39,8 @@ itertools = "0.14.0"
 glob = "0.3.3"
 cigar-lodhi-rs =  "0.1.0"
 ensure_simd = "0.1.0"
+log = "0.4.29"
+env_logger = "0.11.9"
 
 
 [workspace]

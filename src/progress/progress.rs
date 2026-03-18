@@ -1,14 +1,16 @@
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy)]
 pub(crate) struct ProgressSpec {
     pub prefix: &'static str,
     pub color: &'static str,
     pub tick_ms: u64,
-    pub finish_label: &'static str,
 }
 
 pub(crate) const ANNOTATION_PROGRESS_SPECS: [ProgressSpec; 3] = [
@@ -16,19 +18,34 @@ pub(crate) const ANNOTATION_PROGRESS_SPECS: [ProgressSpec; 3] = [
         prefix: "Total:",
         color: "cyan",
         tick_ms: 100,
-        finish_label: "Done",
     },
     ProgressSpec {
-        prefix: "Found:",
+        prefix: "Kept:",
         color: "green",
         tick_ms: 120,
-        finish_label: "Found",
     },
     ProgressSpec {
-        prefix: "Missed:",
+        prefix: "Dropped:",
         color: "red",
         tick_ms: 140,
-        finish_label: "Missed",
+    },
+];
+
+pub(crate) const FILTER_PROGRESS_SPECS: [ProgressSpec; 3] = [
+    ProgressSpec {
+        prefix: "Total:",
+        color: "cyan",
+        tick_ms: 100,
+    },
+    ProgressSpec {
+        prefix: "Kept:",
+        color: "green",
+        tick_ms: 120,
+    },
+    ProgressSpec {
+        prefix: "Dropped:",
+        color: "red",
+        tick_ms: 140,
     },
 ];
 
@@ -37,25 +54,21 @@ pub(crate) const TRIM_PROGRESS_SPECS: [ProgressSpec; 4] = [
         prefix: "Total:",
         color: "cyan",
         tick_ms: 100,
-        finish_label: "Total",
     },
     ProgressSpec {
-        prefix: "Trimmed:",
+        prefix: "Kept:",
         color: "green",
         tick_ms: 120,
-        finish_label: "Trimmed",
     },
     ProgressSpec {
-        prefix: "Trimmed split:",
+        prefix: "Kept split:",
         color: "green",
         tick_ms: 140,
-        finish_label: "Trimmed split",
     },
     ProgressSpec {
         prefix: "Failed:",
         color: "red",
         tick_ms: 160,
-        finish_label: "Failed",
     },
 ];
 
@@ -80,10 +93,59 @@ pub(crate) struct ProgressTracker {
     counts: Vec<AtomicUsize>,
     specs: Vec<ProgressSpec>,
     error_msg: Mutex<Option<String>>,
+    log: Option<ProgressLog>,
+}
+
+struct ProgressLog {
+    path: PathBuf,
+    step: String,
+}
+
+impl ProgressLog {
+    fn write(&self, counts: &[AtomicUsize], specs: &[ProgressSpec]) -> Result<(), String> {
+        let file = File::create(&self.path)
+            .map_err(|e| format!("Failed to create log file '{}': {e}", self.path.display()))?;
+
+        let mut w = BufWriter::new(file);
+        writeln!(w, "step\tmetric\tcount")
+            .map_err(|_| format!("Failed to write progress log '{}'", self.path.display()))?;
+
+        for (count, spec) in counts.iter().zip(specs.iter()) {
+            writeln!(
+                w,
+                "{}\t{}\t{}",
+                self.step,
+                spec.prefix,
+                count.load(Ordering::Relaxed)
+            )
+            .map_err(|_| format!("Failed to write progress log '{}'", self.path.display()))?;
+        }
+
+        w.flush()
+            .map_err(|_| format!("Failed to flush progress log '{}'", self.path.display()))
+    }
 }
 
 impl ProgressTracker {
     pub(crate) fn new(specs: &[ProgressSpec]) -> Self {
+        Self::new_inner(specs, None)
+    }
+
+    pub(crate) fn new_with_logging(
+        specs: &[ProgressSpec],
+        step: impl Into<String>,
+        log_dir: impl AsRef<Path>,
+    ) -> Self {
+        let step = step.into();
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let path = log_dir.as_ref().join(format!("{step}.{ts}.log"));
+        Self::new_inner(specs, Some(ProgressLog { path, step }))
+    }
+
+    fn new_inner(specs: &[ProgressSpec], log: Option<ProgressLog>) -> Self {
         let multi_progress = MultiProgress::new();
         let bars = specs
             .iter()
@@ -95,6 +157,7 @@ impl ProgressTracker {
             counts,
             specs: specs.to_vec(),
             error_msg: Mutex::new(None),
+            log,
         }
     }
 
@@ -139,14 +202,17 @@ impl ProgressTracker {
 
     pub(crate) fn finish(&self, unit: &str) {
         self.refresh();
-        for ((bar, count), spec) in self
-            .bars
-            .iter()
-            .zip(self.counts.iter())
-            .zip(self.specs.iter())
+
+        if let Some(log) = &self.log
+            && let Err(e) = log.write(&self.counts, &self.specs)
         {
+            self.print_error(e);
+        }
+
+        for (bar, count) in self.bars.iter().zip(self.counts.iter()) {
             let count = count.load(Ordering::Relaxed);
-            bar.finish_with_message(format!("{}: {count} {unit}", spec.finish_label));
+            // Prefix already shows the label (e.g. "Total:"), so don't repeat it in the message.
+            bar.finish_with_message(format!("{count} {unit}"));
         }
     }
 }

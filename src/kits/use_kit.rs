@@ -79,6 +79,7 @@ pub fn demux_using_kit(
         format!("{output_folder}/filtered.tsv").as_str(),
         None,
         patterns,
+        verbose,
     )
     .map_err(|e| anyhow!("{e}"))?;
 
@@ -97,6 +98,7 @@ pub fn demux_using_kit(
         true,
         false,
         false,
+        verbose,
     )?;
 
     println!("\n{}", "Done!".green().bold());
