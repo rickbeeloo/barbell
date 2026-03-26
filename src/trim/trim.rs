@@ -247,7 +247,7 @@ pub fn process_read_and_anno(
     let slices = preprocess_cuts(annotations, seq_len);
 
     // Group slices by cut group ID
-    for slice in &slices {
+    for (slice_count, slice) in slices.iter().enumerate() {
         if slice.start >= slice.end {
             continue;
         }
@@ -273,7 +273,11 @@ pub fn process_read_and_anno(
         let label_matches: Vec<BarbellMatch> = slice.annotations.clone();
 
         let group_label = label_config.create_label(&label_matches);
-        let read_suffix = format!("_{group_label}");
+        let read_suffix = if slice_count == 0 {
+            "".to_string()
+        } else {
+            format!("_{slice_count}")
+        };
         results.push((trimmed_seq, trimmed_qual, group_label, read_suffix));
     }
 
@@ -376,7 +380,6 @@ pub fn trim_matches(
         let (read_id, desc) = record.id_desc().unwrap();
         let read_id = read_id.to_string();
         let desc: &str = desc.unwrap_or_default();
-        let full_header = format!("{read_id} {desc}");
         progress.inc(TOTAL_IDX);
 
         // Check if this read has annotations
@@ -406,7 +409,7 @@ pub fn trim_matches(
                 progress.inc(TRIMMED_SPLIT_IDX);
             }
 
-            for (trimmed_seq, trimmed_qual, group, _) in results {
+            for (trimmed_seq, trimmed_qual, group, read_suffix) in results {
                 // Get or create writer for this group
                 if !writers.contains_key(&group) {
                     let output_file = format!("{output_folder}/{group}.trimmed.fastq");
@@ -424,9 +427,10 @@ pub fn trim_matches(
 
                 // Write FASTQ format
                 if write_full_header {
-                    writeln!(writer, "@{full_header}").expect("Failed to write header");
+                    writeln!(writer, "@{read_id}{read_suffix} {desc}")
+                        .expect("Failed to write header");
                 } else {
-                    writeln!(writer, "@{read_id}").expect("Failed to write header");
+                    writeln!(writer, "@{read_id}{read_suffix}").expect("Failed to write header");
                 }
                 writeln!(writer, "{}", String::from_utf8_lossy(&trimmed_seq))
                     .expect("Failed to write sequence");
