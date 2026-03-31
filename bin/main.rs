@@ -3,6 +3,7 @@ use barbell::annotate::barcodes::BarcodeType;
 use barbell::filter::filter::filter_from_text_file;
 use barbell::inspect::inspect;
 use barbell::kits::use_kit::demux_using_kit;
+use barbell::sra::sra_download::download_sra_to_tempfile;
 use barbell::trim::trim::{LabelSide, trim_matches};
 use clap::{Parser, Subcommand};
 use colored::*;
@@ -208,8 +209,17 @@ enum Commands {
         kit: String,
 
         /// Input FASTQ file (or FASTQ.gz; slower due to unzipping)
-        #[arg(short = 'i', long)]
-        input: String,
+        #[arg(
+            short = 'i',
+            long,
+            required_unless_present = "sra",
+            conflicts_with = "sra"
+        )]
+        input: Option<String>,
+
+        /// SRA accession to download with xsra (alternative to --input)
+        #[arg(long, required_unless_present = "input", conflicts_with = "input")]
+        sra: Option<String>,
 
         /// Number of threads
         #[arg(short = 't', long, default_value_t = 10)]
@@ -405,6 +415,7 @@ fn main() {
         Commands::Kit {
             kit,
             input,
+            sra,
             threads,
             output,
             maximize,
@@ -416,9 +427,42 @@ fn main() {
             use_extended,
             alpha,
         } => {
+            let (_sra_tempfile, fastq_path) = match (input.as_deref(), sra.as_deref()) {
+                (Some(path), None) => (None, path.to_string()),
+                (None, Some(accession)) => {
+                    println!("Downloading reads from SRA accession: {accession}");
+                    let tmp = match download_sra_to_tempfile(accession, *threads) {
+                        Ok(tmp) => tmp,
+                        Err(e) => {
+                            println!("{} {}", "Failed to download SRA accession:".red(), e);
+                            return;
+                        }
+                    };
+                    let path = match tmp.path().to_str() {
+                        Some(path) => path.to_string(),
+                        None => {
+                            println!("{}", "Failed to convert SRA temp file path to UTF-8.".red());
+                            return;
+                        }
+                    };
+                    (Some(tmp), path)
+                }
+                (Some(_), Some(_)) => {
+                    println!(
+                        "{}",
+                        "Please provide either --input or --sra, not both.".red()
+                    );
+                    return;
+                }
+                (None, None) => {
+                    println!("{}", "Please provide either --input or --sra.".red());
+                    return;
+                }
+            };
+
             if let Err(e) = demux_using_kit(
                 kit.as_str(),
-                input,
+                fastq_path.as_str(),
                 *threads,
                 output,
                 *maximize,
