@@ -101,7 +101,7 @@ Basic command:
 barbell kit -k <kit-name> -i <reads.fastq> -o <output_folder> --maximize
 ```
 
-The `--maximize` option is recommended (e.g., for assembly) unless you need an ultra-strict barcode configuration.
+The `--maximize` option is recommended (e.g., for assembly) unless you need an ultra-strict barcode configuration ([see here](#the---maximize-flag-explained-in-more-detail) for more details).
 
 ### Native barcoding example (SQK-NBD114-96)
 
@@ -293,6 +293,33 @@ Gives:
 BC01.trimmed.fastq  BC11.trimmed.fastq ...
 ```
 
+### The `--maximize` flag explained in more detail (`kit` command only)
+
+This flag affects the *filter* step. After locating barcodes/flanks, we use them to assign each read to a sample and perform trimming.  
+If multiple barcodes/flanks are detected, we apply _pattern filters_ to decide which reads pass. 
+I.e. for which reads we are confident enough to assign a sample despite multiple hits.
+
+In the default (e.g. `safe`) mode, only reads with an unambiguous barcode ligation pattern are allowed to pass.  
+For example, in the rapid barcoding kit:
+
+- (1) `[BC1]---------` (assigned: `BC1`)  
+- (2) `[BC1][BC1]---------` (assigned: `BC1`)  
+
+Here, `(1)` is what we expect from the experimental setup, while `(2)` is also commonly observed (see [paper](https://www.biorxiv.org/content/10.1101/2025.10.22.683865v1)).  
+Since both barcodes in `(2)` are the same (BC01), we assign the read to BC01 and trim both.
+
+For applications like assembly, you _might_ want to retain more reads, even at the cost of introducing some errors. This is where `--maximize` comes in.  
+In addition to the `safe` patterns above, it also allows (among others):
+
+- (1) `[BC2][BC1]---------` (assigned: BC1)  
+- (2) `[BC1]---------[BC2]` (assigned: BC1)  
+
+In `(1)`, we assume BC1 was ligated first (creating `[BC1]----`), followed by another ligation _after_ pooling, resulting in `[BC2][BC1]---------`.  
+The original sample is therefore likely BC1, and we assign it accordingly.  
+
+In `(2)`, we observe an unexpected barcode at the right end of the read. Since we normally expect the barcode on the left, we use that to assign the read (and still trim both barcodes).
+
+**In short:** if you want to be conservative, do not use `--maximize`. If a small number of potential misassignments is acceptable, `--maximize` can help retain more reads.
 
 ## Custom experiment
 
