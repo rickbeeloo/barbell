@@ -342,7 +342,6 @@ impl Demuxer {
                     rel_bar_end as i32,
                 );
 
-
                 let ((bar_start, bar_end), (read_bar_start, read_bar_end), bar_cost) =
                     bar_read_region.expect("No barcode match region found; unusual");
 

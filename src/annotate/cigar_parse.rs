@@ -34,15 +34,6 @@ pub fn map_pat_to_text_with_cost(
         (Some(Pos(pi, pj)), Some(Pos(ei, ej)), Some(si), Some(ei_idx)) => {
             // Compute cost for the subpath
             let cost = compute_subpath_cost(m, si, ei_idx);
-
-            // We could quite easily add overhang cost here as well if pi > 0, or ei < len(pattern)
-            // we can floor(pi * alpha) as prefix cost, and floor(|P| - pi * alpha) as suffix cost
-            // but the searcher now uses "regular" (no overhang) anyway so this will never occur
-            // if pi > 0 && alpha.is_some() {
-            //     let prefix_overhang_cost = (pi as f32 * alpha.unwrap()).floor() as u32;
-            //     println!("Prefix overhang cost: {}", prefix_overhang_cost);
-            // }
-
             Some((
                 (pi as usize, (ei + 1) as usize),
                 (pj as usize, (ej + 1) as usize),
@@ -134,18 +125,9 @@ mod test {
     #[test]
     fn test_cost_extraction_1_edits() {
         let p = b"AAAAACCCAAAA";
-        let t = b"GGGGAAAAACGCAAAAGGGGG";
+        let t = b"GGGGAAAAACGCAAAA";
         let mut searcher = Searcher::<Iupac>::new_rc();
         let matches = searcher.search(p, &t, 1);
-        let m = matches.first().unwrap();
-        let ((_ps, _pe), (_t_start, _t_end), cost) =
-            map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
-        assert_eq!(cost, 1);
-        // Rc'ing it should not change the cost
-        let p_rc = reverse_complement(p);
-        let t_rc = reverse_complement(t);
-        let mut searcher = Searcher::<Iupac>::new_rc();
-        let matches = searcher.search(&p_rc, &t_rc, 1);
         let m = matches.first().unwrap();
         let ((_ps, _pe), (_t_start, _t_end), cost) =
             map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
@@ -155,24 +137,14 @@ mod test {
     #[test]
     fn test_cost_extraction_1_edits_overhang_left_flank() {
         let p = b"AAAAACCCAAAA";
-        let t = b"GAAAAACGCAAAAGGGGG";
+        let t = b"ACGCAAAAGGGGGGGGGGGG";
         let mut searcher = Searcher::<Iupac>::new_rc();
-        let mut matches = searcher.search(p, &t, 5);
-        // Sort low to high edits
-        matches.sort_by_key(|m| m.cigar.ops.iter().map(|op| op.cnt as usize).sum::<usize>());
+        let matches = searcher.search(p, &t, 5);
         let m = matches.first().unwrap();
-        let ((_ps, _pe), (_t_start, _t_end), cost) =
-            map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
+        let ((_ps, _pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
         assert_eq!(cost, 1);
-        // Rc'ing it should not change the cost
-        let p_rc = reverse_complement(p);
-        let t_rc = reverse_complement(t);
-        let mut searcher = Searcher::<Iupac>::new_rc();
-        let matches = searcher.search(&p_rc, &t_rc, 5);
-        let m = matches.first().unwrap();
-        let ((_ps, _pe), (_t_start, _t_end), cost) =
-            map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
-        assert_eq!(cost, 1);
+        assert_eq!(t_start, 1);
+        assert_eq!(t_end, 4);
     }
 
     #[test]
@@ -180,36 +152,26 @@ mod test {
         let p = b"AAAAACCCAAAA";
         let t = b"GAAAAACGC";
         let mut searcher = Searcher::<Iupac>::new_rc();
-        let mut matches = searcher.search(p, &t, 5);
-        // Sort low to high edits
-        matches.sort_by_key(|m| m.cigar.ops.iter().map(|op| op.cnt as usize).sum::<usize>());
+        let matches = searcher.search(p, &t, 5);
         let m = matches.first().unwrap();
-        let ((_ps, _pe), (_t_start, _t_end), cost) =
-            map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
+        let ((_ps, _pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
         assert_eq!(cost, 1);
-        // Rc'ing it should not change the cost
-        let p_rc = reverse_complement(p);
-        let t_rc = reverse_complement(t);
-        let mut searcher = Searcher::<Iupac>::new_rc();
-        let matches = searcher.search(&p_rc, &t_rc, 5);
-        let m = matches.first().unwrap();
-        let ((_ps, _pe), (_t_start, _t_end), cost) =
-            map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
-        assert_eq!(cost, 1);
+        assert_eq!(t_start, 6);
+        assert_eq!(t_end, 9);
     }
 
-    // #[test]
-    // fn test_cost_extraction_1_edits_overhang_barcode() {
-    //     let p = b"AAAAACCCCAAAA";
-    //     let t = b"CCAAAAGGGGG"; // Missing left flank + 1 C, edits should be floor(7 * 0.5) = 3
-    //     let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.5);
-    //     let mut matches = searcher.search(p, &t, 3);
-    //     // Sort low to high edits
-    //     matches.sort_by_key(|m| m.cigar.ops.iter().map(|op| op.cnt as usize).sum::<usize>());
-    //     let m = matches.first().unwrap();
-    //     println!("Match: {:?}", m);
-    //     let ((ps, pe), (t_start, t_end), cost) =
-    //         map_pat_to_text_with_cost(m, 5, 7 + 1, false).unwrap();
-    //     println!("Cost: {}", cost);
-    //
+    #[test]
+    fn test_cost_overhang_including_bar() {
+        // The tests before included overhang of the flank, but this will include overhang of
+        // the barcode itself as well
+        let p = b"AAAAACCCAAAA";
+        let t = b"GCAAAAGGGGGGGGGGGG"; // Note first "C" is missing of the barcode
+        let mut searcher = Searcher::<Iupac>::new_rc();
+        let matches = searcher.search(p, &t, 8);
+        let m = matches.first().unwrap();
+        let ((_ps, _pe), (t_start, t_end), cost) = map_pat_to_text_with_cost(m, 5, 7 + 1).unwrap();
+        assert_eq!(cost, 2);
+        assert_eq!(t_start, 0);
+        assert_eq!(t_end, 2);
+    }
 }
