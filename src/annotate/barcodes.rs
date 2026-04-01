@@ -2,6 +2,7 @@ use crate::kits::kits::*;
 use colored::Colorize;
 use needletail::{Sequence, parse_fastx_file};
 use sassy::profiles::{Iupac, Profile};
+use sassy::{EncodedPatterns, Searcher, Strand};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
@@ -53,7 +54,7 @@ impl Barcode {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct BarcodeGroup {
     pub flank: Vec<u8>,
     // Auto extract the prefix and suffix in code below
@@ -64,8 +65,41 @@ pub struct BarcodeGroup {
     // Where the barcode + padding is in the sequence
     pub pad_region: (usize, usize),
     pub barcodes: Vec<Barcode>,
+    // The index in encoded thus maps back to "barcodes" index
+    pub encoded_barcodes: EncodedGroup,
     pub k_cutoff: Option<usize>,
     pub barcode_type: BarcodeType,
+}
+
+#[derive(Debug, Clone)]
+pub struct EncodedGroup {
+    // We encode RC and fwd seperately to not waste a 2x search to verify barcodes agasint masks
+    pub encoded_fwd: EncodedPatterns<Iupac>,
+    pub encoded_rc: EncodedPatterns<Iupac>,
+}
+
+impl EncodedGroup {
+    pub fn from_barcodes(barcodes: &[Barcode]) -> Self {
+        // Let fwd sequences
+        let fwd_seqs: Vec<Vec<u8>> = barcodes.iter().map(|b| b.seq.clone()).collect();
+        let rc_seqs = barcodes
+            .iter()
+            .map(|b| reverse_complement(&b.seq))
+            .collect::<Vec<Vec<u8>>>();
+        let encoded_fwd = Searcher::<Iupac>::new_fwd().encode_patterns(&fwd_seqs);
+        let encoded_rc = Searcher::<Iupac>::new_fwd().encode_patterns(&rc_seqs);
+        Self {
+            encoded_fwd,
+            encoded_rc,
+        }
+    }
+
+    pub fn get_patterns(&self, strand: Strand) -> &EncodedPatterns<Iupac> {
+        match strand {
+            Strand::Fwd => &self.encoded_fwd,
+            Strand::Rc => &self.encoded_rc,
+        }
+    }
 }
 
 impl BarcodeGroup {
@@ -146,13 +180,17 @@ impl BarcodeGroup {
 
         */
 
+        // We can now enode the barcodes (with flanks) to search faster with sassy v2
+        let encoded_barcodes = EncodedGroup::from_barcodes(&barcodes);
+
         Self {
+            barcodes,
+            encoded_barcodes,
             flank,
             flank_prefix: prefix.clone().unwrap_or_default(),
             flank_suffix: suffix.clone().unwrap_or_default(),
-            bar_region: (prefix_len, prefix_len + mask_size - 1), //inclsuve
+            bar_region: (prefix_len, prefix_len + mask_size - 1),
             pad_region: (pad_start, pad_end),
-            barcodes,
             k_cutoff: None,
             barcode_type,
         }
@@ -281,6 +319,13 @@ impl BarcodeGroup {
         self.k_cutoff = Some(flank_threshold);
     }
 
+    /// Uses Sassy v2 encoding
+    pub fn encode_barcodes(barcodes: &[Barcode]) -> EncodedPatterns<Iupac> {
+        let barcode_seqs: Vec<Vec<u8>> = barcodes.iter().map(|b| b.seq.clone()).collect();
+        let mut searcher = Searcher::<Iupac>::new_rc();
+        searcher.encode_patterns(&barcode_seqs)
+    }
+
     /// Get shared prefix and suffix for input sequences
     fn get_flanks(seqs: &[&[u8]]) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
         // This does not make sense if the sequences are not equally long
@@ -352,6 +397,55 @@ impl BarcodeGroup {
         self.flank_prefix.len() + self.flank_suffix.len()
     }
 }
+
+fn reverse_complement(seq: &[u8]) -> Vec<u8> {
+    seq.iter().rev().map(|&c| RC[c as usize]).collect()
+}
+
+const RC: [u8; 256] = {
+    let mut rc = [0; 256];
+    let mut i = 0;
+    while i < 256 {
+        rc[i] = i as u8;
+        i += 1;
+    }
+    // Standard bases
+    rc[b'A' as usize] = b'T';
+    rc[b'C' as usize] = b'G';
+    rc[b'T' as usize] = b'A';
+    rc[b'G' as usize] = b'C';
+    rc[b'a' as usize] = b't';
+    rc[b'c' as usize] = b'g';
+    rc[b't' as usize] = b'a';
+    rc[b'g' as usize] = b'c';
+    // IUPAC ambiguity codes
+    rc[b'R' as usize] = b'Y'; // A|G -> T|C
+    rc[b'Y' as usize] = b'R'; // C|T -> G|A
+    rc[b'S' as usize] = b'S'; // G|C -> C|G
+    rc[b'W' as usize] = b'W'; // A|T -> T|A
+    rc[b'K' as usize] = b'M'; // G|T -> C|A
+    rc[b'M' as usize] = b'K'; // A|C -> T|G
+    rc[b'B' as usize] = b'V'; // C|G|T -> G|C|A
+    rc[b'D' as usize] = b'H'; // A|G|T -> T|C|A
+    rc[b'H' as usize] = b'D'; // A|C|T -> T|G|A
+    rc[b'V' as usize] = b'B'; // A|C|G -> T|G|C
+    rc[b'N' as usize] = b'N'; // A|C|G|T -> T|G|C|A
+    rc[b'X' as usize] = b'X';
+    // Lowercase versions
+    rc[b'r' as usize] = b'y';
+    rc[b'y' as usize] = b'r';
+    rc[b's' as usize] = b's';
+    rc[b'w' as usize] = b'w';
+    rc[b'k' as usize] = b'm';
+    rc[b'm' as usize] = b'k';
+    rc[b'b' as usize] = b'v';
+    rc[b'd' as usize] = b'h';
+    rc[b'h' as usize] = b'd';
+    rc[b'v' as usize] = b'b';
+    rc[b'n' as usize] = b'n';
+    rc[b'x' as usize] = b'x';
+    rc
+};
 
 #[cfg(test)]
 mod tests {

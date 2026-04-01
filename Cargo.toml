@@ -50,6 +50,9 @@ members = [
     "benchmarks"
 ]
 
+[profile.release]
+debug = true
+
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"

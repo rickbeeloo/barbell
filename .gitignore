@@ -13,3 +13,4 @@ filter.txt
 *backup*
 /issue_test/*
 *.log
+*perf*

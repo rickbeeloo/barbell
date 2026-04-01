@@ -258,22 +258,39 @@ impl Demuxer {
                 let barcode_region_end = (barcode_region_end + crate::PADDING).min(read.len());
 
                 let barcode_region = &read[barcode_region_start..barcode_region_end];
+                // Use v2 based searching now so we can search faster
+                let barcode_len = barcode_group.barcodes[0].seq.len(); // includes padding like the encoded patterns
+
+                // Keep only the best (lowest-cost) hit per encoded pattern index.
+                // This is O(n) over raw hits and avoids sorting/grouping.
+                let mut best_per_pattern: Vec<Option<Match>> =
+                    vec![None; barcode_group.barcodes.len()];
+
+                for m in self.regular_searcher.search_encoded_patterns(
+                    barcode_group
+                        .encoded_barcodes
+                        .get_patterns(flank_match.strand),
+                    barcode_region,
+                    barcode_len,
+                ) {
+                    let idx: usize = m.pattern_idx;
+                    if idx >= best_per_pattern.len() {
+                        continue;
+                    }
+
+                    let should_replace = match &best_per_pattern[idx] {
+                        Some(best) => m.cost < best.cost,
+                        None => true,
+                    };
+                    if should_replace {
+                        best_per_pattern[idx] = Some(m.clone());
+                    }
+                }
+
                 let mut candidates: Vec<(Match, &Barcode)> = Vec::new();
-
-                for barcode_and_flank in barcode_group.barcodes.iter() {
-                    let fwd_best_hit = self
-                        .regular_searcher
-                        .search(
-                            &barcode_and_flank.seq,
-                            &barcode_region,
-                            barcode_and_flank.seq.len(),
-                        )
-                        .into_iter()
-                        .filter(|m| m.strand == flank_match.strand)
-                        .min_by_key(|m| m.cost);
-
-                    if let Some(fwd_hit) = fwd_best_hit {
-                        candidates.push((fwd_hit, barcode_and_flank));
+                for (idx, maybe_match) in best_per_pattern.into_iter().enumerate() {
+                    if let Some(m) = maybe_match {
+                        candidates.push((m, &barcode_group.barcodes[idx]));
                     }
                 }
 
