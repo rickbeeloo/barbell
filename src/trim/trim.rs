@@ -1,5 +1,6 @@
 use crate::annotate::barcodes::BarcodeType;
 use crate::annotate::searcher::BarbellMatch;
+use crate::config::TrimConfig;
 use crate::filter::pattern::{Cut, CutDirection};
 use crate::io::io::open_fastq;
 use crate::progress::progress::{ProgressTracker, TRIM_PROGRESS_SPECS};
@@ -99,6 +100,18 @@ impl LabelConfig {
         } else {
             label_parts.join("__")
         }
+    }
+}
+
+impl TrimConfig {
+    pub fn get_label_config(&self) -> LabelConfig {
+        LabelConfig::new(
+            self.add_labels,
+            self.add_orientation,
+            self.add_flank,
+            self.sort_labels,
+            self.only_side,
+        )
     }
 }
 
@@ -309,17 +322,7 @@ pub fn trim_matches(
     filtered_match_file: &str,
     read_fastq_file: &str,
     output_folder: &str,
-    add_labels: bool,
-    add_orientation: bool,
-    add_flank: bool,
-    sort_labels: bool,
-    only_side: Option<LabelSide>,
-    failed_trimmed_writer: Option<String>, // if provided we write ids of failed trimmed reads to this file, like empty reads
-    write_full_header: bool,
-    skip_trim: bool,
-    // Experimental, if any Ftag = rc, flip it
-    flip: bool,
-    verbose: bool,
+    config: &TrimConfig,
 ) -> anyhow::Result<()> {
     // Create output folder if it doesn't exist
     if !Path::new(output_folder).exists() {
@@ -327,15 +330,9 @@ pub fn trim_matches(
     }
 
     // Label formatting config
-    let label_config = LabelConfig::new(
-        add_labels,
-        add_orientation,
-        add_flank,
-        sort_labels,
-        only_side,
-    );
+    let label_config = config.get_label_config();
 
-    if sort_labels && only_side.is_some() {
+    if config.sort_labels && config.only_side.is_some() {
         return Err(anyhow!(
             "Cannot enable only keeping left/right label and sorting; this is ambiguous"
         ));
@@ -345,7 +342,7 @@ pub fn trim_matches(
     let mut annotations_by_read: HashMap<String, Vec<BarbellMatch>> = HashMap::new();
 
     // Create progress bars
-    let progress = if verbose {
+    let progress = if config.verbose {
         ProgressTracker::new_with_logging(&TRIM_PROGRESS_SPECS, "trim", output_folder)
     } else {
         ProgressTracker::new(&TRIM_PROGRESS_SPECS)
@@ -368,7 +365,10 @@ pub fn trim_matches(
     let mut writers: HashMap<String, BufWriter<File>> = HashMap::new();
 
     // If there is a failed trimmed writer, create it
-    let mut failed_trimmed_writer = failed_trimmed_writer.map(|failed_trimmed_writer_path| {
+    let mut failed_trimmed_writer = config
+        .failed_trimmed_writer
+        .as_ref()
+        .map(|failed_trimmed_writer_path| {
         BufWriter::new(File::create(failed_trimmed_writer_path).unwrap())
     });
 
@@ -391,8 +391,8 @@ pub fn trim_matches(
                 record.qual(),
                 annotations,
                 &label_config,
-                skip_trim,
-                flip,
+                config.skip_trim,
+                config.flip,
             );
 
             if !results.is_empty() {
@@ -426,7 +426,7 @@ pub fn trim_matches(
                     .expect("writer should exist after insertion");
 
                 // Write FASTQ format
-                if write_full_header {
+                if config.write_full_header {
                     writeln!(writer, "@{read_id}{read_suffix} {desc}")
                         .expect("Failed to write header");
                 } else {

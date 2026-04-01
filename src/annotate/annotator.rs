@@ -1,6 +1,7 @@
 use crate::annotate::barcodes::{BarcodeGroup, BarcodeType};
 use crate::annotate::edit_model::get_edit_cut_off;
 use crate::annotate::searcher::{BarbellMatch, Demuxer};
+use crate::config::AnnotateConfig;
 use crate::io::io::open_fastq;
 use crate::progress::progress::{ANNOTATION_PROGRESS_SPECS, ProgressTracker};
 use anyhow::anyhow;
@@ -55,18 +56,13 @@ pub fn annotate_with_files(
     query_files: Vec<&str>,
     query_types: Vec<BarcodeType>,
     out_file: &str,
-    max_flank_errors: Option<usize>,
-    alpha: f32,
-    n_threads: u32,
-    verbose: bool,
-    min_score: f64,
-    min_score_diff: f64,
+    config: &AnnotateConfig,
 ) -> anyhow::Result<()> {
     // Get query groups
     let mut query_groups = Vec::new();
     for (query_file, query_type) in query_files.iter().zip(query_types.iter()) {
         let mut query_group = BarcodeGroup::new_from_fasta(query_file, query_type.clone());
-        if let Some(max_flank_errors) = max_flank_errors {
+        if let Some(max_flank_errors) = config.max_flank_errors {
             query_group.set_flank_threshold(max_flank_errors);
         } else {
             // Determine based on formula
@@ -76,16 +72,7 @@ pub fn annotate_with_files(
         }
         query_groups.push(query_group);
     }
-    annotate(
-        read_file,
-        out_file,
-        query_groups,
-        alpha,
-        n_threads,
-        verbose,
-        min_score,
-        min_score_diff,
-    )
+    annotate(read_file, out_file, query_groups, config)
 }
 
 // we could maybe just discard annotate_with_groups and only have kit or fasta
@@ -93,26 +80,10 @@ pub fn annotate_with_kit(
     read_file: &str,
     out_file: &str,
     kit: &str,
-    max_flank_errors: Option<usize>,
-    alpha: f32,
-    n_threads: u32,
-    verbose: bool,
-    min_score: f64,
-    min_score_diff: f64,
-    use_extended: bool,
+    config: &AnnotateConfig,
 ) -> anyhow::Result<()> {
-    let query_groups: Vec<BarcodeGroup> = BarcodeGroup::new_from_kit(kit, use_extended);
-    annotate_with_groups(
-        read_file,
-        out_file,
-        query_groups,
-        max_flank_errors,
-        alpha,
-        n_threads,
-        verbose,
-        min_score,
-        min_score_diff,
-    )
+    let query_groups: Vec<BarcodeGroup> = BarcodeGroup::new_from_kit(kit, config.use_extended);
+    annotate_with_groups(read_file, out_file, query_groups, config)
 }
 
 // used by kit
@@ -120,12 +91,7 @@ pub fn annotate_with_groups(
     read_file: &str,
     out_file: &str,
     query_groups: Vec<BarcodeGroup>,
-    max_flank_errors: Option<usize>,
-    alpha: f32,
-    n_threads: u32,
-    verbose: bool,
-    min_score: f64,
-    min_score_diff: f64,
+    config: &AnnotateConfig,
 ) -> anyhow::Result<()> {
     // Hmm not sure: fixme: think about where flank error should be set
     // Cannot mutate query_groups because it's not mutable (Vec<BarcodeGroup> is not mutable when passed by value and iterated by reference).
@@ -133,7 +99,7 @@ pub fn annotate_with_groups(
     let query_groups: Vec<BarcodeGroup> = query_groups
         .into_iter()
         .map(|mut query_group| {
-            if let Some(max_flank_errors) = max_flank_errors {
+            if let Some(max_flank_errors) = config.max_flank_errors {
                 query_group.set_flank_threshold(max_flank_errors);
             } else {
                 // Determine based on formula
@@ -144,28 +110,21 @@ pub fn annotate_with_groups(
             query_group
         })
         .collect();
-    annotate(
-        read_file,
-        out_file,
-        query_groups,
-        alpha,
-        n_threads,
-        verbose,
-        min_score,
-        min_score_diff,
-    )
+    annotate(read_file, out_file, query_groups, config)
 }
 
 pub fn annotate(
     read_file: &str,
     out_file: &str,
     query_groups: Vec<BarcodeGroup>,
-    alpha: f32,
-    n_threads: u32,
-    verbose: bool,
-    min_score: f64,
-    min_score_diff: f64,
+    config: &AnnotateConfig,
 ) -> anyhow::Result<()> {
+    let alpha = config.alpha;
+    let n_threads = config.n_threads;
+    let verbose = config.verbose;
+    let min_score = config.min_score;
+    let min_score_diff = config.min_score_diff;
+
     let reader = open_fastq(read_file);
     let writer = Arc::new(Mutex::new(
         csv::WriterBuilder::new()
@@ -180,7 +139,7 @@ pub fn annotate(
         query_group.display(5);
     }
 
-    let progress = if verbose {
+    let progress = if config.verbose {
         let log_dir = Path::new(out_file)
             .parent()
             .unwrap_or_else(|| Path::new("."));

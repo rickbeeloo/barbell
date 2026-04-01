@@ -1,5 +1,6 @@
 use barbell::annotate::annotator::*;
 use barbell::annotate::barcodes::BarcodeType;
+use barbell::config::{AnnotateConfig, FilterConfig, KitConfig, TrimConfig};
 use barbell::filter::filter::filter_from_text_file;
 use barbell::inspect::inspect;
 use barbell::kits::use_kit::demux_using_kit;
@@ -287,20 +288,18 @@ fn main() {
             alpha,
         } => {
             println!("{}", "Starting annotation...".green());
+            let annotate_config = AnnotateConfig {
+                max_flank_errors: *flank_max_errors,
+                alpha: *alpha,
+                n_threads: *threads as u32,
+                verbose: *verbose,
+                min_score: *min_score,
+                min_score_diff: *min_score_diff,
+                use_extended: *use_extended,
+            };
 
             if let Some(kit_name) = kit.as_ref() {
-                match annotate_with_kit(
-                    input,
-                    output,
-                    kit_name.as_str(),
-                    *flank_max_errors,
-                    *alpha,
-                    *threads as u32,
-                    *verbose,
-                    *min_score,
-                    *min_score_diff,
-                    *use_extended,
-                ) {
+                match annotate_with_kit(input, output, kit_name.as_str(), &annotate_config) {
                     Ok(_) => println!("{}", "Annotation complete!".green()),
                     Err(e) => println!("{} {}", "Error during processing:".red(), e),
                 }
@@ -335,12 +334,7 @@ fn main() {
                 query_files_refs,
                 barcode_types_vec,
                 output,
-                *flank_max_errors,
-                *alpha,
-                *threads as u32,
-                *verbose,
-                *min_score,
-                *min_score_diff,
+                &annotate_config,
             ) {
                 // Convert fractions to raw scores
                 Ok(_) => println!("{}", "Annotation complete!".green()),
@@ -356,8 +350,9 @@ fn main() {
             verbose,
         } => {
             println!("{}", "Starting filtering...".green());
+            let filter_config = FilterConfig { verbose: *verbose };
 
-            match filter_from_text_file(input, file, output, dropped.as_deref(), *verbose) {
+            match filter_from_text_file(input, file, output, dropped.as_deref(), &filter_config) {
                 Ok(_) => println!("{}", "Filtering successful!".green()),
                 Err(e) => println!("{} {}", "Filtering failed:".red(), e),
             }
@@ -378,21 +373,19 @@ fn main() {
             verbose,
         } => {
             println!("{}", "Starting trimming...".green());
-            match trim_matches(
-                input,
-                reads,
-                output,
-                !no_label,
-                !no_orientation,
-                !no_flanks,
-                *sort_labels,
-                *only_side,
-                failed_out.clone(),
-                true, // Maybe make this optional but dont see a reason why you would not want this
-                *skip_trim,
-                *flip,
-                *verbose,
-            ) {
+            let trim_config = TrimConfig {
+                add_labels: !no_label,
+                add_orientation: !no_orientation,
+                add_flank: !no_flanks,
+                sort_labels: *sort_labels,
+                only_side: *only_side,
+                failed_trimmed_writer: failed_out.clone(),
+                write_full_header: true, // Maybe make this optional but dont see a reason why you would not want this
+                skip_trim: *skip_trim,
+                flip: *flip,
+                verbose: *verbose,
+            };
+            match trim_matches(input, reads, output, &trim_config) {
                 Ok(_) => println!("{}", "Trimming complete!".green()),
                 Err(e) => println!("{} {}", "Trimming failed:".red(), e),
             }
@@ -460,20 +453,20 @@ fn main() {
                 }
             };
 
-            if let Err(e) = demux_using_kit(
-                kit.as_str(),
-                fastq_path.as_str(),
-                *threads,
-                output,
-                *maximize,
-                *verbose,
-                *min_score,
-                *min_score_diff,
-                *flank_max_errors,
-                failed_out.clone(),
-                *use_extended,
-                *alpha,
-            ) {
+            let kit_config = KitConfig {
+                kit_name: kit.clone(),
+                threads: *threads,
+                output_folder: output.clone(),
+                maximize: *maximize,
+                verbose: *verbose,
+                min_score: *min_score,
+                min_score_diff: *min_score_diff,
+                max_flank_errors: *flank_max_errors,
+                failed_out: failed_out.clone(),
+                use_extended: *use_extended,
+                alpha: *alpha,
+            };
+            if let Err(e) = demux_using_kit(fastq_path.as_str(), &kit_config) {
                 println!("{} {}", "Demultiplexing failed:".red(), e);
             }
         }

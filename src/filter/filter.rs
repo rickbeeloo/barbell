@@ -1,4 +1,5 @@
 use crate::annotate::searcher::BarbellMatch;
+use crate::config::FilterConfig;
 use crate::filter::pattern::*;
 use crate::pattern_from_str;
 use crate::progress::progress::{FILTER_PROGRESS_SPECS, ProgressTracker};
@@ -11,10 +12,10 @@ pub fn filter(
     output_file: &str,
     dropped_out_file: Option<&str>,
     filters: &[Pattern],
-    verbose: bool,
+    config: &FilterConfig,
 ) -> Result<(), Box<dyn Error>> {
     // Setup progress tracking using the shared progress module.
-    let progress = if verbose {
+    let progress = if config.verbose {
         let log_dir = Path::new(output_file)
             .parent()
             .unwrap_or_else(|| Path::new("."));
@@ -122,17 +123,11 @@ pub fn filter_from_pattern_str(
     pattern_str: &str,
     output_file: &str,
     dropped_out_file: Option<&str>,
-    verbose: bool,
+    config: &FilterConfig,
 ) -> Result<(), Box<dyn Error>> {
     // use pattern macro to convert pattern_str to pattern
     let pattern = pattern_from_str!(pattern_str);
-    filter(
-        annotated_file,
-        output_file,
-        dropped_out_file,
-        &[pattern],
-        verbose,
-    )
+    filter(annotated_file, output_file, dropped_out_file, &[pattern], config)
 }
 
 pub fn filter_from_text_file(
@@ -140,7 +135,7 @@ pub fn filter_from_text_file(
     text_file: &str,
     output_file: &str,
     dropped_out_file: Option<&str>,
-    verbose: bool,
+    config: &FilterConfig,
 ) -> Result<(), Box<dyn Error>> {
     // read the text file into a vector of strings
     let patterns = std::fs::read_to_string(text_file)?;
@@ -155,13 +150,7 @@ pub fn filter_from_text_file(
         .iter()
         .map(|s| pattern_from_str!(s))
         .collect::<Vec<Pattern>>();
-    filter(
-        annotated_file,
-        output_file,
-        dropped_out_file,
-        &patterns,
-        verbose,
-    )
+    filter(annotated_file, output_file, dropped_out_file, &patterns, config)
 }
 
 fn check_filter_pass(annotations: &mut [BarbellMatch], patterns: &[Pattern]) -> bool {

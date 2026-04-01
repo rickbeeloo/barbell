@@ -1,4 +1,5 @@
 use crate::annotate::annotator::annotate_with_kit;
+use crate::config::{AnnotateConfig, FilterConfig, KitConfig, TrimConfig};
 use crate::filter::filter::filter;
 use crate::inspect::inspect::inspect;
 use crate::kits::kits::*;
@@ -7,20 +8,9 @@ use anyhow::anyhow;
 use colored::*;
 use std::path::Path;
 
-pub fn demux_using_kit(
-    kit_name: &str,
-    fastq_file: &str,
-    threads: usize,
-    output_folder: &str,
-    maximize: bool,
-    verbose: bool,
-    min_score: f64,
-    min_score_diff: f64,
-    max_flank_errros: Option<usize>,
-    failed_out: Option<String>,
-    use_extended: bool,
-    alpha: f32,
-) -> anyhow::Result<()> {
+pub fn demux_using_kit(fastq_file: &str, config: &KitConfig) -> anyhow::Result<()> {
+    let kit_name = config.kit_name.as_str();
+    let output_folder = config.output_folder.as_str();
     // Create output folder if not exists yet
     if !Path::new(output_folder).exists() {
         std::fs::create_dir_all(output_folder)?;
@@ -31,24 +21,30 @@ pub fn demux_using_kit(
     // Print some kit info
     println!("\n{}", "Kit info".purple().bold());
     println!("Kit name: {}", kit_info.name);
-    println!("Kit type: {}", if maximize { "Maximize" } else { "Safe" });
+    println!(
+        "Kit type: {}",
+        if config.maximize { "Maximize" } else { "Safe" }
+    );
     for tmpl in kit_info.templates {
         println!("Barcodes: {} - {}", tmpl.barcodes.from, tmpl.barcodes.to);
     }
 
     // If the default values are
     println!("\n{}", "Annotating reads...".purple().bold());
+    let annotate_config = AnnotateConfig {
+        max_flank_errors: config.max_flank_errors,
+        alpha: config.alpha,
+        n_threads: config.threads as u32,
+        verbose: config.verbose,
+        min_score: config.min_score,
+        min_score_diff: config.min_score_diff,
+        use_extended: config.use_extended,
+    };
     annotate_with_kit(
         fastq_file,
         format!("{output_folder}/annotation.tsv").as_str(),
         kit_name,
-        max_flank_errros,
-        alpha,
-        threads as u32,
-        verbose,
-        min_score,
-        min_score_diff,
-        use_extended,
+        &annotate_config,
     )?;
 
     // // After annotating we show inspect
@@ -68,10 +64,13 @@ pub fn demux_using_kit(
     // Filter
     println!("\n{}", "Filtering reads...".purple().bold());
 
-    let patterns = if maximize {
+    let patterns = if config.maximize {
         (kit_info.maximize_patterns)()
     } else {
         (kit_info.safe_patterns)()
+    };
+    let filter_config = FilterConfig {
+        verbose: config.verbose,
     };
 
     filter(
@@ -79,26 +78,29 @@ pub fn demux_using_kit(
         format!("{output_folder}/filtered.tsv").as_str(),
         None,
         patterns,
-        verbose,
+        &filter_config,
     )
     .map_err(|e| anyhow!("{e}"))?;
 
     // Trimming
     println!("\n{}", "Trimming reads...".purple().bold());
+    let trim_config = TrimConfig {
+        add_labels: true,
+        add_orientation: false,
+        add_flank: false,
+        sort_labels: false,
+        only_side: Some(LabelSide::Left),
+        failed_trimmed_writer: config.failed_out.clone(),
+        write_full_header: true,
+        skip_trim: false,
+        flip: false,
+        verbose: config.verbose,
+    };
     trim_matches(
         format!("{output_folder}/filtered.tsv").as_str(),
         fastq_file,
         output_folder,
-        true,
-        false, // probalby nobody using kits uses this (only for custom)
-        false,
-        false,
-        Some(LabelSide::Left),
-        failed_out,
-        true,
-        false,
-        false,
-        verbose,
+        &trim_config,
     )?;
 
     println!("\n{}", "Done!".green().bold());
