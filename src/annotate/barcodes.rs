@@ -319,13 +319,6 @@ impl BarcodeGroup {
         self.k_cutoff = Some(flank_threshold);
     }
 
-    /// Uses Sassy v2 encoding
-    pub fn encode_barcodes(barcodes: &[Barcode]) -> EncodedPatterns<Iupac> {
-        let barcode_seqs: Vec<Vec<u8>> = barcodes.iter().map(|b| b.seq.clone()).collect();
-        let mut searcher = Searcher::<Iupac>::new_rc();
-        searcher.encode_patterns(&barcode_seqs)
-    }
-
     /// Get shared prefix and suffix for input sequences
     fn get_flanks(seqs: &[&[u8]]) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
         // This does not make sense if the sequences are not equally long
