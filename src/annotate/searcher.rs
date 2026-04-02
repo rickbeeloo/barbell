@@ -329,7 +329,8 @@ impl Demuxer {
 
         candidates_buf.clear();
         for (idx, maybe_match) in best_per_pattern_buf.iter_mut().enumerate() {
-            if let Some(m) = maybe_match.take() {
+            if let Some(mut m) = maybe_match.take() {
+                m.strand = flank_match.strand;
                 candidates_buf.push((m, idx));
             }
         }
