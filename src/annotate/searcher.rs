@@ -275,11 +275,6 @@ impl Demuxer {
     ) {
         let full_k_cutoff = barcode_group.barcodes[0].seq.len();
 
-        println!(
-            "Barcode region: {}",
-            String::from_utf8_lossy(barcode_region)
-        );
-
         // Keep only the best (lowest-cost) hit per encoded pattern index.
         best_per_pattern_buf.clear();
         best_per_pattern_buf.resize(barcode_group.barcodes.len(), None);
@@ -308,9 +303,6 @@ impl Demuxer {
         // Fallback: if only none or one pattern matched with strict cutoff, do a deeper pass.
         let matched_patterns = best_per_pattern_buf.iter().filter(|m| m.is_some()).count();
 
-        for _ in 0..10 {
-            println!("Matched patterns: {matched_patterns}");
-        }
         if matched_patterns <= 1 && k_cutoff < full_k_cutoff {
             best_per_pattern_buf.fill(None);
             for m in regular_searcher.search_encoded_patterns(
@@ -333,12 +325,6 @@ impl Demuxer {
                     best_per_pattern_buf[idx] = Some(m.clone());
                 }
             }
-        }
-
-        let matched_patterns = best_per_pattern_buf.iter().filter(|m| m.is_some()).count();
-
-        for _ in 0..10 {
-            println!("Matched patterns: {matched_patterns}");
         }
 
         candidates_buf.clear();
