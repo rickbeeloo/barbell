@@ -1,4 +1,4 @@
-use crate::annotate::barcodes::{Barcode, BarcodeGroup, BarcodeType};
+use crate::annotate::barcodes::{BarcodeGroup, BarcodeType};
 use crate::annotate::cigar_parse::*;
 use crate::annotate::interval::collapse_overlapping_matches;
 use crate::filter::pattern::Cut;
@@ -21,6 +21,11 @@ pub struct Demuxer {
     perfect_scores: Vec<f64>, // query idx > perfect score
     overhang_searcher: Searcher<Iupac>,
     regular_searcher: Searcher<Iupac>,
+    // Buffers between demux calls
+    results_buf: Vec<BarbellMatch>,
+    best_per_pattern_buf: Vec<Option<Match>>,
+    candidates_buf: Vec<(Match, usize)>, // (match, barcode index)
+    scored_buf: Vec<(f64, f64, Match, usize)>, // (norm, raw, match, barcode index)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,6 +209,10 @@ impl Demuxer {
             lodhi: Lodhi::new(3, 0.5),
             overhang_searcher: Searcher::<Iupac>::new_rc_with_overhang(alpha),
             regular_searcher: Searcher::<Iupac>::new_rc(),
+            results_buf: Vec::new(),
+            best_per_pattern_buf: Vec::new(),
+            candidates_buf: Vec::new(),
+            scored_buf: Vec::new(),
         }
     }
 
@@ -229,10 +238,210 @@ impl Demuxer {
         self.lodhi.compute(&perfect)
     }
 
+    fn push_flank_only_result(
+        results_buf: &mut Vec<BarbellMatch>,
+        read_id: &str,
+        read_len: usize,
+        barcode_group: &BarcodeGroup,
+        flank_match: &Match,
+    ) {
+        results_buf.push(BarbellMatch::new(
+            flank_match.text_start,
+            flank_match.text_end,
+            flank_match.text_start,
+            flank_match.text_end,
+            0,
+            0,
+            barcode_group.barcodes[0].match_type.as_flank().clone(),
+            flank_match.cost,
+            barcode_group.barcodes[0].seq.len() as Cost,
+            "flank".to_string(),
+            flank_match.strand,
+            read_len,
+            read_id.to_string(),
+            rel_dist_to_end(flank_match.text_start as isize, read_len),
+            None,
+        ));
+    }
+
+    fn collect_candidates_for_region(
+        regular_searcher: &mut Searcher<Iupac>,
+        best_per_pattern_buf: &mut Vec<Option<Match>>,
+        candidates_buf: &mut Vec<(Match, usize)>,
+        barcode_group: &BarcodeGroup,
+        flank_match: &Match,
+        barcode_region: &[u8],
+        k_cutoff: usize,
+    ) {
+        let full_k_cutoff = barcode_group.barcodes[0].seq.len();
+
+        println!(
+            "Barcode region: {}",
+            String::from_utf8_lossy(barcode_region)
+        );
+
+        // Keep only the best (lowest-cost) hit per encoded pattern index.
+        best_per_pattern_buf.clear();
+        best_per_pattern_buf.resize(barcode_group.barcodes.len(), None);
+
+        for m in regular_searcher.search_encoded_patterns(
+            barcode_group
+                .encoded_barcodes
+                .get_patterns(flank_match.strand),
+            barcode_region,
+            k_cutoff,
+        ) {
+            let idx: usize = m.pattern_idx;
+            if idx >= best_per_pattern_buf.len() {
+                continue;
+            }
+
+            let should_replace = match &best_per_pattern_buf[idx] {
+                Some(best) => m.cost < best.cost,
+                None => true,
+            };
+            if should_replace {
+                best_per_pattern_buf[idx] = Some(m.clone());
+            }
+        }
+
+        // Fallback: if only none or one pattern matched with strict cutoff, do a deeper pass.
+        let matched_patterns = best_per_pattern_buf.iter().filter(|m| m.is_some()).count();
+
+        for _ in 0..10 {
+            println!("Matched patterns: {matched_patterns}");
+        }
+        if matched_patterns <= 1 && k_cutoff < full_k_cutoff {
+            best_per_pattern_buf.fill(None);
+            for m in regular_searcher.search_encoded_patterns(
+                barcode_group
+                    .encoded_barcodes
+                    .get_patterns(flank_match.strand),
+                barcode_region,
+                full_k_cutoff,
+            ) {
+                let idx: usize = m.pattern_idx;
+                if idx >= best_per_pattern_buf.len() {
+                    continue;
+                }
+
+                let should_replace = match &best_per_pattern_buf[idx] {
+                    Some(best) => m.cost < best.cost,
+                    None => true,
+                };
+                if should_replace {
+                    best_per_pattern_buf[idx] = Some(m.clone());
+                }
+            }
+        }
+
+        let matched_patterns = best_per_pattern_buf.iter().filter(|m| m.is_some()).count();
+
+        for _ in 0..10 {
+            println!("Matched patterns: {matched_patterns}");
+        }
+
+        candidates_buf.clear();
+        for (idx, maybe_match) in best_per_pattern_buf.iter_mut().enumerate() {
+            if let Some(m) = maybe_match.take() {
+                candidates_buf.push((m, idx));
+            }
+        }
+    }
+
+    fn score_and_push_result(
+        lodhi: &mut Lodhi,
+        scored_buf: &mut Vec<(f64, f64, Match, usize)>,
+        candidates_buf: &mut Vec<(Match, usize)>,
+        results_buf: &mut Vec<BarbellMatch>,
+        read_id: &str,
+        read_len: usize,
+        barcode_group: &BarcodeGroup,
+        flank_match: &Match,
+        barcode_region_start: usize,
+        perfect_bar_score: f64,
+        min_score_frac: f64,
+        min_score_diff_frac: f64,
+    ) {
+        if candidates_buf.is_empty() {
+            Self::push_flank_only_result(
+                results_buf,
+                read_id,
+                read_len,
+                barcode_group,
+                flank_match,
+            );
+            return;
+        }
+
+        // Score using Lodhi
+        scored_buf.clear();
+        for (m, barcode_idx) in candidates_buf.drain(..) {
+            let s = lodhi.compute(&m.cigar);
+            let s_norm = if perfect_bar_score > 0.0 {
+                s / perfect_bar_score
+            } else {
+                0.0
+            };
+            scored_buf.push((s_norm, s, m, barcode_idx));
+        }
+
+        // sort by normalized score high to low
+        scored_buf.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+        let (pad_start, _pad_end) = barcode_group.pad_region;
+        let (bar_start, bar_end) = barcode_group.bar_region;
+        let rel_bar_start = bar_start - pad_start;
+        let rel_bar_end = bar_end - pad_start;
+
+        let bar_read_region =
+            map_pat_to_text_with_cost(&scored_buf[0].2, rel_bar_start as i32, rel_bar_end as i32);
+
+        let ((bar_start, bar_end), (read_bar_start, read_bar_end), bar_cost) =
+            bar_read_region.expect("No barcode match region found; unusual");
+
+        // Apply fractional thresholds
+        let top_norm = scored_buf[0].0;
+        let mut is_valid_barcode_match = top_norm >= min_score_frac;
+        if scored_buf.len() > 1 {
+            is_valid_barcode_match =
+                is_valid_barcode_match && (top_norm - scored_buf[1].0) >= min_score_diff_frac;
+        }
+
+        if is_valid_barcode_match {
+            let top_barcode = &barcode_group.barcodes[scored_buf[0].3];
+            results_buf.push(BarbellMatch::new(
+                barcode_region_start + read_bar_start,
+                barcode_region_start + read_bar_end,
+                flank_match.text_start,
+                flank_match.text_end,
+                barcode_region_start + bar_start,
+                barcode_region_start + bar_end,
+                top_barcode.match_type.clone(),
+                flank_match.cost,
+                bar_cost as Cost,
+                top_barcode.label.clone(),
+                scored_buf[0].2.strand,
+                read_len,
+                read_id.to_string(),
+                rel_dist_to_end(flank_match.text_start as isize, read_len),
+                None,
+            ));
+        } else {
+            Self::push_flank_only_result(
+                results_buf,
+                read_id,
+                read_len,
+                barcode_group,
+                flank_match,
+            );
+        }
+    }
+
     //fixme: would beneift from some more clean up
     /// Demultiplex read
     pub fn demux(&mut self, read_id: &str, read: &[u8]) -> Vec<BarbellMatch> {
-        let mut results: Vec<BarbellMatch> = Vec::new();
+        self.results_buf.clear();
 
         for (group_i, barcode_group) in self.queries.iter().enumerate() {
             let flank = &barcode_group.flank;
@@ -260,159 +469,36 @@ impl Demuxer {
                 let barcode_region = &read[barcode_region_start..barcode_region_end];
                 // Use v2 based searching now so we can search faster
                 let barcode_len = barcode_group.barcodes[0].seq.len(); // includes padding like the encoded patterns
+                // Lets for now take 0.4 * barcode_len this is already "random" treshold everything more is meaningless
+                let k_cutoff = (barcode_len as f32 * 0.4) as usize;
 
-                // Keep only the best (lowest-cost) hit per encoded pattern index.
-                // This is O(n) over raw hits and avoids sorting/grouping.
-                let mut best_per_pattern: Vec<Option<Match>> =
-                    vec![None; barcode_group.barcodes.len()];
-
-                for m in self.regular_searcher.search_encoded_patterns(
-                    barcode_group
-                        .encoded_barcodes
-                        .get_patterns(flank_match.strand),
+                Self::collect_candidates_for_region(
+                    &mut self.regular_searcher,
+                    &mut self.best_per_pattern_buf,
+                    &mut self.candidates_buf,
+                    barcode_group,
+                    flank_match,
                     barcode_region,
-                    barcode_len,
-                ) {
-                    let idx: usize = m.pattern_idx;
-                    if idx >= best_per_pattern.len() {
-                        continue;
-                    }
-
-                    let should_replace = match &best_per_pattern[idx] {
-                        Some(best) => m.cost < best.cost,
-                        None => true,
-                    };
-                    if should_replace {
-                        best_per_pattern[idx] = Some(m.clone());
-                    }
-                }
-
-                let mut candidates: Vec<(Match, &Barcode)> = Vec::new();
-                for (idx, maybe_match) in best_per_pattern.into_iter().enumerate() {
-                    if let Some(m) = maybe_match {
-                        candidates.push((m, &barcode_group.barcodes[idx]));
-                    }
-                }
-
-                if candidates.is_empty() {
-                    results.push(BarbellMatch::new(
-                        flank_match.text_start,
-                        flank_match.text_end,
-                        flank_match.text_start,
-                        flank_match.text_end,
-                        0,
-                        0,
-                        barcode_group.barcodes[0].match_type.as_flank().clone(),
-                        flank_match.cost,
-                        barcode_group.barcodes[0].seq.len() as Cost,
-                        "flank".to_string(),
-                        flank_match.strand,
-                        read.len(),
-                        read_id.to_string(),
-                        rel_dist_to_end(flank_match.text_start as isize, read.len()),
-                        None,
-                    ));
-
-                    continue;
-                }
-
-                // Score using Lodhi
-                let mut scored: Vec<(f64, f64, Match, &Barcode)> =
-                    Vec::with_capacity(candidates.len());
-
-                for (m, b) in candidates.into_iter() {
-                    let s = self.lodhi.compute(&m.cigar);
-                    let s_norm = if perfect_bar_score > 0.0 {
-                        s / perfect_bar_score
-                    } else {
-                        0.0
-                    };
-                    scored.push((s_norm, s, m, b));
-                }
-
-                // sort by normalized score high to low
-                scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-
-                /*
-                    Important here is the structure:
-                    ---------------------------------------- seq
-                        |                |     pad_start, pad_end <- the query in the search
-                         ===          ===      "padding"
-                            |         |        bar_start, bar_end (here 'mask')
-
-
-                So now for the query (including the padding) we want to extract the matching region
-                exlcuding this padding to get the barcode match
-                while we cannot ensure we have padding in our target, this is fixed in our barcode+flank query
-
-                */
-
-                let (pad_start, _pad_end) = barcode_group.pad_region;
-                let (bar_start, bar_end) = barcode_group.bar_region;
-
-                let rel_bar_start = bar_start - pad_start;
-                let rel_bar_end = bar_end - pad_start;
-
-                let bar_read_region = map_pat_to_text_with_cost(
-                    &scored[0].2,
-                    rel_bar_start as i32,
-                    rel_bar_end as i32,
+                    k_cutoff,
                 );
 
-                let ((bar_start, bar_end), (read_bar_start, read_bar_end), bar_cost) =
-                    bar_read_region.expect("No barcode match region found; unusual");
-
-                // Apply fractional thresholds
-                let top_norm = scored[0].0;
-                let mut is_valid_barcode_match = top_norm >= self.min_score_frac;
-                if scored.len() > 1 {
-                    is_valid_barcode_match = is_valid_barcode_match
-                        && (top_norm - scored[1].0) >= self.min_score_diff_frac;
-                }
-
-                if is_valid_barcode_match {
-                    results.push(BarbellMatch::new(
-                        barcode_region_start + read_bar_start,
-                        barcode_region_start + read_bar_end,
-                        flank_match.text_start,
-                        flank_match.text_end,
-                        barcode_region_start + bar_start,
-                        barcode_region_start + bar_end,
-                        scored[0].3.match_type.clone(),
-                        flank_match.cost,
-                        bar_cost as Cost,
-                        scored[0].3.label.clone(),
-                        scored[0].2.strand,
-                        read.len(),
-                        read_id.to_string(),
-                        rel_dist_to_end(flank_match.text_start as isize, read.len()),
-                        None,
-                    ));
-                } else {
-                    results.push(BarbellMatch::new(
-                        flank_match.text_start,
-                        flank_match.text_end,
-                        flank_match.text_start,
-                        flank_match.text_end,
-                        0,
-                        0,
-                        barcode_group.barcodes[0].match_type.as_flank().clone(),
-                        flank_match.cost,
-                        // Eventhough barcode was "better" than just a flank match
-                        // to keep it consistent among "flank" matches lets also report
-                        // full barcode length cost
-                        barcode_group.barcodes[0].seq.len() as Cost,
-                        "flank".to_string(),
-                        flank_match.strand,
-                        read.len(),
-                        read_id.to_string(),
-                        rel_dist_to_end(flank_match.text_start as isize, read.len()),
-                        None,
-                    ));
-                }
+                Self::score_and_push_result(
+                    &mut self.lodhi,
+                    &mut self.scored_buf,
+                    &mut self.candidates_buf,
+                    &mut self.results_buf,
+                    read_id,
+                    read.len(),
+                    barcode_group,
+                    flank_match,
+                    barcode_region_start,
+                    perfect_bar_score,
+                    self.min_score_frac,
+                    self.min_score_diff_frac,
+                );
             }
         }
 
-        collapse_overlapping_matches(&results, 0.8)
+        collapse_overlapping_matches(&self.results_buf, 0.8)
     }
 }
