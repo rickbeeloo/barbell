@@ -17,10 +17,6 @@ If you have any issues or if something is unclear, just create an [issue](https:
 
 ---
 
-> [!IMPORTANT]
-> Current git version is around 5x faster than the releases by using [sassyv2](https://github.com/RagnarGrootKoerkamp/sassy) and other speedups. But 
-> results can slightly differ (<0.01% or so).
-
 
 ## Quick links
 
@@ -74,6 +70,12 @@ conda install -c bioconda barbell
 ```
 
 ### From source (recommended)
+
+> [!IMPORTANT]
+> Current git version is around 5x faster than the releases by using [Sassy V2](https://github.com/RagnarGrootKoerkamp/sassy) and other speedups. But 
+> results can slightly differ (<0.01% or so).
+
+
 Check whether Rust is installed:
 
 ```bash
