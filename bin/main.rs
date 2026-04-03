@@ -420,39 +420,6 @@ fn main() {
             use_extended,
             alpha,
         } => {
-            let (_sra_tempfile, fastq_path) = match (input.as_deref(), sra.as_deref()) {
-                (Some(path), None) => (None, path.to_string()),
-                (None, Some(accession)) => {
-                    println!("Downloading reads from SRA accession: {accession}");
-                    let tmp = match download_sra_to_tempfile(accession, *threads) {
-                        Ok(tmp) => tmp,
-                        Err(e) => {
-                            println!("{} {}", "Failed to download SRA accession:".red(), e);
-                            return;
-                        }
-                    };
-                    let path = match tmp.path().to_str() {
-                        Some(path) => path.to_string(),
-                        None => {
-                            println!("{}", "Failed to convert SRA temp file path to UTF-8.".red());
-                            return;
-                        }
-                    };
-                    (Some(tmp), path)
-                }
-                (Some(_), Some(_)) => {
-                    println!(
-                        "{}",
-                        "Please provide either --input or --sra, not both.".red()
-                    );
-                    return;
-                }
-                (None, None) => {
-                    println!("{}", "Please provide either --input or --sra.".red());
-                    return;
-                }
-            };
-
             let kit_config = KitConfig {
                 kit_name: kit.clone(),
                 threads: *threads,
@@ -466,8 +433,45 @@ fn main() {
                 use_extended: *use_extended,
                 alpha: *alpha,
             };
-            if let Err(e) = demux_using_kit(fastq_path.as_str(), &kit_config) {
-                println!("{} {}", "Demultiplexing failed:".red(), e);
+
+            match (input.as_deref(), sra.as_deref()) {
+                (Some(path), None) => {
+                    if let Err(e) = demux_using_kit(path, &kit_config) {
+                        println!("{} {}", "Demultiplexing failed:".red(), e);
+                    }
+                }
+                (None, Some(accession)) => {
+                    println!("Downloading reads from SRA accession: {accession}");
+                    let tmp = match download_sra_to_tempfile(accession, *threads) {
+                        Ok(tmp) => tmp,
+                        Err(e) => {
+                            println!("{} {}", "Failed to download SRA accession:".red(), e);
+                            return;
+                        }
+                    };
+                    let fastq_path = match tmp.path().to_str() {
+                        Some(p) => p,
+                        None => {
+                            println!("{}", "Failed to convert SRA temp file path to UTF-8.".red());
+                            return;
+                        }
+                    };
+                    let demux_result = demux_using_kit(fastq_path, &kit_config);
+                    // Drop temp file so we don't floopd disk
+                    drop(tmp);
+                    if let Err(e) = demux_result {
+                        println!("{} {}", "Demultiplexing failed:".red(), e);
+                    }
+                }
+                (Some(_), Some(_)) => {
+                    println!(
+                        "{}",
+                        "Please provide either --input or --sra, not both.".red()
+                    );
+                }
+                (None, None) => {
+                    println!("{}", "Please provide either --input or --sra.".red());
+                }
             }
         }
     }
