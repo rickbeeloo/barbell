@@ -4,7 +4,6 @@ use barbell::config::{AnnotateConfig, FilterConfig, KitConfig, TrimConfig};
 use barbell::filter::filter::filter_from_text_file;
 use barbell::inspect::inspect;
 use barbell::kits::use_kit::demux_using_kit;
-use barbell::sra::sra_download::download_sra_to_tempfile;
 use barbell::trim::trim::{LabelSide, trim_matches};
 use clap::{Parser, Subcommand};
 use colored::*;
@@ -210,17 +209,8 @@ enum Commands {
         kit: String,
 
         /// Input FASTQ file (or FASTQ.gz; slower due to unzipping)
-        #[arg(
-            short = 'i',
-            long,
-            required_unless_present = "sra",
-            conflicts_with = "sra"
-        )]
-        input: Option<String>,
-
-        /// SRA accession to download with xsra (alternative to --input)
-        #[arg(long, required_unless_present = "input", conflicts_with = "input")]
-        sra: Option<String>,
+        #[arg(short = 'i', long)]
+        input: String,
 
         /// Number of threads
         #[arg(short = 't', long, default_value_t = 10)]
@@ -408,7 +398,6 @@ fn main() {
         Commands::Kit {
             kit,
             input,
-            sra,
             threads,
             output,
             maximize,
@@ -434,44 +423,8 @@ fn main() {
                 alpha: *alpha,
             };
 
-            match (input.as_deref(), sra.as_deref()) {
-                (Some(path), None) => {
-                    if let Err(e) = demux_using_kit(path, &kit_config) {
-                        println!("{} {}", "Demultiplexing failed:".red(), e);
-                    }
-                }
-                (None, Some(accession)) => {
-                    println!("Downloading reads from SRA accession: {accession}");
-                    let tmp = match download_sra_to_tempfile(accession, *threads) {
-                        Ok(tmp) => tmp,
-                        Err(e) => {
-                            println!("{} {}", "Failed to download SRA accession:".red(), e);
-                            return;
-                        }
-                    };
-                    let fastq_path = match tmp.path().to_str() {
-                        Some(p) => p,
-                        None => {
-                            println!("{}", "Failed to convert SRA temp file path to UTF-8.".red());
-                            return;
-                        }
-                    };
-                    let demux_result = demux_using_kit(fastq_path, &kit_config);
-                    // Drop temp file so we don't floopd disk
-                    drop(tmp);
-                    if let Err(e) = demux_result {
-                        println!("{} {}", "Demultiplexing failed:".red(), e);
-                    }
-                }
-                (Some(_), Some(_)) => {
-                    println!(
-                        "{}",
-                        "Please provide either --input or --sra, not both.".red()
-                    );
-                }
-                (None, None) => {
-                    println!("{}", "Please provide either --input or --sra.".red());
-                }
+            if let Err(e) = demux_using_kit(input.as_str(), &kit_config) {
+                println!("{} {}", "Demultiplexing failed:".red(), e);
             }
         }
     }
