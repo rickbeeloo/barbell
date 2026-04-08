@@ -70,11 +70,23 @@ const ALL_AMPLICON_BARS: [&str; 24] = [
 pub struct LabelRange {
     pub from: &'static str,
     pub to: &'static str,
+    pub use_12a: bool,
 }
 
 impl LabelRange {
     const fn new(from: &'static str, to: &'static str) -> Self {
-        Self { from, to }
+        Self {
+            from,
+            to,
+            use_12a: false,
+        }
+    }
+    const fn new_12a(from: &'static str, to: &'static str) -> Self {
+        Self {
+            from,
+            to,
+            use_12a: true,
+        }
     }
 }
 
@@ -334,7 +346,7 @@ static TEMPLATES_RBK4: &[TemplateSpec] = &[TemplateSpec {
 
 static TEMPLATES_RLB: &[TemplateSpec] = &[TemplateSpec {
     parts: &[RLB_FRONT, "{BAR}", RLB_REAR],
-    barcodes: LabelRange::new("BC01", "BC12A"),
+    barcodes: LabelRange::new_12a("BC01", "BC12"),
     barcode_type: TemplateBarcodeType::Left,
     template_type: TemplateType::Default,
 }];
@@ -424,7 +436,8 @@ static TEMPLATES_RBK24_KIT14: &[TemplateSpec] = &[TemplateSpec {
 
 static TEMPLATES_RPB24_KIT14: &[TemplateSpec] = &[TemplateSpec {
     parts: &[RLB_FRONT, "{BAR}", RLB_REAR],
-    barcodes: LabelRange::new("BC01", "BC24"),
+    // Uses 1 to 24, using 12a following dorado specs
+    barcodes: LabelRange::new_12a("BC01", "BC24"),
     barcode_type: TemplateBarcodeType::Left,
     template_type: TemplateType::Default,
 }];
@@ -598,8 +611,8 @@ const KIT_RBK24_KIT14: KitConfig = KitConfig::new(
 const KIT_RPB24_KIT14: KitConfig = KitConfig::new(
     "RPB24-Kit14",
     SINGLE_LABEL_CONFIG,
-    single_label_patterns_safe,
-    single_label_patterns_maximize,
+    double_label_patterns_safe,
+    double_label_patterns_maximize,
     TEMPLATES_RPB24_KIT14,
 );
 
@@ -641,6 +654,7 @@ pub fn get_kit_info(kit: &str) -> KitConfig {
         "SQK-NBD114-24" => KIT_NB24,
         "EXP-NBD114-24" => KIT_NB24,
         // NB96
+        "SQK-HTB114-96" => KIT_NB96,
         "EXP-NBD196" => KIT_NB96,
         "SQK-MLK111-96-XL" => KIT_NB96,
         "SQK-NBD111-96" => KIT_NB96,
@@ -724,7 +738,7 @@ fn parse_label_simple(label: &str) -> (String, usize, bool) {
     (prefix, number, a_flag)
 }
 
-pub fn get_barcodes(from_label: &str, to_label: &str) -> Vec<String> {
+pub fn get_barcodes(from_label: &str, to_label: &str, use_12a_flag: bool) -> Vec<String> {
     let (pf_from, from_num, from_a) = parse_label_simple(from_label);
     let (pf_to, to_num, to_a) = parse_label_simple(to_label);
 
@@ -755,8 +769,8 @@ pub fn get_barcodes(from_label: &str, to_label: &str) -> Vec<String> {
             .collect()
     };
 
-    // 12A handling: if either boundary has 'A' and the range includes 12
-    let use_12a = (from_a || to_a) && (start <= 12 && 12 <= end);
+    // 12A handling: explicit flag OR boundary label carries an 'A' suffix
+    let use_12a = use_12a_flag || ((from_a || to_a) && (start <= 12 && 12 <= end));
     if use_12a {
         slice.iter_mut().for_each(|item| {
             if item == "BC12" {
@@ -1094,7 +1108,7 @@ mod tests {
 
     #[test]
     fn test_get_barcodes_bc_1_to_12() {
-        let barcodes = get_barcodes("BC01", "BC12");
+        let barcodes = get_barcodes("BC01", "BC12", false);
         let expected = vec![
             "BC01", "BC02", "BC03", "BC04", "BC05", "BC06", "BC07", "BC08", "BC09", "BC10", "BC11",
             "BC12",
@@ -1104,7 +1118,8 @@ mod tests {
 
     #[test]
     fn test_get_barcodes_bc_1_to_12_with_12a() {
-        let barcodes = get_barcodes("BC1A", "BC12A");
+        // 12A derived from boundary label suffix (to_a path)
+        let barcodes = get_barcodes("BC1A", "BC12A", false);
         let expected = vec![
             "BC01", "BC02", "BC03", "BC04", "BC05", "BC06", "BC07", "BC08", "BC09", "BC10", "BC11",
             "BC12A",
@@ -1114,7 +1129,7 @@ mod tests {
 
     #[test]
     fn test_get_barcodes_bc_1_to_13_with_12a() {
-        let barcodes = get_barcodes("BC1A", "BC13A");
+        let barcodes = get_barcodes("BC1A", "BC13A", false);
         let expected = vec![
             "BC01", "BC02", "BC03", "BC04", "BC05", "BC06", "BC07", "BC08", "BC09", "BC10", "BC11",
             "BC12A", "BC13",
@@ -1124,7 +1139,7 @@ mod tests {
 
     #[test]
     fn test_get_barcodes_nb_1_to_12() {
-        let barcodes = get_barcodes("NB01", "NB12");
+        let barcodes = get_barcodes("NB01", "NB12", false);
         let expected = vec![
             "NB01", "NB02", "NB03", "NB04", "NB05", "NB06", "NB07", "NB08", "NB09", "NB10", "NB11",
             "NB12",
@@ -1134,8 +1149,29 @@ mod tests {
 
     #[test]
     fn test_get_barcodes_rbk_special_relabel() {
-        let barcodes = get_barcodes("RBK24", "RBK28");
+        let barcodes = get_barcodes("RBK24", "RBK28", false);
         let expected = vec!["BC24", "BC25", "RBK26", "BC27", "BC28"];
+        assert_eq!(barcodes, expected);
+    }
+
+    #[test]
+    fn test_get_barcodes_rpb24_kit14_12a_flag() {
+        // SQK-RPB114-24 uses BC2_1_24: BC01–BC11, RLB12A/BC12A, BC13–BC24
+        let barcodes = get_barcodes("BC01", "BC24", true);
+        assert_eq!(barcodes.len(), 24);
+        assert_eq!(barcodes[11], "BC12A");
+        assert_eq!(barcodes[10], "BC11");
+        assert_eq!(barcodes[12], "BC13");
+    }
+
+    #[test]
+    fn test_get_barcodes_rlb_12a_flag() {
+        // SQK-RLB001 / SQK-RPB004: BC01–BC11, BC12A (12 barcodes total)
+        let barcodes = get_barcodes("BC01", "BC12", true);
+        let expected = vec![
+            "BC01", "BC02", "BC03", "BC04", "BC05", "BC06", "BC07", "BC08", "BC09", "BC10", "BC11",
+            "BC12A",
+        ];
         assert_eq!(barcodes, expected);
     }
 

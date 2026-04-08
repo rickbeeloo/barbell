@@ -261,7 +261,7 @@ impl BarcodeGroup {
                 continue;
             }
             let label_range = tmpl.barcodes;
-            let labels = get_barcodes(label_range.from, label_range.to);
+            let labels = get_barcodes(label_range.from, label_range.to, label_range.use_12a);
             let mut query_seqs = Vec::new();
             let mut query_labels = Vec::new();
 
