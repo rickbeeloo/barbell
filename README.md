@@ -114,7 +114,8 @@ Basic command:
 barbell kit -k <kit-name> -i <reads.fastq> -o <output_folder> --maximize
 ```
 
-The `--maximize` option is recommended (e.g., for assembly) unless you need an ultra-strict barcode configuration ([see here](#the---maximize-flag-explained-in-more-detail-kit-command-only) for more details).
+The `--maximize` option is recommended (e.g., for assembly) unless you need an ultra-strict barcode configuration ([see here](#the---maximize-flag-explained-in-more-detail-kit-command-only) for more details). You can also pass `--gzip` to write 
+`fastq.gz` files but note that the zipping has a performance penalty.
 
 ### Native barcoding example (SQK-NBD114-96)
 
@@ -278,6 +279,8 @@ Trim reads using the `cuts` metadata produced by `filter`:
 ```bash
 barbell trim -i filtered.tsv -r reads.fastq -o trimmed
 ```
+You can also pass `--gzip` to write 
+`fastq.gz` files but note that the zipping has a performance penalty.
 
 Output files are organized by pattern-based folder/filenames, for example:
 

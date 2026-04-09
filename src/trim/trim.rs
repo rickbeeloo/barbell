@@ -6,6 +6,8 @@ use crate::io::io::open_fastq;
 use crate::progress::progress::{ProgressTracker, TRIM_PROGRESS_SPECS};
 use anyhow::anyhow;
 use csv;
+use flate2::Compression;
+use flate2::write::GzEncoder;
 use sassy::Strand;
 use seq_io::fastq::Record;
 use std::collections::HashMap;
@@ -361,16 +363,17 @@ pub fn trim_matches(
             .push(anno);
     }
 
-    // Create writers
-    let mut writers: HashMap<String, BufWriter<File>> = HashMap::new();
+    // Create writers regular or gzip write
+    let mut writers: HashMap<String, Box<dyn Write>> = HashMap::new();
 
     // If there is a failed trimmed writer, create it
-    let mut failed_trimmed_writer = config
-        .failed_trimmed_writer
-        .as_ref()
-        .map(|failed_trimmed_writer_path| {
-        BufWriter::new(File::create(failed_trimmed_writer_path).unwrap())
-    });
+    let mut failed_trimmed_writer =
+        config
+            .failed_trimmed_writer
+            .as_ref()
+            .map(|failed_trimmed_writer_path| {
+                BufWriter::new(File::create(failed_trimmed_writer_path).unwrap())
+            });
 
     // Process reads
     let mut reader = open_fastq(read_fastq_file);
@@ -412,14 +415,25 @@ pub fn trim_matches(
             for (trimmed_seq, trimmed_qual, group, read_suffix) in results {
                 // Get or create writer for this group
                 if !writers.contains_key(&group) {
-                    let output_file = format!("{output_folder}/{group}.trimmed.fastq");
+                    let output_file = if config.gzip {
+                        format!("{output_folder}/{group}.trimmed.fastq.gz")
+                    } else {
+                        format!("{output_folder}/{group}.trimmed.fastq")
+                    };
                     let file = File::create(&output_file).map_err(|err| {
                         let msg = format_output_file_error(&output_file, &err);
                         progress.print_error(msg.clone());
                         progress.clear();
                         anyhow!(msg)
                     })?;
-                    writers.insert(group.clone(), BufWriter::new(file));
+
+                    // If gzipping is enabled we use zipped writer
+                    let writer: Box<dyn Write> = if config.gzip {
+                        Box::new(GzEncoder::new(file, Compression::default()))
+                    } else {
+                        Box::new(BufWriter::new(file))
+                    };
+                    writers.insert(group.clone(), writer);
                 }
                 let writer = writers
                     .get_mut(&group)

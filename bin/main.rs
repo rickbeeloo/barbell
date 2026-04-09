@@ -181,6 +181,10 @@ enum Commands {
         /// Writes log file (total, kept, dropped)
         #[arg(long, default_value_t = false)]
         verbose: bool,
+
+        /// Write output FASTQ files as gzip-compressed (.fastq.gz)
+        #[arg(long, default_value_t = false)]
+        gzip: bool,
     },
 
     /// View most common patterns in annotation
@@ -251,6 +255,10 @@ enum Commands {
         /// Edit cost beyond read boundaries
         #[arg(long = "alpha", default_value_t = 0.4)]
         alpha: f32,
+
+        /// Write output FASTQ files as gzip-compressed (.fastq.gz)
+        #[arg(long, default_value_t = false)]
+        gzip: bool,
     },
 }
 
@@ -361,6 +369,7 @@ fn main() {
             skip_trim,
             flip,
             verbose,
+            gzip,
         } => {
             println!("{}", "Starting trimming...".green());
             let trim_config = TrimConfig {
@@ -374,6 +383,7 @@ fn main() {
                 skip_trim: *skip_trim,
                 flip: *flip,
                 verbose: *verbose,
+                gzip: *gzip,
             };
             match trim_matches(input, reads, output, &trim_config) {
                 Ok(_) => println!("{}", "Trimming complete!".green()),
@@ -408,6 +418,7 @@ fn main() {
             failed_out,
             use_extended,
             alpha,
+            gzip,
         } => {
             let kit_config = KitConfig {
                 kit_name: kit.clone(),
@@ -421,6 +432,7 @@ fn main() {
                 failed_out: failed_out.clone(),
                 use_extended: *use_extended,
                 alpha: *alpha,
+                gzip: *gzip,
             };
 
             if let Err(e) = demux_using_kit(input.as_str(), &kit_config) {
