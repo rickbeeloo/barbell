@@ -1,6 +1,6 @@
 use barbell::annotate::annotator::*;
 use barbell::annotate::barcodes::BarcodeType;
-use barbell::config::{AnnotateConfig, FilterConfig, KitConfig, TrimConfig};
+use barbell::config::{AnnotateConfig, FilterConfig, KitConfig, OutputFormat, TrimConfig};
 use barbell::filter::filter::filter_from_text_file;
 use barbell::inspect::inspect;
 use barbell::kits::use_kit::demux_using_kit;
@@ -61,7 +61,7 @@ enum UtilsCommands {
 enum Commands {
     /// Annotate FASTQ files with barcode information
     Annotate {
-        /// Read FASTQ file (or FASTQ.gz; slower due to unzipping)
+        /// Read input file (FASTQ, FASTQ.gz, BAM, or SAM)
         #[arg(short = 'i', long)]
         input: String,
 
@@ -185,6 +185,10 @@ enum Commands {
         /// Write output FASTQ files as gzip-compressed (.fastq.gz)
         #[arg(long, default_value_t = false)]
         gzip: bool,
+
+        /// Output file format for trimmed reads
+        #[arg(long, value_enum)]
+        output_format: Option<OutputFormat>,
     },
 
     /// View most common patterns in annotation
@@ -259,6 +263,10 @@ enum Commands {
         /// Write output FASTQ files as gzip-compressed (.fastq.gz)
         #[arg(long, default_value_t = false)]
         gzip: bool,
+
+        /// Output file format for trimmed reads
+        #[arg(long, value_enum)]
+        output_format: Option<OutputFormat>,
     },
 }
 
@@ -370,8 +378,16 @@ fn main() {
             flip,
             verbose,
             gzip,
+            output_format,
         } => {
             println!("{}", "Starting trimming...".green());
+            let trim_output_format = output_format.unwrap_or_else(|| {
+                if *gzip {
+                    OutputFormat::FastqGz
+                } else {
+                    OutputFormat::Fastq
+                }
+            });
             let trim_config = TrimConfig {
                 add_labels: !no_label,
                 add_orientation: !no_orientation,
@@ -383,7 +399,7 @@ fn main() {
                 skip_trim: *skip_trim,
                 flip: *flip,
                 verbose: *verbose,
-                gzip: *gzip,
+                output_format: trim_output_format,
             };
             match trim_matches(input, reads, output, &trim_config) {
                 Ok(_) => println!("{}", "Trimming complete!".green()),
@@ -419,7 +435,15 @@ fn main() {
             use_extended,
             alpha,
             gzip,
+            output_format,
         } => {
+            let kit_output_format = output_format.unwrap_or_else(|| {
+                if *gzip {
+                    OutputFormat::FastqGz
+                } else {
+                    OutputFormat::Fastq
+                }
+            });
             let kit_config = KitConfig {
                 kit_name: kit.clone(),
                 threads: *threads,
@@ -432,7 +456,7 @@ fn main() {
                 failed_out: failed_out.clone(),
                 use_extended: *use_extended,
                 alpha: *alpha,
-                gzip: *gzip,
+                output_format: kit_output_format,
             };
 
             if let Err(e) = demux_using_kit(input.as_str(), &kit_config) {

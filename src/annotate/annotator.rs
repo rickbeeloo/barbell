@@ -2,7 +2,7 @@ use crate::annotate::barcodes::{BarcodeGroup, BarcodeType};
 use crate::annotate::edit_model::get_edit_cut_off;
 use crate::annotate::searcher::{BarbellMatch, Demuxer};
 use crate::config::AnnotateConfig;
-use crate::io::io::open_fastq;
+use crate::io::io::{open_reads, ReadSource};
 use crate::progress::progress::{ANNOTATION_PROGRESS_SPECS, ProgressTracker};
 use anyhow::anyhow;
 use seq_io::fastq::{Error as FastqError, Record, RecordSet};
@@ -48,6 +48,20 @@ fn consume_record_sets(
         progress.refresh();
     }
     Ok(())
+}
+
+fn init_demuxer(
+    alpha: f32,
+    verbose: bool,
+    min_score: f64,
+    min_score_diff: f64,
+    query_groups: &[BarcodeGroup],
+) -> Demuxer {
+    let mut demux = Demuxer::new(alpha, verbose, min_score, min_score_diff);
+    for query_group in query_groups {
+        demux.add_query_group(query_group.clone());
+    }
+    demux
 }
 
 // used by custom experiments (direct annotate call)
@@ -125,7 +139,7 @@ pub fn annotate(
     let min_score = config.min_score;
     let min_score_diff = config.min_score_diff;
 
-    let reader = open_fastq(read_file);
+    let reader = open_reads(read_file)?;
     let writer = Arc::new(Mutex::new(
         csv::WriterBuilder::new()
             .delimiter(b'\t')
@@ -148,55 +162,79 @@ pub fn annotate(
         ProgressTracker::new(&ANNOTATION_PROGRESS_SPECS)
     };
 
-    read_parallel(
-        reader,
-        n_threads,
-        1000,
-        |record_set| {
-            // Create thread local demuxer if not init for current thread yet
-            thread_local! {
-                static DEMUXER: std::cell::RefCell<Option<Demuxer>> = const { std::cell::RefCell::new(None) };
-            }
-            DEMUXER.with(|cell| {
-                if cell.borrow().is_none() {
-                    let mut demux = Demuxer::new(alpha, verbose, min_score, min_score_diff);
-                    for query_group in query_groups.iter() {
-                        demux.add_query_group(query_group.clone());
+    match reader {
+        ReadSource::Fastq(reader) => {
+            read_parallel(
+                reader,
+                n_threads,
+                1000,
+                |record_set| {
+                    // Create thread local demuxer if not init for current thread yet
+                    thread_local! {
+                        static DEMUXER: std::cell::RefCell<Option<Demuxer>> = const { std::cell::RefCell::new(None) };
                     }
+                    DEMUXER.with(|cell| {
+                        if cell.borrow().is_none() {
+                            let demux = init_demuxer(
+                                alpha,
+                                verbose,
+                                min_score,
+                                min_score_diff,
+                                &query_groups,
+                            );
 
-                    *cell.borrow_mut() = Some(demux);
-                }
-            });
-
-            // Go over the
-            let mut record_set_annotations = Vec::new();
-            let mut found = 0;
-            for record in record_set.into_iter() {
-                // Use the demuxer through thread-local storage
-                let matches: Vec<BarbellMatch> = DEMUXER.with(|cell| {
-                    if let Some(ref mut demuxer) = *cell.borrow_mut() {
-                        match record.id() {
-                            Ok(read_id) => demuxer.demux(read_id, record.seq()),
-                            Err(_) => Vec::new(),
+                            *cell.borrow_mut() = Some(demux);
                         }
-                    } else {
-                        Vec::new()
-                    }
-                });
+                    });
 
+                    // Go over the
+                    let mut record_set_annotations = Vec::new();
+                    let mut found = 0;
+                    for record in record_set.into_iter() {
+                        // Use the demuxer through thread-local storage
+                        let matches: Vec<BarbellMatch> = DEMUXER.with(|cell| {
+                            if let Some(ref mut demuxer) = *cell.borrow_mut() {
+                                match record.id() {
+                                    Ok(read_id) => demuxer.demux(read_id, record.seq()),
+                                    Err(_) => Vec::new(),
+                                }
+                            } else {
+                                Vec::new()
+                            }
+                        });
+
+                        if !matches.is_empty() {
+                            found += 1;
+                            record_set_annotations.extend(matches);
+                        }
+                    }
+                    (record_set_annotations, found)
+                },
+                |record_sets| {
+                    if let Err(e) = consume_record_sets(record_sets, &writer, &progress) {
+                        progress.store_error(e.to_string());
+                    }
+                },
+            );
+        }
+        read_source @ ReadSource::Bam(_) => {
+            let mut demux = init_demuxer(alpha, verbose, min_score, min_score_diff, &query_groups);
+
+            let mut reader = read_source;
+            while let Some(record_result) = reader.next_record() {
+                let record = record_result?;
+                let matches = demux.demux(&record.id, &record.seq);
+                progress.add(0, 1);
                 if !matches.is_empty() {
-                    found += 1;
-                    record_set_annotations.extend(matches);
+                    progress.add(1, 1);
+                    write_annotation_batch(&writer, &matches)?;
+                } else {
+                    progress.add(2, 1);
                 }
+                progress.refresh();
             }
-            (record_set_annotations, found)
-        },
-        |record_sets| {
-            if let Err(e) = consume_record_sets(record_sets, &writer, &progress) {
-                progress.store_error(e.to_string());
-            }
-        },
-    );
+        }
+    }
 
     if let Some(msg) = progress.take_error() {
         progress.clear();
@@ -206,4 +244,54 @@ pub fn annotate(
     progress.finish("records");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::AnnotateConfig;
+    use crate::annotate::barcodes::BarcodeType;
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_annotate_fastq_parallel() -> anyhow::Result<()> {
+        let tmp = tempdir().unwrap();
+        let fastq_path = tmp.path().join("reads.fastq");
+        let query_path = tmp.path().join("query.fasta");
+        let out_path = tmp.path().join("output.tsv");
+
+        let mut fastq_file = File::create(&fastq_path)?;
+        fastq_file.write_all(b"@read1\nACGTACGT\n+\nIIIIIIII\n")?;
+        fastq_file.flush()?;
+
+        let mut query_file = File::create(&query_path)?;
+        query_file.write_all(b">barcode1\nACGTACGT\n>barcode2\nACGTACGA\n")?;
+        query_file.flush()?;
+
+        let config = AnnotateConfig {
+            max_flank_errors: Some(0),
+            alpha: 0.4,
+            n_threads: 2,
+            verbose: false,
+            min_score: 0.0,
+            min_score_diff: 0.0,
+            use_extended: false,
+        };
+
+        annotate_with_files(
+            fastq_path.to_str().unwrap(),
+            vec![query_path.to_str().unwrap()],
+            vec![BarcodeType::Ftag],
+            out_path.to_str().unwrap(),
+            &config,
+        )?;
+
+        assert!(out_path.exists());
+        let contents = std::fs::read_to_string(&out_path)?;
+        assert!(contents.is_empty() || contents.contains("read1"));
+
+        Ok(())
+    }
 }

@@ -41,6 +41,9 @@ cigar-lodhi-rs =  "0.1.0"
 ensure_simd = "0.1.0"
 log = "0.4.29"
 env_logger = "0.11.9"
+noodles-bam = "0.88.0"
+noodles-sam = "0.84.0"
+noodles-bgzf = "0.46.0"
 
 [workspace]
 members = [

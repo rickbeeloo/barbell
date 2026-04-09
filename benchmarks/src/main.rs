@@ -33,7 +33,13 @@ fn main() {
     match cli.command {
         Commands::Simulate(args) => {
             println!("Running simulation with {} iterations", args.n);
-            create_testdata(args.n, &args.output_dir, &args.barcode_file, args.rc_frac);
+            create_testdata(
+                args.n,
+                &args.output_dir,
+                &args.barcode_file,
+                args.rc_frac,
+                args.format,
+            );
         }
         Commands::Compare(args) => {
             println!("Running comparison with {} threads", args.threads);

@@ -1,4 +1,12 @@
 use crate::trim::trim::LabelSide;
+use clap::ValueEnum;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum OutputFormat {
+    Fastq,
+    FastqGz,
+    Bam,
+}
 
 #[derive(Debug, Clone)]
 pub struct AnnotateConfig {
@@ -28,7 +36,7 @@ pub struct TrimConfig {
     pub skip_trim: bool,
     pub flip: bool,
     pub verbose: bool,
-    pub gzip: bool,
+    pub output_format: OutputFormat,
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +52,6 @@ pub struct KitConfig {
     pub failed_out: Option<String>,
     pub use_extended: bool,
     pub alpha: f32,
-    pub gzip: bool,
+    pub output_format: OutputFormat,
 }
 

@@ -1,4 +1,10 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, ValueEnum};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum OutputFormat {
+    Fastq,
+    Bam,
+}
 
 #[derive(Parser)]
 pub struct SimulationArgs {
@@ -13,4 +19,7 @@ pub struct SimulationArgs {
 
     #[arg(short = 'r', long, default_value = "0.0")]
     pub rc_frac: f64,
+
+    #[arg(long, value_enum, default_value_t = OutputFormat::Fastq)]
+    pub format: OutputFormat,
 }
