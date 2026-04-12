@@ -1,15 +1,18 @@
 use crate::annotate::barcodes::BarcodeType;
 use crate::annotate::searcher::BarbellMatch;
-use crate::config::TrimConfig;
+use crate::config::{OutputFormat, TrimConfig};
 use crate::filter::pattern::{Cut, CutDirection};
-use crate::io::io::open_fastq;
+use crate::io::io::{open_reads, ReadSource};
 use crate::progress::progress::{ProgressTracker, TRIM_PROGRESS_SPECS};
 use anyhow::anyhow;
 use csv;
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use noodles_bam as bam;
+use noodles_bgzf as bgzf;
+use noodles_sam as sam;
+use noodles_sam::alignment::io::Write as _;
 use sassy::Strand;
-use seq_io::fastq::Record;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -247,6 +250,16 @@ fn preprocess_cuts(annotations: &[BarbellMatch], seq_len: usize) -> Vec<Complete
     slices
 }
 
+pub struct TrimmedRead {
+    pub seq: Vec<u8>,
+    pub qual: Vec<u8>,
+    pub label: String,
+    pub suffix: String,
+    pub original_record: Option<bam::Record>,
+    pub start: usize,
+    pub end: usize,
+}
+
 pub fn process_read_and_anno(
     seq: &[u8],
     qual: &[u8],
@@ -254,7 +267,8 @@ pub fn process_read_and_anno(
     label_config: &LabelConfig,
     skip_trim: bool,
     flip: bool,
-) -> Vec<(Vec<u8>, Vec<u8>, String, String)> {
+    original_bam_record: Option<&bam::Record>,
+) -> Vec<TrimmedRead> {
     let mut results = Vec::new();
     let seq_len = seq.len();
 
@@ -293,7 +307,18 @@ pub fn process_read_and_anno(
         } else {
             format!("_{slice_count}")
         };
-        results.push((trimmed_seq, trimmed_qual, group_label, read_suffix));
+
+        let original_record = original_bam_record.cloned();
+
+        results.push(TrimmedRead {
+            seq: trimmed_seq,
+            qual: trimmed_qual,
+            label: group_label,
+            suffix: read_suffix,
+            original_record,
+            start: slice.start,
+            end: slice.end,
+        });
     }
 
     results
@@ -313,11 +338,493 @@ fn format_output_file_error(output_file: &str, err: &std::io::Error) -> String {
     msg
 }
 
+fn build_record_buf_from_bam(
+    original_record: &bam::Record,
+    seq: &[u8],
+    qual: &[u8],
+    start: usize,
+    end: usize,
+    flip: bool,
+) -> anyhow::Result<sam::alignment::record_buf::RecordBuf> {
+    let mut builder = sam::alignment::RecordBuf::builder();
+
+    if let Some(name) = original_record.name() {
+        builder = builder.set_name(name.to_owned());
+    }
+
+    builder = builder.set_flags(original_record.flags());
+
+    if let Some(reference_sequence_id) = original_record.reference_sequence_id().transpose()? {
+        builder = builder.set_reference_sequence_id(reference_sequence_id);
+    }
+
+    if let Some(alignment_start) = original_record.alignment_start().transpose()? {
+        builder = builder.set_alignment_start(alignment_start);
+    }
+
+    if let Some(mapping_quality) = original_record.mapping_quality() {
+        builder = builder.set_mapping_quality(mapping_quality);
+    }
+
+    let cigar = sam::alignment::record_buf::Cigar::try_from(original_record.cigar())?;
+    builder = builder.set_cigar(cigar);
+
+    if let Some(mate_reference_sequence_id) = original_record.mate_reference_sequence_id().transpose()? {
+        builder = builder.set_mate_reference_sequence_id(mate_reference_sequence_id);
+    }
+
+    if let Some(mate_alignment_start) = original_record.mate_alignment_start().transpose()? {
+        builder = builder.set_mate_alignment_start(mate_alignment_start);
+    }
+
+    builder = builder.set_template_length(original_record.template_length());
+    builder = builder.set_sequence(seq.to_vec().into());
+    builder = builder.set_quality_scores(qual.to_vec().into());
+    let mut data = sam::alignment::record_buf::Data::try_from(original_record.data())?;
+
+    if start != 0 || end != original_record.sequence().len() || flip {
+        update_mm_ml_tags(
+            &mut data,
+            original_record.sequence().as_ref(),
+            seq,
+            start,
+            end,
+            flip,
+        )?;
+    }
+
+    builder = builder.set_data(data);
+
+    Ok(builder.build())
+}
+
+fn update_mm_ml_tags(
+    data: &mut sam::alignment::record_buf::Data,
+    original_seq: &[u8],
+    trimmed_seq: &[u8],
+    start: usize,
+    end: usize,
+    flip: bool,
+) -> anyhow::Result<()> {
+    use sam::alignment::record::data::field::Tag;
+    use sam::alignment::record_buf::data::field::Value;
+    use sam::alignment::record_buf::data::field::value::Array;
+    use sam::alignment::record_buf::Sequence;
+    use sam::record::data::field::value::base_modifications::BaseModifications;
+    use sam::record::data::field::value::base_modifications::group::{Group, Strand};
+
+    if start == 0 && end == original_seq.len() && !flip {
+        return Ok(());
+    }
+
+    if let Some(Value::String(mm_raw)) = data.get(&Tag::BASE_MODIFICATIONS) {
+        let mm_bytes = mm_raw.as_ref();
+        let original_sequence: Sequence = original_seq.to_vec().into();
+        let mut base_modifications = BaseModifications::parse(mm_bytes, false, &original_sequence)?;
+
+        let original_ml: Option<Vec<u8>> = match data.get(&Tag::BASE_MODIFICATION_PROBABILITIES) {
+            Some(Value::Array(Array::UInt8(values))) => {
+                let mut bytes = Vec::new();
+                for byte in values.iter() {
+                    bytes.push(*byte);
+                }
+                Some(bytes)
+            }
+            _ => None,
+        };
+
+        let trimmed_len = trimmed_seq.len();
+        let mut new_groups = Vec::new();
+        let mut new_ml = Vec::new();
+        let mut ml_index = 0;
+        let has_ml = original_ml.is_some();
+
+        for group in base_modifications.as_mut().iter() {
+            let mut entries: Vec<(usize, Option<u8>)> = Vec::new();
+
+            for &pos in group.positions() {
+                if pos >= start && pos < end {
+                    let ml_byte = original_ml.as_ref().map(|ml_bytes| ml_bytes[ml_index]);
+                    entries.push((pos - start, ml_byte));
+                }
+
+                if has_ml {
+                    ml_index += 1;
+                }
+            }
+
+            if entries.is_empty() {
+                continue;
+            }
+
+            let (positions, kept_ml) = if flip {
+                let mut transformed: Vec<(usize, Option<u8>)> = entries
+                    .into_iter()
+                    .map(|(pos, ml)| (trimmed_len - 1 - pos, ml))
+                    .collect();
+                transformed.sort_unstable_by_key(|(pos, _)| *pos);
+                let positions = transformed.iter().map(|(pos, _)| *pos).collect();
+                let kept_ml = if has_ml {
+                    transformed
+                        .into_iter()
+                        .map(|(_, ml)| ml.expect("ML length mismatch"))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                (positions, kept_ml)
+            } else {
+                let positions = entries.iter().map(|(pos, _)| *pos).collect();
+                let kept_ml = if has_ml {
+                    entries
+                        .into_iter()
+                        .map(|(_, ml)| ml.expect("ML length mismatch"))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                (positions, kept_ml)
+            };
+
+            let transformed_group = if flip {
+                let reversed_strand = match group.strand() {
+                    Strand::Forward => Strand::Reverse,
+                    Strand::Reverse => Strand::Forward,
+                };
+                let complemented_base = group.unmodified_base().complement();
+                Group::new(
+                    complemented_base,
+                    reversed_strand,
+                    group.modifications().to_vec(),
+                    group.status(),
+                    positions,
+                )
+            } else {
+                Group::new(
+                    group.unmodified_base(),
+                    group.strand(),
+                    group.modifications().to_vec(),
+                    group.status(),
+                    positions,
+                )
+            };
+
+            if original_ml.is_some() {
+                new_ml.extend(kept_ml);
+            }
+            new_groups.push(transformed_group);
+        }
+
+        if new_groups.is_empty() {
+            data.remove(&Tag::BASE_MODIFICATIONS);
+            data.remove(&Tag::BASE_MODIFICATION_PROBABILITIES);
+        } else {
+            let new_mm = format_base_modifications(trimmed_seq, &new_groups)?;
+            data.insert(Tag::BASE_MODIFICATIONS, Value::from(new_mm));
+
+            if let Some(_) = original_ml {
+                data.insert(Tag::BASE_MODIFICATION_PROBABILITIES, Value::from(new_ml));
+            }
+        }
+
+        if data.get(&Tag::BASE_MODIFICATION_SEQUENCE_LENGTH).is_some() {
+            data.insert(Tag::BASE_MODIFICATION_SEQUENCE_LENGTH, Value::from(trimmed_len as u32));
+        }
+    }
+
+    Ok(())
+}
+
+fn format_base_modifications(
+    sequence: &[u8],
+    groups: &[sam::record::data::field::value::base_modifications::group::Group],
+) -> anyhow::Result<String> {
+    let mut output = String::new();
+
+    for group in groups {
+        let group_string = format_base_modifications_group(sequence, group)?;
+        output.push_str(&group_string);
+    }
+
+    Ok(output)
+}
+
+fn format_base_modifications_group(
+    sequence: &[u8],
+    group: &sam::record::data::field::value::base_modifications::group::Group,
+) -> anyhow::Result<String> {
+    use sam::record::data::field::value::base_modifications::group::{Modification, Status, Strand};
+
+    let base_char = u8::from(group.unmodified_base());
+    let strand_char = match group.strand() {
+        Strand::Forward => '+',
+        Strand::Reverse => '-',
+    };
+
+    let modifications = group
+        .modifications()
+        .iter()
+        .map(|modification| match modification {
+            Modification::Code(c) => Ok((*c as char).to_string()),
+            Modification::ChebiId(id) => Ok(id.to_string()),
+        })
+        .collect::<Result<Vec<_>, anyhow::Error>>()?
+        .join("");
+
+    let status_marker = match group.status() {
+        Some(Status::Implicit) => ".",
+        Some(Status::Explicit) => "?",
+        None => "",
+    };
+
+    let counts = encode_mm_skip_counts(sequence, group.unmodified_base(), group.positions())?;
+    let counts_string = counts
+        .iter()
+        .map(|count| count.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let prefix = format!(
+        "{}{}{}{}",
+        base_char as char,
+        strand_char,
+        modifications,
+        status_marker
+    );
+
+    Ok(format!("{prefix},{counts_string};"))
+}
+
+fn encode_mm_skip_counts(
+    sequence: &[u8],
+    unmodified_base: sam::record::data::field::value::base_modifications::group::UnmodifiedBase,
+    positions: &[usize],
+) -> anyhow::Result<Vec<usize>> {
+    let base_byte = u8::from(unmodified_base);
+    let matching_positions: Vec<usize> = sequence
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &b)| if b == base_byte { Some(i) } else { None })
+        .collect();
+
+    let mut counts = Vec::new();
+    let mut previous_rank = 0;
+    for (index, &pos) in positions.iter().enumerate() {
+        let rank = matching_positions
+            .iter()
+            .position(|&match_pos| match_pos == pos)
+            .ok_or_else(|| anyhow::anyhow!("MM group position {} not found", pos))?;
+
+        if index == 0 {
+            counts.push(rank);
+        } else {
+            counts.push(rank - previous_rank - 1);
+        }
+        previous_rank = rank;
+    }
+
+    Ok(counts)
+}
+
 fn should_flip(annotations: &[BarbellMatch]) -> bool {
     // If we matched an Ftag in rc we flip
     annotations
         .iter()
         .any(|anno| anno.match_type == BarcodeType::Ftag && anno.strand == Strand::Rc)
+}
+
+struct FastqTrimWriters {
+    writers: HashMap<String, Box<dyn Write>>,
+    output_format: OutputFormat,
+    write_full_header: bool,
+}
+
+impl FastqTrimWriters {
+    fn new(output_format: OutputFormat, write_full_header: bool) -> Self {
+        Self {
+            writers: HashMap::new(),
+            output_format,
+            write_full_header,
+        }
+    }
+
+    fn write_record(
+        &mut self,
+        output_folder: &str,
+        group: &str,
+        read_id: &str,
+        read_suffix: &str,
+        desc: &str,
+        trimmed_seq: &[u8],
+        trimmed_qual: &[u8],
+    ) -> anyhow::Result<()> {
+        if !self.writers.contains_key(group) {
+            let output_file = match self.output_format {
+                OutputFormat::FastqGz => {
+                    format!("{output_folder}/{group}.trimmed.fastq.gz")
+                }
+                _ => format!("{output_folder}/{group}.trimmed.fastq"),
+            };
+
+            let file = File::create(&output_file)
+                .map_err(|err| anyhow!(format_output_file_error(&output_file, &err)))?;
+
+            let writer: Box<dyn Write> = if self.output_format == OutputFormat::FastqGz {
+                Box::new(GzEncoder::new(file, Compression::default()))
+            } else {
+                Box::new(BufWriter::new(file))
+            };
+
+            self.writers.insert(group.to_string(), writer);
+        }
+
+        let writer = self
+            .writers
+            .get_mut(group)
+            .expect("writer should exist after insertion");
+
+        if self.write_full_header {
+            writeln!(writer, "@{read_id}{read_suffix} {desc}").expect("Failed to write header");
+        } else {
+            writeln!(writer, "@{read_id}{read_suffix}").expect("Failed to write header");
+        }
+
+        writeln!(writer, "{}", String::from_utf8_lossy(trimmed_seq))
+            .expect("Failed to write sequence");
+        writeln!(writer, "+").expect("Failed to write separator");
+        writeln!(writer, "{}", String::from_utf8_lossy(trimmed_qual))
+            .expect("Failed to write quality");
+
+        Ok(())
+    }
+
+    fn finish(&mut self) -> anyhow::Result<()> {
+        for (_, writer) in self.writers.iter_mut() {
+            writer.flush().expect("Failed to flush output");
+        }
+        Ok(())
+    }
+}
+
+struct BamTrimWriters {
+    writers: HashMap<String, bam::io::Writer<bgzf::io::Writer<File>>>,
+    header: sam::Header,
+    flip: bool,
+}
+
+impl BamTrimWriters {
+    fn new(header: sam::Header, flip: bool) -> Self {
+        Self {
+            writers: HashMap::new(),
+            header,
+            flip,
+        }
+    }
+
+    fn write_record(
+        &mut self,
+        output_folder: &str,
+        group: &str,
+        original_record: Option<&bam::Record>,
+        trimmed_seq: &[u8],
+        trimmed_qual: &[u8],
+        start: usize,
+        end: usize,
+    ) -> anyhow::Result<()> {
+        if !self.writers.contains_key(group) {
+            let output_file = format!("{output_folder}/{group}.trimmed.bam");
+            let mut writer = bam::io::Writer::new(
+                File::create(&output_file)
+                    .map_err(|err| anyhow!(format_output_file_error(&output_file, &err)))?,
+            );
+            writer.write_header(&self.header).map_err(|err| {
+                anyhow!(format!("Failed to write BAM header to '{output_file}': {err}"))
+            })?;
+            self.writers.insert(group.to_string(), writer);
+        }
+
+        let writer = self
+            .writers
+            .get_mut(group)
+            .expect("BAM writer should exist after insertion");
+
+        let original_record = original_record
+            .as_ref()
+            .ok_or_else(|| anyhow!("BAM output requires BAM input to preserve tags"))?;
+
+        let record_buf = build_record_buf_from_bam(
+            original_record,
+            trimmed_seq,
+            trimmed_qual,
+            start,
+            end,
+            self.flip,
+        )?;
+
+        writer
+            .write_alignment_record(&self.header, &record_buf)
+            .map_err(|err| anyhow!(format!("Failed to write BAM record for group '{group}': {err}")))?;
+
+        Ok(())
+    }
+
+    fn finish(&mut self) -> anyhow::Result<()> {
+        for (_, writer) in self.writers.iter_mut() {
+            writer
+                .finish(&self.header)
+                .expect("Failed to flush BAM output");
+        }
+        Ok(())
+    }
+}
+
+enum TrimOutputWriter {
+    Fastq(FastqTrimWriters),
+    Bam(BamTrimWriters),
+}
+
+impl TrimOutputWriter {
+    fn write_record(
+        &mut self,
+        output_folder: &str,
+        group: &str,
+        read_id: &str,
+        read_suffix: &str,
+        desc: &str,
+        original_record: Option<&bam::Record>,
+        trimmed_seq: &[u8],
+        trimmed_qual: &[u8],
+        start: usize,
+        end: usize,
+    ) -> anyhow::Result<()> {
+        match self {
+            Self::Fastq(writer) => writer.write_record(
+                output_folder,
+                group,
+                read_id,
+                read_suffix,
+                desc,
+                trimmed_seq,
+                trimmed_qual,
+            ),
+            Self::Bam(writer) => writer.write_record(
+                output_folder,
+                group,
+                original_record,
+                trimmed_seq,
+                trimmed_qual,
+                start,
+                end,
+            ),
+        }
+    }
+
+    fn finish(&mut self) -> anyhow::Result<()> {
+        match self {
+            Self::Fastq(writer) => writer.finish(),
+            Self::Bam(writer) => writer.finish(),
+        }
+    }
 }
 
 pub fn trim_matches(
@@ -363,39 +870,58 @@ pub fn trim_matches(
             .push(anno);
     }
 
-    // Create writers regular or gzip write
-    let mut writers: HashMap<String, Box<dyn Write>> = HashMap::new();
-
     // If there is a failed trimmed writer, create it
-    let mut failed_trimmed_writer =
-        config
-            .failed_trimmed_writer
-            .as_ref()
-            .map(|failed_trimmed_writer_path| {
-                BufWriter::new(File::create(failed_trimmed_writer_path).unwrap())
-            });
+    let mut failed_trimmed_writer = config
+        .failed_trimmed_writer
+        .as_ref()
+        .map(|failed_trimmed_writer_path| {
+            BufWriter::new(File::create(failed_trimmed_writer_path).unwrap())
+        });
 
     // Process reads
-    let mut reader = open_fastq(read_fastq_file);
+    let mut reader = open_reads(read_fastq_file)?;
+    let mut bam_header = None;
+    if let ReadSource::Bam(ref mut bam_reader) = reader {
+        bam_header = Some(
+            bam_reader
+                .read_header()
+                .map_err(|err| anyhow!("Failed to read BAM header from '{read_fastq_file}': {err}"))?,
+        );
+    }
 
-    while let Some(record) = reader.next() {
+    if config.output_format == OutputFormat::Bam && bam_header.is_none() {
+        return Err(anyhow!(
+            "BAM output requires BAM input so that a BAM header and tags can be preserved"
+        ));
+    }
+
+    let mut output_writer = match config.output_format {
+        OutputFormat::Bam => TrimOutputWriter::Bam(BamTrimWriters::new(
+            bam_header
+                .as_ref()
+                .expect("BAM header should exist for BAM output")
+                .clone(),
+            config.flip,
+        )),
+        format => TrimOutputWriter::Fastq(FastqTrimWriters::new(format, config.write_full_header)),
+    };
+
+    while let Some(record) = reader.next_record() {
         let record = record.expect("Error reading record");
-        let (read_id, desc) = record.id_desc().unwrap();
-        let read_id = read_id.to_string();
-        let desc: &str = desc.unwrap_or_default();
+        let read_id = record.id.clone();
+        let desc = "";
         progress.inc(TOTAL_IDX);
 
         // Check if this read has annotations
         if let Some(annotations) = annotations_by_read.get(&read_id) {
-            // mapped_reads += 1;
-
-            let results: Vec<(Vec<u8>, Vec<u8>, String, String)> = process_read_and_anno(
-                record.seq(),
-                record.qual(),
+            let results: Vec<TrimmedRead> = process_read_and_anno(
+                &record.seq,
+                &record.qual,
                 annotations,
                 &label_config,
                 config.skip_trim,
                 config.flip,
+                record.original_bam_record.as_ref(),
             );
 
             if !results.is_empty() {
@@ -412,55 +938,40 @@ pub fn trim_matches(
                 progress.inc(TRIMMED_SPLIT_IDX);
             }
 
-            for (trimmed_seq, trimmed_qual, group, read_suffix) in results {
-                // Get or create writer for this group
-                if !writers.contains_key(&group) {
-                    let output_file = if config.gzip {
-                        format!("{output_folder}/{group}.trimmed.fastq.gz")
-                    } else {
-                        format!("{output_folder}/{group}.trimmed.fastq")
-                    };
-                    let file = File::create(&output_file).map_err(|err| {
-                        let msg = format_output_file_error(&output_file, &err);
-                        progress.print_error(msg.clone());
-                        progress.clear();
-                        anyhow!(msg)
-                    })?;
+            for trimmed in results {
+                let TrimmedRead {
+                    seq: trimmed_seq,
+                    qual: trimmed_qual,
+                    label: group,
+                    suffix: read_suffix,
+                    original_record,
+                    start,
+                    end,
+                } = trimmed;
 
-                    // If gzipping is enabled we use zipped writer
-                    let writer: Box<dyn Write> = if config.gzip {
-                        Box::new(GzEncoder::new(file, Compression::default()))
-                    } else {
-                        Box::new(BufWriter::new(file))
-                    };
-                    writers.insert(group.clone(), writer);
+                if let Err(err) = output_writer.write_record(
+                    output_folder,
+                    &group,
+                    &read_id,
+                    &read_suffix,
+                    desc,
+                    original_record.as_ref(),
+                    &trimmed_seq,
+                    &trimmed_qual,
+                    start,
+                    end,
+                ) {
+                    progress.print_error(err.to_string());
+                    progress.clear();
+                    return Err(err);
                 }
-                let writer = writers
-                    .get_mut(&group)
-                    .expect("writer should exist after insertion");
-
-                // Write FASTQ format
-                if config.write_full_header {
-                    writeln!(writer, "@{read_id}{read_suffix} {desc}")
-                        .expect("Failed to write header");
-                } else {
-                    writeln!(writer, "@{read_id}{read_suffix}").expect("Failed to write header");
-                }
-                writeln!(writer, "{}", String::from_utf8_lossy(&trimmed_seq))
-                    .expect("Failed to write sequence");
-                writeln!(writer, "+").expect("Failed to write separator");
-                writeln!(writer, "{}", String::from_utf8_lossy(&trimmed_qual))
-                    .expect("Failed to write quality");
             }
         }
 
         progress.refresh();
     }
 
-    // Flush all writers
-    for (_, writer) in writers.iter_mut() {
-        writer.flush().expect("Failed to flush output");
-    }
+    output_writer.finish()?;
 
     progress.finish("reads");
     Ok(())
@@ -565,10 +1076,10 @@ mod tests {
         ];
 
         let label_config = LabelConfig::new(true, true, true, true, None);
-        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false, false);
+        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false, false, None);
 
         assert_eq!(results.len(), 1);
-        let (trimmed_seq, trimmed_qual, group_label, _) = &results[0];
+        let TrimmedRead { seq: trimmed_seq, qual: trimmed_qual, label: group_label, .. } = &results[0];
         println!("trimmed_seq: {}", String::from_utf8_lossy(trimmed_seq));
         assert_eq!(trimmed_seq, b"AAAA");
         assert_eq!(trimmed_qual, b"IIII");
@@ -657,16 +1168,16 @@ mod tests {
         ];
 
         let label_config = LabelConfig::new(true, true, true, true, None);
-        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false, false);
+        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false, false, None);
 
         assert_eq!(results.len(), 2);
 
-        let (trimmed_seq1, trimmed_qual1, label1, _) = &results[0];
+        let TrimmedRead { seq: trimmed_seq1, qual: trimmed_qual1, label: label1, .. } = &results[0];
         assert_eq!(trimmed_seq1, b"AAAAAAAAAAAA");
         assert_eq!(trimmed_qual1, b"IIIIIIIIIIII");
         assert_eq!(label1, "F1_fw__R1_fw");
 
-        let (trimmed_seq2, trimmed_qual2, label2, _) = &results[1];
+        let TrimmedRead { seq: trimmed_seq2, qual: trimmed_qual2, label: label2, .. } = &results[1];
         assert_eq!(trimmed_seq2, b"GG");
         assert_eq!(trimmed_qual2, b"II");
         assert_eq!(label2, "F2_fw__R2_fw");
@@ -715,10 +1226,10 @@ mod tests {
         ];
 
         let label_config = LabelConfig::new(true, true, true, true, None);
-        let results = process_read_and_anno(seq, qual, &annotations, &label_config, true, false);
+        let results = process_read_and_anno(seq, qual, &annotations, &label_config, true, false, None);
 
         assert_eq!(results.len(), 1);
-        let (trimmed_seq, trimmed_qual, group_label, _) = &results[0];
+        let TrimmedRead { seq: trimmed_seq, qual: trimmed_qual, label: group_label, .. } = &results[0];
         println!("trimmed_seq: {}", String::from_utf8_lossy(trimmed_seq));
         assert_eq!(trimmed_seq, b"CCCCCCCCAAAACCCCCCCCCCCC");
         assert_eq!(trimmed_qual, b"________IIII____________");
@@ -768,23 +1279,165 @@ mod tests {
         ];
 
         let label_config = LabelConfig::new(true, true, true, true, None);
-        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false, true);
+        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false, true, None);
 
         assert_eq!(results.len(), 1);
-        let (trimmed_seq, trimmed_qual, group_label, _) = &results[0];
+        let TrimmedRead { seq: trimmed_seq, qual: trimmed_qual, label: group_label, .. } = &results[0];
         println!("trimmed_seq: {}", String::from_utf8_lossy(trimmed_seq));
         assert_eq!(trimmed_seq, b"GCCT");
         assert_eq!(trimmed_qual, b"AIII");
         assert_eq!(group_label, "Fbar_rc__Rbar_fw");
 
         annotations[0].strand = Strand::Fwd;
-        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false, true);
-        let (trimmed_seq, trimmed_qual, group_label, _) = &results[0];
+        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false, true, None);
+        let TrimmedRead { seq: trimmed_seq, qual: trimmed_qual, label: group_label, .. } = &results[0];
         println!("trimmed_seq: {}", String::from_utf8_lossy(trimmed_seq));
         assert_eq!(trimmed_seq, b"AGGC");
         assert_eq!(trimmed_qual, b"IIIA");
         assert_eq!(group_label, "Fbar_fw__Rbar_fw");
 
-        // Chaning the strand in Fbar match should give original seq and qual again
+        // Changing the strand in Fbar match should give original seq and qual again
+    }
+
+    #[test]
+    fn test_mm_ml_tags_are_trimmed() {
+        use noodles_sam::alignment::record::data::field::Tag;
+        use noodles_sam::alignment::record_buf::data::field::Value;
+
+        let mut data = sam::alignment::record_buf::Data::default();
+        data.insert(Tag::BASE_MODIFICATIONS, Value::from("C+m,1,1;"));
+        data.insert(
+            Tag::BASE_MODIFICATION_PROBABILITIES,
+            Value::from(vec![50u8, 80u8]),
+        );
+        data.insert(Tag::BASE_MODIFICATION_SEQUENCE_LENGTH, Value::from(6u32));
+
+        update_mm_ml_tags(&mut data, b"ACCCCC", b"CCCC", 2, 6, false)
+            .expect("Failed to update MM/ML tags");
+
+        let mm = data
+            .get(&Tag::BASE_MODIFICATIONS)
+            .expect("MM tag missing");
+        assert_eq!(mm, &Value::from("C+m,0,1;"));
+
+        let ml = data
+            .get(&Tag::BASE_MODIFICATION_PROBABILITIES)
+            .expect("ML tag missing");
+        assert_eq!(ml, &Value::from(vec![50u8, 80u8]));
+
+        let mn = data
+            .get(&Tag::BASE_MODIFICATION_SEQUENCE_LENGTH)
+            .expect("MN tag missing");
+        assert_eq!(mn, &Value::from(4u32));
+    }
+
+    #[test]
+    fn test_mm_ml_tags_are_removed_when_no_modifications_survive() {
+        use noodles_sam::alignment::record::data::field::Tag;
+        use noodles_sam::alignment::record_buf::data::field::Value;
+
+        let mut data = sam::alignment::record_buf::Data::default();
+        data.insert(Tag::BASE_MODIFICATIONS, Value::from("C+m,0,1;"));
+        data.insert(
+            Tag::BASE_MODIFICATION_PROBABILITIES,
+            Value::from(vec![50u8, 80u8]),
+        );
+        data.insert(Tag::BASE_MODIFICATION_SEQUENCE_LENGTH, Value::from(5u32));
+
+        update_mm_ml_tags(&mut data, b"ACCCC", b"A", 0, 1, false)
+            .expect("Failed to update MM/ML tags");
+
+        assert!(data.get(&Tag::BASE_MODIFICATIONS).is_none());
+        assert!(data.get(&Tag::BASE_MODIFICATION_PROBABILITIES).is_none());
+        let mn = data
+            .get(&Tag::BASE_MODIFICATION_SEQUENCE_LENGTH)
+            .expect("MN tag missing");
+        assert_eq!(mn, &Value::from(1u32));
+    }
+
+    #[test]
+    fn test_mm_ml_tags_support_multiple_modification_types() {
+        use noodles_sam::alignment::record::data::field::Tag;
+        use noodles_sam::alignment::record_buf::data::field::Value;
+
+        let mut data = sam::alignment::record_buf::Data::default();
+        data.insert(Tag::BASE_MODIFICATIONS, Value::from("C+m,0,0;G+h,0;"));
+        data.insert(
+            Tag::BASE_MODIFICATION_PROBABILITIES,
+            Value::from(vec![10u8, 20u8, 30u8]),
+        );
+        data.insert(Tag::BASE_MODIFICATION_SEQUENCE_LENGTH, Value::from(5u32));
+
+        update_mm_ml_tags(&mut data, b"ACCGT", b"CCG", 1, 4, false)
+            .expect("Failed to update MM/ML tags");
+
+        let mm = data
+            .get(&Tag::BASE_MODIFICATIONS)
+            .expect("MM tag missing");
+        assert_eq!(mm, &Value::from("C+m,0,0;G+h,0;"));
+
+        let ml = data
+            .get(&Tag::BASE_MODIFICATION_PROBABILITIES)
+            .expect("ML tag missing");
+        assert_eq!(ml, &Value::from(vec![10u8, 20u8, 30u8]));
+
+        let mn = data
+            .get(&Tag::BASE_MODIFICATION_SEQUENCE_LENGTH)
+            .expect("MN tag missing");
+        assert_eq!(mn, &Value::from(3u32));
+    }
+
+    #[test]
+    fn test_mm_ml_tags_skip_trim_noop() {
+        use noodles_sam::alignment::record::data::field::Tag;
+        use noodles_sam::alignment::record_buf::data::field::Value;
+
+        let mut data = sam::alignment::record_buf::Data::default();
+        data.insert(Tag::BASE_MODIFICATIONS, Value::from("C+m,1,1;"));
+        data.insert(
+            Tag::BASE_MODIFICATION_PROBABILITIES,
+            Value::from(vec![50u8, 80u8]),
+        );
+        data.insert(Tag::BASE_MODIFICATION_SEQUENCE_LENGTH, Value::from(6u32));
+
+        update_mm_ml_tags(&mut data, b"ACCCCC", b"ACCCCC", 0, 6, false)
+            .expect("Failed to update MM/ML tags");
+
+        let mm = data
+            .get(&Tag::BASE_MODIFICATIONS)
+            .expect("MM tag missing");
+        assert_eq!(mm, &Value::from("C+m,1,1;"));
+
+        let ml = data
+            .get(&Tag::BASE_MODIFICATION_PROBABILITIES)
+            .expect("ML tag missing");
+        assert_eq!(ml, &Value::from(vec![50u8, 80u8]));
+
+        let mn = data
+            .get(&Tag::BASE_MODIFICATION_SEQUENCE_LENGTH)
+            .expect("MN tag missing");
+        assert_eq!(mn, &Value::from(6u32));
+    }
+
+    #[test]
+    fn test_mm_ml_tags_preserve_status_sentinel() {
+        use noodles_sam::alignment::record::data::field::Tag;
+        use noodles_sam::alignment::record_buf::data::field::Value;
+
+        let mut data = sam::alignment::record_buf::Data::default();
+        data.insert(Tag::BASE_MODIFICATIONS, Value::from("C+m?,1,1;"));
+        data.insert(
+            Tag::BASE_MODIFICATION_PROBABILITIES,
+            Value::from(vec![50u8, 80u8]),
+        );
+        data.insert(Tag::BASE_MODIFICATION_SEQUENCE_LENGTH, Value::from(6u32));
+
+        update_mm_ml_tags(&mut data, b"ACCCCC", b"CCCC", 2, 6, false)
+            .expect("Failed to update MM/ML tags");
+
+        let mm = data
+            .get(&Tag::BASE_MODIFICATIONS)
+            .expect("MM tag missing");
+        assert_eq!(mm, &Value::from("C+m?,0,1;"));
     }
 }

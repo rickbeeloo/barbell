@@ -1,5 +1,10 @@
+use crate::simulations::cli::OutputFormat;
 use crate::simulations::mutate::*;
-use needletail::{FastxReader, Sequence, parse_fastx_file};
+use needletail::{Sequence, parse_fastx_file};
+use noodles_bam as bam;
+use noodles_bgzf as bgzf;
+use noodles_sam as sam;
+use noodles_sam::alignment::io::Write as _;
 use rand::Rng;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -18,6 +23,15 @@ const BARCODE_PATH: &str = "data/rapid_bars.txt";
 // const RC_FRACTION: f64 = 0.5;
 
 const MAX_EDITS: usize = 6;
+
+impl OutputFormat {
+    fn file_extension(&self) -> &'static str {
+        match self {
+            OutputFormat::Fastq => "fastq",
+            OutputFormat::Bam => "bam",
+        }
+    }
+}
 
 // Assuming barcode is 5' - barcode - 3'
 fn get_adapter_region(barcode: &[u8]) -> Vec<u8> {
@@ -106,19 +120,84 @@ impl MockRead {
 
 struct ReadCollection {
     pub reads: Vec<(MockRead, Option<String>)>,
-    fastq_writer: BufWriter<File>,
+    writer: Box<dyn SimulationWriter>,
     truth_writer: BufWriter<File>,
 }
 
+trait SimulationWriter {
+    fn write_record(&mut self, id: &str, seq: &[u8], qual: &[u8]);
+    fn finish(&mut self);
+}
+
+struct FastqSimulationWriter {
+    writer: BufWriter<File>,
+}
+
+impl SimulationWriter for FastqSimulationWriter {
+    fn write_record(&mut self, id: &str, seq: &[u8], qual: &[u8]) {
+        let record = format!(
+            "@{}\n{}\n+\n{}\n",
+            id,
+            String::from_utf8_lossy(seq),
+            String::from_utf8_lossy(qual)
+        );
+        self.writer
+            .write_all(record.as_bytes())
+            .expect("failed to write FASTQ record");
+    }
+
+    fn finish(&mut self) {
+        self.writer.flush().expect("failed to flush FASTQ output");
+    }
+
+}
+
+struct BamSimulationWriter {
+    writer: bam::io::Writer<bgzf::io::Writer<File>>,
+    header: sam::Header,
+}
+
+impl SimulationWriter for BamSimulationWriter {
+    fn write_record(&mut self, id: &str, seq: &[u8], qual: &[u8]) {
+        let record = build_bam_record(id, seq, qual);
+        self.writer
+            .write_alignment_record(&self.header, &record)
+            .expect("failed to write BAM record");
+    }
+
+    fn finish(&mut self) {
+        self.writer.try_finish().expect("failed to finish BAM output");
+    }
+
+}
+
 impl ReadCollection {
-    pub fn new(fastq_out: &str, truth_out: &str) -> Self {
-        let fastq_writer = File::create(fastq_out).expect("failed to create file");
+    pub fn new(output_path: &str, truth_out: &str, output_format: OutputFormat) -> Self {
         let truth_writer = File::create(truth_out).expect("failed to create file");
-        let fastq_writer = BufWriter::new(fastq_writer);
         let truth_writer = BufWriter::new(truth_writer);
+
+        let writer: Box<dyn SimulationWriter> = match output_format {
+            OutputFormat::Fastq => {
+                let writer = File::create(output_path).expect("failed to create file");
+                Box::new(FastqSimulationWriter {
+                    writer: BufWriter::new(writer),
+                })
+            }
+            OutputFormat::Bam => {
+                let mut writer = bam::io::Writer::new(
+                    File::create(output_path).expect("failed to create BAM file"),
+                );
+                let header = sam::Header::default();
+                writer
+                    .write_header(&header)
+                    .expect("failed to write BAM header");
+                Box::new(BamSimulationWriter { writer, header })
+            }
+        };
+
         Self {
             reads: vec![],
-            fastq_writer,
+            writer,
             truth_writer,
         }
     }
@@ -138,17 +217,8 @@ impl ReadCollection {
 
             // Also add edits, random amount between 0 and MAX_EDITS
             let seq = mutate_sequence(&seq, 0, MAX_EDITS);
-
             let quality_score = create_random_quality_score(seq.len());
-            let record = format!(
-                "@{}\n{}\n+\n{}\n",
-                read.id,
-                String::from_utf8_lossy(&seq),
-                String::from_utf8_lossy(&quality_score)
-            );
-            self.fastq_writer
-                .write_all(record.as_bytes())
-                .expect("failed to write record");
+            self.writer.write_record(&read.id, &seq, &quality_score);
 
             if let Some(truth) = truth {
                 let line = format!("{}\t{truth}\n", read.id);
@@ -157,11 +227,22 @@ impl ReadCollection {
                     .expect("failed to write truth record");
             }
         }
+
+        self.writer.finish();
     }
 }
 
-fn group1(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_frac: f64) {
-    let mut read_collection = ReadCollection::new(fasta_out, truth_out);
+fn build_bam_record(id: &str, seq: &[u8], qual: &[u8]) -> sam::alignment::RecordBuf {
+    sam::alignment::RecordBuf::builder()
+        .set_name(id)
+        .set_flags(sam::alignment::record::Flags::UNMAPPED)
+        .set_sequence(seq.to_vec().into())
+        .set_quality_scores(qual.to_vec().into())
+        .build()
+}
+
+fn group1(fasta_out: &str, truth_out: &str, n: usize, _barcode_path: &str, rc_frac: f64, format: OutputFormat) {
+    let mut read_collection = ReadCollection::new(fasta_out, truth_out, format);
     for i in 0..n {
         let read = MockRead::new_rand_len(format!("seq_{i}"));
         read_collection.add_read(read, None);
@@ -169,14 +250,14 @@ fn group1(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_fra
     read_collection.dump(rc_frac);
 }
 
-fn group2(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_frac: f64) {
+fn group2(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_frac: f64, format: OutputFormat) {
     // Read all barcodes for rapdi barcoding kit
     let barcodes = read_barcodes(barcode_path);
     let n_barcodes = barcodes.len();
     assert!(n_barcodes > 0);
 
     // Create the read collection
-    let mut read_collection = ReadCollection::new(fasta_out, truth_out);
+    let mut read_collection = ReadCollection::new(fasta_out, truth_out, format);
 
     // Add n reandom reads to read collection, where we have <L><B><R> regions
     for i in 0..n {
@@ -197,14 +278,14 @@ fn group2(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_fra
 }
 
 ///Group III = Group II + random trim left end
-fn group3(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_frac: f64) {
+fn group3(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_frac: f64, format: OutputFormat) {
     // Read all barcodes for rapdi barcoding kit
     let barcodes = read_barcodes(barcode_path);
     let n_barcodes = barcodes.len();
     assert!(n_barcodes > 0);
 
     // Create the read collection
-    let mut read_collection = ReadCollection::new(fasta_out, truth_out);
+    let mut read_collection = ReadCollection::new(fasta_out, truth_out, format);
 
     // Add n reandom reads to read collection, where we have <L><B><R> regions
     for i in 0..n {
@@ -228,14 +309,14 @@ fn group3(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_fra
     read_collection.dump(rc_frac);
 }
 
-fn group4(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_frac: f64) {
+fn group4(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_frac: f64, format: OutputFormat) {
     // Read all barcodes for rapdi barcoding kit
     let barcodes = read_barcodes(barcode_path);
     let n_barcodes = barcodes.len();
     assert!(n_barcodes > 0);
 
     // Create the read collection
-    let mut read_collection = ReadCollection::new(fasta_out, truth_out);
+    let mut read_collection = ReadCollection::new(fasta_out, truth_out, format);
 
     // Add n reandom reads to read collection, where we have <L><B><R> regions
     for i in 0..n {
@@ -281,14 +362,14 @@ fn group4(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_fra
     read_collection.dump(rc_frac);
 }
 
-fn group5(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_frac: f64) {
+fn group5(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_frac: f64, format: OutputFormat) {
     // Read all barcodes for rapdi barcoding kit
     let barcodes = read_barcodes(barcode_path);
     let n_barcodes = barcodes.len();
     assert!(n_barcodes > 0);
 
     // Create the read collection
-    let mut read_collection = ReadCollection::new(fasta_out, truth_out);
+    let mut read_collection = ReadCollection::new(fasta_out, truth_out, format);
 
     // Add n reandom reads to read collection, where we have <L><B><R> regions
     for i in 0..n {
@@ -345,14 +426,14 @@ fn reverse_complement(seq: &[u8]) -> Vec<u8> {
     rev_comp
 }
 
-fn group6(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_frac: f64) {
+fn group6(fasta_out: &str, truth_out: &str, n: usize, barcode_path: &str, rc_frac: f64, format: OutputFormat) {
     // Read all barcodes for rapdi barcoding kit
     let barcodes = read_barcodes(barcode_path);
     let n_barcodes = barcodes.len();
     assert!(n_barcodes > 0);
 
     // Create the read collection
-    let mut read_collection = ReadCollection::new(fasta_out, truth_out);
+    let mut read_collection = ReadCollection::new(fasta_out, truth_out, format);
 
     // Add n reandom reads to read collection, where we have <L><B><R> regions
     for i in 0..n {
@@ -417,7 +498,13 @@ impl std::fmt::Display for TestGroup {
     }
 }
 
-pub fn create_testdata(n: usize, sim_out_dir: &str, barcode_file: &str, rc_frac: f64) {
+pub fn create_testdata(
+    n: usize,
+    sim_out_dir: &str,
+    barcode_file: &str,
+    rc_frac: f64,
+    format: OutputFormat,
+) {
     // If sim_out_dir does not exist, create it
     if !Path::new(sim_out_dir).exists() {
         println!("Creating directory: {sim_out_dir}");
@@ -430,18 +517,21 @@ pub fn create_testdata(n: usize, sim_out_dir: &str, barcode_file: &str, rc_frac:
         TestGroup::GroupIII,
         TestGroup::GroupIV,
         TestGroup::GroupV,
+        TestGroup::GroupVI,
     ];
 
     let group_fns = vec![group1, group2, group3, group4, group5, group6];
     for (group, group_fn) in all_groups.iter().zip(group_fns) {
-        let fasta_out = format!("{sim_out_dir}/{group}.fastq");
+        let suffix = format.file_extension();
+        let reads_out = format!("{sim_out_dir}/{group}.{suffix}");
         let truth_out = format!("{sim_out_dir}/{group}_truth.txt");
         group_fn(
-            fasta_out.as_str(),
+            reads_out.as_str(),
             truth_out.as_str(),
             n,
             barcode_file,
             rc_frac,
+            format,
         );
     }
 }
