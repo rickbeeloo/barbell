@@ -506,8 +506,8 @@ const KIT_NB12: KitConfig = KitConfig::new(
 const KIT_NB24: KitConfig = KitConfig::new(
     "NB24",
     SINGLE_LABEL_CONFIG,
-    single_label_patterns_safe,
-    single_label_patterns_maximize,
+    double_label_patterns_safe,
+    double_label_patterns_maximize,
     TEMPLATES_NB24,
 );
 
