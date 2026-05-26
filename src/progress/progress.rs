@@ -211,7 +211,6 @@ impl ProgressTracker {
 
         for (bar, count) in self.bars.iter().zip(self.counts.iter()) {
             let count = count.load(Ordering::Relaxed);
-            // Prefix already shows the label (e.g. "Total:"), so don't repeat it in the message.
             bar.finish_with_message(format!("{count} {unit}"));
         }
     }

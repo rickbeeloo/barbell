@@ -1,6 +1,6 @@
 [![crates.io](https://img.shields.io/crates/v/barbell.svg)](https://crates.io/crates/barbell)
 [![Conda version](https://img.shields.io/conda/v/bioconda/barbell?label=bioconda)](https://anaconda.org/bioconda/barbell)
-[![biorXiv preprint](https://img.shields.io/badge/biorXiv-10.1101/2025.10.22.683865-green)](https://doi.org/10.1101/2025.10.22.683865)
+[![biorXiv preprint](https://img.shields.io/badge/biorXiv-10.1101/2025.10.22.683865-green)](paper/barbell_final.pdf)
 
 # 🦀 Barbell — Pattern aware demux
 
