@@ -117,6 +117,8 @@ barbell kit -k <kit-name> -i <reads.fastq> -o <output_folder> --maximize
 The `--maximize` option is recommended (e.g., for assembly) unless you need an ultra-strict barcode configuration ([see here](#the---maximize-flag-explained-in-more-detail-kit-command-only) for more details). You can also pass `--gzip` to write 
 `fastq.gz` files but note that the zipping has a performance penalty.
 
+Barbell also supports BAM-based input/output for trimming; use `barbell trim -i filtered.tsv -r reads.bam -o output_folder --output-format bam` to preserve BAM headers and tags.
+
 ### Native barcoding example (SQK-NBD114-96)
 
 ```bash
@@ -171,6 +173,8 @@ barbell annotate --kit SQK-RBK114-96 -i pass_sample.fastq -t 10 -o anno.tsv
 ```
 
 (Using 10 threads.)
+
+Barbell processes FASTQ annotation input in parallel when `-t` is greater than 1, which improves throughput for large datasets.
 
 Example `anno.tsv` rows:
 

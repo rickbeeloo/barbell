@@ -14,3 +14,4 @@ filter.txt
 /issue_test/*
 *.log
 *perf*
+.vscode/settings.json
