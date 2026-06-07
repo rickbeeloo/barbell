@@ -1,68 +1,77 @@
-use flate2::read::MultiGzDecoder;
-use seq_io::fastq::Reader;
-use std::fs::File;
-use std::io::Read;
+use paraseq::BoxedReader;
+use paraseq::fastx::{Collection, CollectionType};
+use std::path::PathBuf;
 
-/// Open a FASTQ file, decompressing gzip if the path ends in `.gz`
-pub fn open_fastq(path: &str) -> Reader<Box<dyn Read + Send>> {
-    let reader: Box<dyn Read + Send> = if path.to_ascii_lowercase().ends_with(".gz") {
-        let file = File::open(path)
-            .unwrap_or_else(|e| panic!("Failed to open gzip FASTQ file '{path}': {e}"));
-        Box::new(MultiGzDecoder::new(file))
+/// Split a FASTQ record header into the read ID and optional description
+pub fn split_fastq_header(header: &[u8]) -> anyhow::Result<(&str, &str)> {
+    let header = std::str::from_utf8(header)
+        .map_err(|err| anyhow::anyhow!("Input FASTQ read id is not valid UTF-8: {err}"))?;
+    if let Some(split_idx) = header.find(char::is_whitespace) {
+        let read_id = &header[..split_idx];
+        let desc = header[split_idx..].trim_start();
+        Ok((read_id, desc))
     } else {
-        let file =
-            File::open(path).unwrap_or_else(|e| panic!("Failed to open FASTQ file '{path}': {e}"));
-        Box::new(file)
-    };
-    Reader::new(reader)
+        Ok((header, ""))
+    }
+}
+
+/// Validate FASTQ input paths passed by the CLI or public API.
+pub fn validate_fastq_paths(paths: &[PathBuf]) -> anyhow::Result<()> {
+    if paths.is_empty() {
+        anyhow::bail!("No FASTQ input files provided");
+    }
+
+    Ok(())
+}
+
+/// Open one or more FASTQ files as a paraseq single-read collection.
+pub fn open_fastq_collection(paths: &[PathBuf]) -> anyhow::Result<Collection<BoxedReader>> {
+    validate_fastq_paths(paths)?;
+    Collection::from_paths(&paths, CollectionType::Single)
+        .map_err(|e| anyhow::anyhow!("Failed to open FASTQ input: {e}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flate2::Compression;
-    use flate2::write::GzEncoder;
-    use seq_io::fastq::Record;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
-    const FASTQ_CONTENT: &[u8] = b"@read1\nACGTACGT\n+\nIIIIIIII\n@read2\nTTTTAAAA\n+\nIIIIIIII\n";
-
     #[test]
-    fn test_open_fastq_plain() {
+    fn test_validate_fastq_plain() {
         let mut tmp = NamedTempFile::with_suffix(".fastq").unwrap();
-        tmp.write_all(FASTQ_CONTENT).unwrap();
+        tmp.write_all(b"@read1\nACGT\n+\nIIII\n").unwrap();
         tmp.flush().unwrap();
 
-        let mut reader = open_fastq(tmp.path().to_str().unwrap());
-        let mut ids = Vec::new();
-        let mut seqs = Vec::new();
-        while let Some(record) = reader.next() {
-            let record = record.expect("Error reading record");
-            ids.push(record.id().unwrap().to_string());
-            seqs.push(String::from_utf8_lossy(record.seq()).to_string());
-        }
-        assert_eq!(ids, vec!["read1", "read2"]);
-        assert_eq!(seqs, vec!["ACGTACGT", "TTTTAAAA"]);
+        let paths = vec![tmp.path().to_path_buf()];
+        validate_fastq_paths(&paths).unwrap();
     }
 
     #[test]
-    fn test_open_fastq_gzip() {
+    fn test_validate_fastq_gzip() {
         let mut tmp = NamedTempFile::with_suffix(".fastq.gz").unwrap();
-        let mut encoder = GzEncoder::new(&mut tmp, Compression::default());
-        encoder.write_all(FASTQ_CONTENT).unwrap();
-        encoder.finish().unwrap();
-        let path = tmp.path().to_str().unwrap().to_string();
+        tmp.write_all(b"not actually compressed").unwrap();
 
-        let mut reader = open_fastq(&path);
-        let mut ids = Vec::new();
-        let mut seqs = Vec::new();
-        while let Some(record) = reader.next() {
-            let record = record.expect("Error reading record");
-            ids.push(record.id().unwrap().to_string());
-            seqs.push(String::from_utf8_lossy(record.seq()).to_string());
-        }
-        assert_eq!(ids, vec!["read1", "read2"]);
-        assert_eq!(seqs, vec!["ACGTACGT", "TTTTAAAA"]);
+        let paths = vec![tmp.path().to_path_buf()];
+        validate_fastq_paths(&paths).unwrap();
+    }
+
+    #[test]
+    fn test_validate_fastq_empty_errors() {
+        assert!(validate_fastq_paths(&[]).is_err());
+    }
+
+    #[test]
+    fn test_split_fastq_header_with_description() {
+        let (read_id, desc) = split_fastq_header(b"read1 some description").unwrap();
+        assert_eq!(read_id, "read1");
+        assert_eq!(desc, "some description");
+    }
+
+    #[test]
+    fn test_split_fastq_header_without_description() {
+        let (read_id, desc) = split_fastq_header(b"read1").unwrap();
+        assert_eq!(read_id, "read1");
+        assert_eq!(desc, "");
     }
 }

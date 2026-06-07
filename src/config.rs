@@ -46,4 +46,3 @@ pub struct KitConfig {
     pub alpha: f32,
     pub gzip: bool,
 }
-

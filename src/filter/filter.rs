@@ -5,7 +5,7 @@ use crate::pattern_from_str;
 use crate::progress::progress::{FILTER_PROGRESS_SPECS, ProgressTracker};
 use std::error::Error;
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub fn filter(
     annotated_file: &str,
@@ -127,30 +127,57 @@ pub fn filter_from_pattern_str(
 ) -> Result<(), Box<dyn Error>> {
     // use pattern macro to convert pattern_str to pattern
     let pattern = pattern_from_str!(pattern_str);
-    filter(annotated_file, output_file, dropped_out_file, &[pattern], config)
+    filter(
+        annotated_file,
+        output_file,
+        dropped_out_file,
+        &[pattern],
+        config,
+    )
 }
 
 pub fn filter_from_text_file(
     annotated_file: &str,
-    text_file: &str,
+    text_files: &[PathBuf],
     output_file: &str,
     dropped_out_file: Option<&str>,
     config: &FilterConfig,
 ) -> Result<(), Box<dyn Error>> {
-    // read the text file into a vector of strings
-    let patterns = std::fs::read_to_string(text_file)?;
+    if text_files.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "No filter pattern files provided",
+        )
+        .into());
+    }
 
-    let patterns = patterns
-        .split('\n')
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<&str>>();
+    let mut patterns = Vec::new();
+    for text_file in text_files {
+        let pattern_file = std::fs::read_to_string(text_file)?;
+        patterns.extend(
+            pattern_file
+                .lines()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| pattern_from_str!(s)),
+        );
+    }
 
-    let patterns = patterns
-        .iter()
-        .map(|s| pattern_from_str!(s))
-        .collect::<Vec<Pattern>>();
-    filter(annotated_file, output_file, dropped_out_file, &patterns, config)
+    if patterns.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "No filter patterns found",
+        )
+        .into());
+    }
+
+    filter(
+        annotated_file,
+        output_file,
+        dropped_out_file,
+        &patterns,
+        config,
+    )
 }
 
 fn check_filter_pass(annotations: &mut [BarbellMatch], patterns: &[Pattern]) -> bool {

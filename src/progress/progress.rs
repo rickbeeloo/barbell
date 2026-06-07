@@ -2,7 +2,6 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -92,7 +91,6 @@ pub(crate) struct ProgressTracker {
     bars: Vec<ProgressBar>,
     counts: Vec<AtomicUsize>,
     specs: Vec<ProgressSpec>,
-    error_msg: Mutex<Option<String>>,
     log: Option<ProgressLog>,
 }
 
@@ -156,7 +154,6 @@ impl ProgressTracker {
             bars,
             counts,
             specs: specs.to_vec(),
-            error_msg: Mutex::new(None),
             log,
         }
     }
@@ -178,20 +175,8 @@ impl ProgressTracker {
         }
     }
 
-    pub(crate) fn store_error(&self, msg: impl Into<String>) {
-        let msg = msg.into();
-        self.bars[0].println(msg.clone());
-        if let Ok(mut err) = self.error_msg.lock() {
-            *err = Some(msg);
-        }
-    }
-
     pub(crate) fn print_error(&self, msg: impl Into<String>) {
         self.bars[0].println(msg.into());
-    }
-
-    pub(crate) fn take_error(&self) -> Option<String> {
-        self.error_msg.lock().ok().and_then(|mut err| err.take())
     }
 
     pub(crate) fn clear(&self) {

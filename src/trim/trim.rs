@@ -2,18 +2,18 @@ use crate::annotate::barcodes::BarcodeType;
 use crate::annotate::searcher::BarbellMatch;
 use crate::config::TrimConfig;
 use crate::filter::pattern::{Cut, CutDirection};
-use crate::io::io::open_fastq;
+use crate::io::io::{split_fastq_header, validate_fastq_paths};
 use crate::progress::progress::{ProgressTracker, TRIM_PROGRESS_SPECS};
 use anyhow::anyhow;
 use csv;
-use flate2::Compression;
 use flate2::write::GzEncoder;
+use flate2::Compression;
+use paraseq::Record;
 use sassy::Strand;
-use seq_io::fastq::Record;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use clap::ValueEnum;
 
@@ -299,12 +299,6 @@ pub fn process_read_and_anno(
     results
 }
 
-/// Extracts the clean read ID from a FASTQ record ID by taking the first part before any whitespace
-#[allow(unused)]
-fn clean_read_id(id: &str) -> &str {
-    id.split_whitespace().next().unwrap_or(id)
-}
-
 fn format_output_file_error(output_file: &str, err: &std::io::Error) -> String {
     let mut msg = format!("Failed to create output file '{output_file}': {err}");
     if err.raw_os_error() == Some(24) {
@@ -322,7 +316,7 @@ fn should_flip(annotations: &[BarbellMatch]) -> bool {
 
 pub fn trim_matches(
     filtered_match_file: &str,
-    read_fastq_file: &str,
+    read_fastq_files: &[PathBuf],
     output_folder: &str,
     config: &TrimConfig,
 ) -> anyhow::Result<()> {
@@ -376,85 +370,104 @@ pub fn trim_matches(
             });
 
     // Process reads
-    let mut reader = open_fastq(read_fastq_file);
+    validate_fastq_paths(read_fastq_files)?;
+    for read_path in read_fastq_files {
+        let mut reader = paraseq::fastq::Reader::from_path(&read_path)
+            .map_err(|err| anyhow!("Failed to open FASTQ file '{}': {err}", read_path.display()))?;
+        let mut record_set = reader.new_record_set();
 
-    while let Some(record) = reader.next() {
-        let record = record.expect("Error reading record");
-        let (read_id, desc) = record.id_desc().unwrap();
-        let read_id = read_id.to_string();
-        let desc: &str = desc.unwrap_or_default();
-        progress.inc(TOTAL_IDX);
+        while record_set
+            .fill(&mut reader)
+            .map_err(|err| anyhow!("Error reading FASTQ file '{}': {err}", read_path.display()))?
+        {
+            for record in record_set.iter() {
+                let record = record.map_err(|err| {
+                    anyhow!(
+                        "Error reading FASTQ record '{}': {err}",
+                        read_path.display()
+                    )
+                })?;
+                let (read_id, desc) = split_fastq_header(record.id())?;
+                let read_id = read_id.to_string();
+                progress.inc(TOTAL_IDX);
 
-        // Check if this read has annotations
-        if let Some(annotations) = annotations_by_read.get(&read_id) {
-            // mapped_reads += 1;
+                // Check if this read has annotations
+                if let Some(annotations) = annotations_by_read.get(&read_id) {
+                    // mapped_reads += 1;
+                    let seq = record.seq();
+                    let qual = record
+                        .qual()
+                        .ok_or_else(|| anyhow!("FASTQ record '{read_id}' has no quality scores"))?;
 
-            let results: Vec<(Vec<u8>, Vec<u8>, String, String)> = process_read_and_anno(
-                record.seq(),
-                record.qual(),
-                annotations,
-                &label_config,
-                config.skip_trim,
-                config.flip,
-            );
+                    let results: Vec<(Vec<u8>, Vec<u8>, String, String)> = process_read_and_anno(
+                        seq.as_ref(),
+                        qual,
+                        annotations,
+                        &label_config,
+                        config.skip_trim,
+                        config.flip,
+                    );
 
-            if !results.is_empty() {
-                progress.inc(TRIMMED_IDX);
-            } else {
-                progress.inc(FAILED_IDX);
-                if let Some(ref mut failed_trimmed_writer) = failed_trimmed_writer {
-                    writeln!(failed_trimmed_writer, "{read_id}")
-                        .expect("Failed to write to failed trimmed writer");
-                }
-            }
-
-            if results.len() > 1 {
-                progress.inc(TRIMMED_SPLIT_IDX);
-            }
-
-            for (trimmed_seq, trimmed_qual, group, read_suffix) in results {
-                // Get or create writer for this group
-                if !writers.contains_key(&group) {
-                    let output_file = if config.gzip {
-                        format!("{output_folder}/{group}.trimmed.fastq.gz")
+                    if !results.is_empty() {
+                        progress.inc(TRIMMED_IDX);
                     } else {
-                        format!("{output_folder}/{group}.trimmed.fastq")
-                    };
-                    let file = File::create(&output_file).map_err(|err| {
-                        let msg = format_output_file_error(&output_file, &err);
-                        progress.print_error(msg.clone());
-                        progress.clear();
-                        anyhow!(msg)
-                    })?;
+                        progress.inc(FAILED_IDX);
+                        if let Some(ref mut failed_trimmed_writer) = failed_trimmed_writer {
+                            writeln!(failed_trimmed_writer, "{read_id}")
+                                .expect("Failed to write to failed trimmed writer");
+                        }
+                    }
 
-                    // If gzipping is enabled we use zipped writer
-                    let writer: Box<dyn Write> = if config.gzip {
-                        Box::new(GzEncoder::new(file, Compression::default()))
-                    } else {
-                        Box::new(BufWriter::new(file))
-                    };
-                    writers.insert(group.clone(), writer);
-                }
-                let writer = writers
-                    .get_mut(&group)
-                    .expect("writer should exist after insertion");
+                    if results.len() > 1 {
+                        progress.inc(TRIMMED_SPLIT_IDX);
+                    }
 
-                // Write FASTQ format
-                if config.write_full_header {
-                    writeln!(writer, "@{read_id}{read_suffix} {desc}")
-                        .expect("Failed to write header");
-                } else {
-                    writeln!(writer, "@{read_id}{read_suffix}").expect("Failed to write header");
+                    for (trimmed_seq, trimmed_qual, group, read_suffix) in results {
+                        // Get or create writer for this group
+                        if !writers.contains_key(&group) {
+                            let output_file = if config.gzip {
+                                format!("{output_folder}/{group}.trimmed.fastq.gz")
+                            } else {
+                                format!("{output_folder}/{group}.trimmed.fastq")
+                            };
+                            let file = File::create(&output_file).map_err(|err| {
+                                let msg = format_output_file_error(&output_file, &err);
+                                progress.print_error(msg.clone());
+                                progress.clear();
+                                anyhow!(msg)
+                            })?;
+
+                            // If gzipping is enabled we use zipped writer
+                            let writer: Box<dyn Write> = if config.gzip {
+                                Box::new(GzEncoder::new(file, Compression::default()))
+                            } else {
+                                Box::new(BufWriter::new(file))
+                            };
+                            writers.insert(group.clone(), writer);
+                        }
+                        let writer = writers
+                            .get_mut(&group)
+                            .expect("writer should exist after insertion");
+
+                        // Write FASTQ format
+                        if config.write_full_header && !desc.is_empty() {
+                            writeln!(writer, "@{read_id}{read_suffix} {desc}")
+                                .expect("Failed to write header");
+                        } else {
+                            writeln!(writer, "@{read_id}{read_suffix}")
+                                .expect("Failed to write header");
+                        }
+                        writeln!(writer, "{}", String::from_utf8_lossy(&trimmed_seq))
+                            .expect("Failed to write sequence");
+                        writeln!(writer, "+").expect("Failed to write separator");
+                        writeln!(writer, "{}", String::from_utf8_lossy(&trimmed_qual))
+                            .expect("Failed to write quality");
+                    }
                 }
-                writeln!(writer, "{}", String::from_utf8_lossy(&trimmed_seq))
-                    .expect("Failed to write sequence");
-                writeln!(writer, "+").expect("Failed to write separator");
-                writeln!(writer, "{}", String::from_utf8_lossy(&trimmed_qual))
-                    .expect("Failed to write quality");
+
+                progress.refresh();
             }
         }
-
-        progress.refresh();
     }
 
     // Flush all writers

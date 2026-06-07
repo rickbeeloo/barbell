@@ -6,9 +6,9 @@ use crate::kits::kits::*;
 use crate::trim::trim::{LabelSide, trim_matches};
 use anyhow::anyhow;
 use colored::*;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-pub fn demux_using_kit(fastq_file: &str, config: &KitConfig) -> anyhow::Result<()> {
+pub fn demux_using_kit(fastq_files: &[PathBuf], config: &KitConfig) -> anyhow::Result<()> {
     let kit_name = config.kit_name.as_str();
     let output_folder = config.output_folder.as_str();
     // Create output folder if not exists yet
@@ -41,7 +41,7 @@ pub fn demux_using_kit(fastq_file: &str, config: &KitConfig) -> anyhow::Result<(
         use_extended: config.use_extended,
     };
     annotate_with_kit(
-        fastq_file,
+        fastq_files,
         format!("{output_folder}/annotation.tsv").as_str(),
         kit_name,
         &annotate_config,
@@ -99,7 +99,7 @@ pub fn demux_using_kit(fastq_file: &str, config: &KitConfig) -> anyhow::Result<(
     };
     trim_matches(
         format!("{output_folder}/filtered.tsv").as_str(),
-        fastq_file,
+        fastq_files,
         output_folder,
         &trim_config,
     )?;

@@ -7,6 +7,7 @@ use barbell::kits::use_kit::demux_using_kit;
 use barbell::trim::trim::{LabelSide, trim_matches};
 use clap::{Parser, Subcommand};
 use colored::*;
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -23,9 +24,9 @@ enum UtilsCommands {
         #[arg(short = 'i', long)]
         input: String,
 
-        /// Read FASTQ file (or FASTQ.gz; slower due to unzipping)
-        #[arg(short = 'r', long)]
-        reads: String,
+        /// Read FASTQ file(s). Shell-expanded globs are supported.
+        #[arg(short = 'r', long, num_args = 1..)]
+        reads: Vec<PathBuf>,
 
         /// Output folder path for grouped reads
         #[arg(short = 'o', long)]
@@ -61,9 +62,9 @@ enum UtilsCommands {
 enum Commands {
     /// Annotate FASTQ files with barcode information
     Annotate {
-        /// Read FASTQ file (or FASTQ.gz; slower due to unzipping)
-        #[arg(short = 'i', long)]
-        input: String,
+        /// Read FASTQ file(s). Shell-expanded globs are supported.
+        #[arg(short = 'i', long, num_args = 1..)]
+        input: Vec<PathBuf>,
 
         /// Number of threads
         #[arg(short = 't', long, default_value_t = 10)]
@@ -73,13 +74,13 @@ enum Commands {
         #[arg(short = 'o', long, default_value = "output.tsv")]
         output: String,
 
-        /// Query files (comma-separated paths)
-        #[arg(short = 'q', long, required_unless_present = "kit")]
-        queries: Option<String>,
+        /// Query FASTA file(s), matching --barcode-types order
+        #[arg(short = 'q', long, num_args = 1.., required_unless_present = "kit")]
+        queries: Option<Vec<PathBuf>>,
 
-        /// Barcode types (comma-separated: Ftag,Rtag) matching your query file (-q)
-        #[arg(short = 'b', long, default_value = "Ftag")]
-        barcode_types: String,
+        /// Barcode types matching --queries order (Ftag or Rtag)
+        #[arg(short = 'b', long, default_value = "Ftag", num_args = 1..)]
+        barcode_types: Vec<String>,
 
         /// Kit name (e.g. SQK-RBK114-24). Conflicts with --queries/--barcode-types
         #[arg(long, conflicts_with = "queries", conflicts_with = "barcode_types")]
@@ -119,9 +120,9 @@ enum Commands {
         #[arg(short = 'o', long, required = true)]
         output: String,
 
-        /// File containing patterns to filter by
-        #[arg(short = 'f', long, required = true)]
-        file: String,
+        /// File(s) containing patterns to filter by
+        #[arg(short = 'f', long, required = true, num_args = 1..)]
+        file: Vec<PathBuf>,
 
         /// Write dropped read annotation to this file
         #[arg(long)]
@@ -138,9 +139,9 @@ enum Commands {
         #[arg(short = 'i', long)]
         input: String,
 
-        /// Read FASTQ file (or FASTQ.gz; slower due to unzipping)
-        #[arg(short = 'r', long)]
-        reads: String,
+        /// Read FASTQ file(s). Shell-expanded globs are supported.
+        #[arg(short = 'r', long, num_args = 1..)]
+        reads: Vec<PathBuf>,
 
         /// Output folder path for trimmed reads
         #[arg(short = 'o', long)]
@@ -212,9 +213,9 @@ enum Commands {
         #[arg(short = 'k', long)]
         kit: String,
 
-        /// Input FASTQ file (or FASTQ.gz; slower due to unzipping)
-        #[arg(short = 'i', long)]
-        input: String,
+        /// Input FASTQ file(s). Shell-expanded globs are supported.
+        #[arg(short = 'i', long, num_args = 1..)]
+        input: Vec<PathBuf>,
 
         /// Number of threads
         #[arg(short = 't', long, default_value_t = 10)]
@@ -304,32 +305,29 @@ fn main() {
                 return;
             }
 
-            // Split comma-separated query paths into Vec<String>
-            let queries_value = queries
+            let query_files = queries
                 .as_ref()
                 .expect("--queries is required unless --kit is provided");
-            let query_files: Vec<String> = queries_value
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .collect();
 
-            let query_files_refs: Vec<&str> = query_files.iter().map(|s| s.as_str()).collect();
-
-            // Parse barcode types
-            let barcode_types_vec: Vec<BarcodeType> = barcode_types
-                .split(',')
-                .map(|s| match s.trim() {
-                    "Ftag" => BarcodeType::Ftag,
-                    "Rtag" => BarcodeType::Rtag,
-                    _ => {
-                        panic!("Unknown barcode type: {s}, use one of: Ftag, Rtag")
-                    }
+            let barcode_types_vec: Vec<BarcodeType> = match barcode_types
+                .iter()
+                .map(|s| match s.as_str() {
+                    "Ftag" => Ok(BarcodeType::Ftag),
+                    "Rtag" => Ok(BarcodeType::Rtag),
+                    _ => Err(format!("Unknown barcode type: {s}, use one of: Ftag, Rtag")),
                 })
-                .collect();
+                .collect::<Result<_, String>>()
+            {
+                Ok(barcode_types) => barcode_types,
+                Err(e) => {
+                    println!("{} {}", "Error during processing:".red(), e);
+                    return;
+                }
+            };
 
             match annotate_with_files(
                 input,
-                query_files_refs,
+                query_files,
                 barcode_types_vec,
                 output,
                 &annotate_config,
@@ -435,7 +433,7 @@ fn main() {
                 gzip: *gzip,
             };
 
-            if let Err(e) = demux_using_kit(input.as_str(), &kit_config) {
+            if let Err(e) = demux_using_kit(input, &kit_config) {
                 println!("{} {}", "Demultiplexing failed:".red(), e);
             }
         }
