@@ -4,6 +4,8 @@
 
 # 🦀 Barbell — Pattern aware demux
 
+> [!NOTE]
+> The current GitHub version updates the CLI to accept multiple files via shell expansion, like `*.fastq`. The same applies to pattern files and tags. See [Quickstart](#quickstart) for updated CLI examples.
 
 ## Why Barbell?
 
