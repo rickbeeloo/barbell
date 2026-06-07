@@ -1,6 +1,6 @@
 [![crates.io](https://img.shields.io/crates/v/barbell.svg)](https://crates.io/crates/barbell)
 [![Conda version](https://img.shields.io/conda/v/bioconda/barbell?label=bioconda)](https://anaconda.org/bioconda/barbell)
-[![biorXiv preprint](https://img.shields.io/badge/biorXiv-10.1101/2025.10.22.683865-green)](paper/barbell_final.pdf)
+[![Bioinformatics](https://img.shields.io/badge/Bioinformatics-10.1093%2Fbioinformatics%2Fbtag349-blue)](https://doi.org/10.1093/bioinformatics/btag349)
 
 # 🦀 Barbell — Pattern aware demux
 
@@ -43,11 +43,11 @@ If you have any issues or if something is unclear, just create an [issue](https:
 
 ## Paper 
 See the paper for more details on the Barbell scoring and comparisons with other tools:
-> ### [Barbell Resolves Demultiplexing and Trimming Issues in Nanopore Data](https://doi.org/10.1101/2025.10.22.683865)
+> ### [Barbell reveals and resolves demultiplexing and trimming issues in Nanopore data](https://doi.org/10.1093/bioinformatics/btag349)
 >
 > **Rick Beeloo**, **Ragnar Groot Koerkamp**, **Xiu Jia**, **Marian J. Broekhuizen-Stins**, **Lieke van Ijken**, **Bas E. Dutilh**, **Aldert L. Zomer**  
-> *bioRxiv*, 2025  
-> [https://doi.org/10.1101/2025.10.22.683865](https://doi.org/10.1101/2025.10.22.683865)
+> *Bioinformatics*  
+> [https://doi.org/10.1093/bioinformatics/btag349](https://doi.org/10.1093/bioinformatics/btag349)
 
 
 ---
