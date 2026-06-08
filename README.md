@@ -4,8 +4,10 @@
 
 # 🦀 Barbell — Pattern aware demux
 
+
 > [!NOTE]
-> The current GitHub version updates the CLI to accept multiple files via shell expansion, like `*.fastq`. The same applies to pattern files and tags. See [Quickstart](#quickstart) for updated CLI examples.
+> The current **GitHub version** updates the CLI to accept multiple files via shell expansion, like `*.fastq` (see #25). When installing from release (conda, cargo) follow the readme below, if installing 
+from GitHub directly see `--help` and #25. 
 
 ## Why Barbell?
 
@@ -45,11 +47,11 @@ If you have any issues or if something is unclear, just create an [issue](https:
 
 ## Paper 
 See the paper for more details on the Barbell scoring and comparisons with other tools:
-> ### [Barbell reveals and resolves demultiplexing and trimming issues in Nanopore data](https://doi.org/10.1093/bioinformatics/btag349)
+> ### [Barbell Resolves Demultiplexing and Trimming Issues in Nanopore Data](https://doi.org/10.1101/2025.10.22.683865)
 >
 > **Rick Beeloo**, **Ragnar Groot Koerkamp**, **Xiu Jia**, **Marian J. Broekhuizen-Stins**, **Lieke van Ijken**, **Bas E. Dutilh**, **Aldert L. Zomer**  
-> *Bioinformatics*  
-> [https://doi.org/10.1093/bioinformatics/btag349](https://doi.org/10.1093/bioinformatics/btag349)
+> *bioRxiv*, 2025  
+> [https://doi.org/10.1101/2025.10.22.683865](https://doi.org/10.1101/2025.10.22.683865)
 
 
 ---
@@ -118,13 +120,6 @@ barbell kit -k <kit-name> -i <reads.fastq> -o <output_folder> --maximize
 
 The `--maximize` option is recommended (e.g., for assembly) unless you need an ultra-strict barcode configuration ([see here](#the---maximize-flag-explained-in-more-detail-kit-command-only) for more details). You can also pass `--gzip` to write 
 `fastq.gz` files but note that the zipping has a performance penalty.
-
-Read inputs can be a single FASTQ or multiple FASTQ paths. For many files, let your shell expand the pattern:
-
-```bash
-barbell kit -k SQK-RBK114-96 -i pass/*.fastq.gz -o output_folder --maximize
-barbell kit -k SQK-RBK114-96 -i reads_1.fastq reads_2.fastq -o output_folder --maximize
-```
 
 ### Native barcoding example (SQK-NBD114-96)
 
@@ -261,12 +256,6 @@ Then run:
 barbell filter -i anno.tsv -f filters.txt -o filtered.tsv
 ```
 
-You can pass multiple filter files; Barbell reads all patterns from them:
-
-```bash
-barbell filter -i anno.tsv -f filters_left.txt filters_right.txt -o filtered.tsv
-```
-
 The resulting `filtered.tsv` contains only reads that match the specified patterns.
 
 #### Cutting / trimming metadata
@@ -296,13 +285,6 @@ barbell trim -i filtered.tsv -r reads.fastq -o trimmed
 ```
 You can also pass `--gzip` to write 
 `fastq.gz` files but note that the zipping has a performance penalty.
-
-The `-r/--reads` input can also take multiple FASTQ paths. For many files, let your shell expand the pattern:
-
-```bash
-barbell trim -i filtered.tsv -r pass/*.fastq.gz -o trimmed
-barbell trim -i filtered.tsv -r reads_1.fastq reads_2.fastq -o trimmed
-```
 
 Output files are organized by pattern-based folder/filenames, for example:
 
@@ -412,9 +394,9 @@ After that you can follow the same `inspect → filter → trim` [steps describe
 For dual-end, we create two FASTAs, `left.fasta` and `right.fasta` for example, then we run:
 
 ```bash
-barbell annotate -q left.fasta right.fasta -b Ftag Rtag -i reads.fastq -o anno.tsv -t 10
+barbell annotate -q left.fasta,right.fasta -b Ftag,Rtag -i reads.fastq -o anno.tsv -t 10
 ```
-The order of `--barcode-types/-b` must match the order of `--queries/-q`.
+Note: there must be **no spaces** between the comma-separated file list and the tag list: `-q left.fasta,right.fasta -b Ftag,Rtag`.
 
 
 In case you have concatenated reads in your `inspect` also see [concat reads](#how-to-handle-concat-reads)
@@ -458,7 +440,7 @@ AGGGCAC...
 We then run annotate like:
 
 ```
-barbell annotate -q group1_left.fasta group1_right.fasta group2_left.fasta group2_right.fasta -b Ftag Rtag Ftag Rtag -i reads.fastq -o anno.tsv -t 10
+barbell annotate -q group1_left.fasta,group1_right.fasta,group2_left.fasta,group2_right.fasta -b Ftag,Rtag,Ftag,Rtag -i reads.fastq -o anno.tsv -t 10
 ```
 
 **Note**: While you could run annotate separately for each query file, it’s generally better to combine all into a single annotate run (as mentioned here). This way, they are competing with one another.
