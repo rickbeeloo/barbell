@@ -50,8 +50,8 @@ See the paper for more details on the Barbell scoring and comparisons with other
 > ### [Barbell Resolves Demultiplexing and Trimming Issues in Nanopore Data](https://doi.org/10.1101/2025.10.22.683865)
 >
 > **Rick Beeloo**, **Ragnar Groot Koerkamp**, **Xiu Jia**, **Marian J. Broekhuizen-Stins**, **Lieke van Ijken**, **Bas E. Dutilh**, **Aldert L. Zomer**  
-> *bioRxiv*, 2025  
-> [https://doi.org/10.1101/2025.10.22.683865](https://doi.org/10.1101/2025.10.22.683865)
+> *Bioinformatics*, 2026  
+> [https://doi.org/10.1093/bioinformatics/btag349](https://doi.org/10.1093/bioinformatics/btag349)
 
 
 ---
