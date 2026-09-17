@@ -5,7 +5,8 @@ use barbell::filter::filter::filter_from_text_file;
 use barbell::inspect::inspect;
 use barbell::kits::use_kit::demux_using_kit;
 use barbell::trim::adapter::{
-    ADAPTER_END_SLACK, ADAPTER_MIN_IDENTITY, ADAPTER_MIN_MATCH_LEN, trim_adapters_in_fastq,
+    ADAPTER_END_SLACK, ADAPTER_MIN_IDENTITY, ADAPTER_MIN_MATCH_LEN, DEFAULT_ADAPTER_THREADS,
+    trim_adapters_in_fastq,
 };
 use barbell::trim::trim::{LabelSide, trim_matches};
 use clap::{Parser, Subcommand};
@@ -189,23 +190,6 @@ enum Commands {
         /// Write output FASTQ files as gzip-compressed (.fastq.gz)
         #[arg(long, default_value_t = false)]
         gzip: bool,
-
-        /// Also trim the Nanopore ligation adapter (kit14, e.g. SQK-LSK114 / SQK-ULK114)
-        /// from the ends of the reads, like Porechop does
-        #[arg(long, default_value_t = false)]
-        adapter_trim: bool,
-
-        /// Minimum number of aligned adapter bases before an adapter hit is trimmed
-        #[arg(long = "adapter-min-match-len", default_value_t = ADAPTER_MIN_MATCH_LEN)]
-        adapter_min_match_len: usize,
-
-        /// Minimum identity (0..1) of the aligned part of the adapter
-        #[arg(long = "adapter-min-identity", default_value_t = ADAPTER_MIN_IDENTITY)]
-        adapter_min_identity: f64,
-
-        /// How far the adapter may be from the very read end and still be trimmed
-        #[arg(long = "adapter-end-slack", default_value_t = ADAPTER_END_SLACK)]
-        adapter_end_slack: usize,
     },
 
     /// View most common patterns in annotation
@@ -280,23 +264,6 @@ enum Commands {
         /// Write output FASTQ files as gzip-compressed (.fastq.gz)
         #[arg(long, default_value_t = false)]
         gzip: bool,
-
-        /// Also trim the Nanopore ligation adapter (kit14, e.g. SQK-LSK114 / SQK-ULK114)
-        /// from the ends of the reads, like Porechop does
-        #[arg(long, default_value_t = false)]
-        adapter_trim: bool,
-
-        /// Minimum number of aligned adapter bases before an adapter hit is trimmed
-        #[arg(long = "adapter-min-match-len", default_value_t = ADAPTER_MIN_MATCH_LEN)]
-        adapter_min_match_len: usize,
-
-        /// Minimum identity (0..1) of the aligned part of the adapter
-        #[arg(long = "adapter-min-identity", default_value_t = ADAPTER_MIN_IDENTITY)]
-        adapter_min_identity: f64,
-
-        /// How far the adapter may be from the very read end and still be trimmed
-        #[arg(long = "adapter-end-slack", default_value_t = ADAPTER_END_SLACK)]
-        adapter_end_slack: usize,
     },
 
     /// Trim only the Nanopore ligation adapters (kit14, e.g. SQK-LSK114 / SQK-ULK114)
@@ -309,6 +276,10 @@ enum Commands {
         /// Output FASTQ file (single input) or folder (multiple inputs)
         #[arg(short = 'o', long, default_value = "adapter_trimmed")]
         output: String,
+
+        /// Number of threads
+        #[arg(short = 't', long, default_value_t = DEFAULT_ADAPTER_THREADS)]
+        threads: usize,
 
         /// Minimum number of aligned adapter bases before an adapter hit is trimmed
         #[arg(long = "min-match-len", default_value_t = ADAPTER_MIN_MATCH_LEN)]
@@ -433,10 +404,6 @@ fn main() {
             flip,
             verbose,
             gzip,
-            adapter_trim,
-            adapter_min_match_len,
-            adapter_min_identity,
-            adapter_end_slack,
         } => {
             println!("{}", "Starting trimming...".green());
             let trim_config = TrimConfig {
@@ -451,13 +418,6 @@ fn main() {
                 flip: *flip,
                 verbose: *verbose,
                 gzip: *gzip,
-                adapter_trim: AdapterTrimConfig {
-                    enabled: *adapter_trim,
-                    min_match_len: *adapter_min_match_len,
-                    min_identity: *adapter_min_identity,
-                    end_slack: *adapter_end_slack,
-                    gzip: *gzip,
-                },
             };
             match trim_matches(input, reads, output, &trim_config) {
                 Ok(_) => println!("{}", "Trimming complete!".green()),
@@ -493,10 +453,6 @@ fn main() {
             use_extended,
             alpha,
             gzip,
-            adapter_trim,
-            adapter_min_match_len,
-            adapter_min_identity,
-            adapter_end_slack,
         } => {
             let kit_config = KitConfig {
                 kit_name: kit.clone(),
@@ -511,13 +467,6 @@ fn main() {
                 use_extended: *use_extended,
                 alpha: *alpha,
                 gzip: *gzip,
-                adapter_trim: AdapterTrimConfig {
-                    enabled: *adapter_trim,
-                    min_match_len: *adapter_min_match_len,
-                    min_identity: *adapter_min_identity,
-                    end_slack: *adapter_end_slack,
-                    gzip: *gzip,
-                },
             };
 
             if let Err(e) = demux_using_kit(input, &kit_config) {
@@ -528,6 +477,7 @@ fn main() {
         Commands::TrimAdapters {
             reads,
             output,
+            threads,
             min_match_len,
             min_identity,
             end_slack,
@@ -539,10 +489,10 @@ fn main() {
                     .green()
             );
             let config = AdapterTrimConfig {
-                enabled: true,
                 min_match_len: *min_match_len,
                 min_identity: *min_identity,
                 end_slack: *end_slack,
+                threads: *threads,
                 gzip: *gzip,
             };
             match trim_adapters_in_fastq(reads, output, &config) {

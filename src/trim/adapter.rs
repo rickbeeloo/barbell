@@ -32,9 +32,9 @@
 
 use anyhow::anyhow;
 use paraseq::Record;
+use rayon::prelude::*;
 use sassy::profiles::Iupac;
 use sassy::{EncodedPatterns, Match, Searcher};
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -341,25 +341,133 @@ pub struct AdapterTrimStats {
     pub trimmed_both: usize,
 }
 
+/// Default number of threads used for adapter trimming.
+pub const DEFAULT_ADAPTER_THREADS: usize = 10;
+
+/// Number of records that are read and trimmed as one parallel batch.
+///
+/// Small enough to keep the batch (which is copied out of the parser) bounded in
+/// memory even for very long reads, large enough to keep the threads busy.
+const ADAPTER_BATCH_RECORDS: usize = 512;
+
+/// One input file to trim, together with the file it is written to.
+struct AdapterJob {
+    input: PathBuf,
+    output: PathBuf,
+    gzip: bool,
+}
+
+/// A single read while it is being trimmed.
+///
+/// Holding the record data (instead of a reference into the parser's batch)
+/// allows the reads of one batch to be trimmed by several threads at once, while
+/// they are still written out in input order afterwards.
+struct PendingRecord {
+    id: Vec<u8>,
+    seq: Vec<u8>,
+    qual: Vec<u8>,
+    /// Which read ends were trimmed, for the statistics.
+    sides: [bool; 2],
+}
+
+impl PendingRecord {
+    fn new(id: &[u8], seq: &[u8], qual: Option<&[u8]>) -> Self {
+        Self {
+            id: id.to_vec(),
+            seq: seq.to_vec(),
+            qual: match qual {
+                Some(qual) => qual.to_vec(),
+                None => vec![b'!'; seq.len()],
+            },
+            sides: [false, false],
+        }
+    }
+
+    /// Trim the ligation adapter off both read ends (if present).
+    fn trim(&mut self, trimmer: &mut AdapterTrimmer) {
+        let Some(trim) = trimmer.find_trim(&self.seq) else {
+            return;
+        };
+        if trim.is_empty() {
+            return;
+        }
+
+        self.seq = self.seq[trim.keep_start..trim.keep_end].to_vec();
+        self.qual = self.qual[trim.keep_start..trim.keep_end].to_vec();
+        self.sides = trim.sides;
+    }
+}
+
 /// Standalone adapter trimming of FASTQ file(s).
 ///
 /// Reads are written to `output` (a file, or a folder when `output` has no
-/// extension) and keep their original order and orientation.
+/// extension) and keep their original order and orientation, also when
+/// `config.threads` is greater than one: the reads of a batch are trimmed in
+/// parallel but are always written out in input order afterwards.
 pub fn trim_adapters_in_fastq(
     input: &[PathBuf],
     output: &str,
     config: &AdapterTrimConfig,
 ) -> anyhow::Result<AdapterTrimStats> {
     validate_fastq_paths(input)?;
-    let mut trimmer = AdapterTrimmer::new(config.clone());
+
+    // Plan the jobs (and create the output folders) up front: this keeps the
+    // trimming itself free of filesystem bookkeeping, and any I/O errors are
+    // reported before any work is done.
+    let jobs = plan_jobs(input, output, config)?;
+
+    let threads = config.threads.max(1);
+    // The searcher is not `Sync` and keeps internal buffers, so every worker gets
+    // its own instance (see `AdapterTrimmer`).
+    let pool = if threads > 1 {
+        Some(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .map_err(|err| {
+                    anyhow!("Failed to create a thread pool of {threads} threads: {err}")
+                })?,
+        )
+    } else {
+        None
+    };
+
     let mut stats = AdapterTrimStats::default();
+    match pool.as_ref() {
+        Some(pool) => {
+            // Several input files (e.g. one per barcode) are trimmed at the same
+            // time; each file is written by exactly one thread, so a file's reads
+            // stay in input order.
+            let results: Vec<anyhow::Result<AdapterTrimStats>> = pool.install(|| {
+                jobs.par_iter()
+                    .map(|job| trim_adapter_file(job, threads, Some(pool), config))
+                    .collect()
+            });
+            for result in results {
+                stats.merge(result?);
+            }
+        }
+        None => {
+            for job in &jobs {
+                stats.merge(trim_adapter_file(job, threads, None, config)?);
+            }
+        }
+    }
 
-    // A single input file can be written straight to `output`, multiple files need
-    // one output per input, so they go into a folder.
+    Ok(stats)
+}
+
+/// Work out the input -> output file mapping and make sure the output folders
+/// exist. A single input file can be written straight to `output`; multiple files
+/// need one output per input, so they go into a folder.
+fn plan_jobs(
+    input: &[PathBuf],
+    output: &str,
+    config: &AdapterTrimConfig,
+) -> anyhow::Result<Vec<AdapterJob>> {
     let single_file_output = input.len() == 1 && Path::new(output).extension().is_some();
-    let writers: HashMap<PathBuf, Box<dyn Write>> = HashMap::new();
-    let mut writers = writers;
 
+    let mut jobs = Vec::with_capacity(input.len());
     for read_path in input {
         let out_path = if single_file_output {
             PathBuf::from(output)
@@ -376,81 +484,131 @@ pub fn trim_adapters_in_fastq(
             std::fs::create_dir_all(parent)?;
         }
 
-        let mut reader = paraseq::fastq::Reader::from_path(read_path)
-            .map_err(|err| anyhow!("Failed to open FASTQ file '{}': {err}", read_path.display()))?;
-        let mut record_set = reader.new_record_set();
-
-        let file = File::create(&out_path).map_err(|err| {
-            anyhow!(
-                "Failed to create output file '{}': {err}",
-                out_path.display()
-            )
-        })?;
         let gzip = config.gzip || out_path.extension().map(|ext| ext == "gz").unwrap_or(false);
-        let writer: Box<dyn Write> = if gzip {
-            Box::new(flate2::write::GzEncoder::new(
-                file,
-                flate2::Compression::default(),
-            ))
-        } else {
-            Box::new(BufWriter::new(file))
-        };
-        writers.insert(out_path.clone(), writer);
+        jobs.push(AdapterJob {
+            input: read_path.clone(),
+            output: out_path,
+            gzip,
+        });
+    }
 
-        while record_set
-            .fill(&mut reader)
-            .map_err(|err| anyhow!("Error reading FASTQ file '{}': {err}", read_path.display()))?
-        {
-            for record in record_set.iter() {
+    Ok(jobs)
+}
+
+/// Trim the adapters of one FASTQ file, writing the result to `job.output`.
+fn trim_adapter_file(
+    job: &AdapterJob,
+    threads: usize,
+    pool: Option<&rayon::ThreadPool>,
+    config: &AdapterTrimConfig,
+) -> anyhow::Result<AdapterTrimStats> {
+    let mut stats = AdapterTrimStats::default();
+
+    let mut reader =
+        paraseq::fastq::Reader::from_path_with_batch_size(&job.input, ADAPTER_BATCH_RECORDS)
+            .map_err(|err| anyhow!("Failed to open FASTQ file '{}': {err}", job.input.display()))?;
+    let mut record_set = reader.new_record_set();
+
+    let file = File::create(&job.output).map_err(|err| {
+        anyhow!(
+            "Failed to create output file '{}': {err}",
+            job.output.display()
+        )
+    })?;
+    let mut writer: Box<dyn Write> = if job.gzip {
+        Box::new(flate2::write::GzEncoder::new(
+            file,
+            flate2::Compression::default(),
+        ))
+    } else {
+        Box::new(BufWriter::new(file))
+    };
+
+    while record_set
+        .fill(&mut reader)
+        .map_err(|err| anyhow!("Error reading FASTQ file '{}': {err}", job.input.display()))?
+    {
+        let mut batch: Vec<PendingRecord> = record_set
+            .iter()
+            .map(|record| {
                 let record = record.map_err(|err| {
                     anyhow!(
                         "Error reading FASTQ record in '{}': {err}",
-                        read_path.display()
+                        job.input.display()
                     )
                 })?;
-                stats.total += 1;
+                Ok(PendingRecord::new(
+                    record.id(),
+                    record.seq().as_ref(),
+                    record.qual(),
+                ))
+            })
+            .collect::<anyhow::Result<_>>()?;
 
-                let seq = record.seq();
-                let qual = record.qual();
-
-                let trim = trimmer
-                    .find_trim(seq.as_ref())
-                    .unwrap_or_else(|| AdapterTrim::nothing(seq.len()));
-                let keep = trim.keep_start..trim.keep_end;
-                stats.count(&trim);
-
-                let writer = writers
-                    .get_mut(&out_path)
-                    .expect("writer was just inserted");
-                writer.write_all(b"@")?;
-                writer.write_all(record.id())?;
-                writer.write_all(b"\n")?;
-                writer.write_all(&seq.as_ref()[keep.clone()])?;
-                writer.write_all(b"\n+\n")?;
-                match qual {
-                    Some(qual) => writer.write_all(&qual[keep.clone()])?,
-                    None => writer.write_all(&vec![b'!'; keep.len()])?,
-                }
-                writer.write_all(b"\n")?;
+        // Trim the batch: in parallel when more than one thread was requested,
+        // otherwise in a plain loop that can reuse a single searcher.
+        match pool {
+            Some(pool) if batch.len() > 1 => {
+                // One chunk per thread; rayon hands the chunks to its workers.
+                let chunk_size = batch.len().div_ceil(threads).max(1);
+                pool.install(|| {
+                    batch
+                        .par_chunks_mut(chunk_size)
+                        // `for_each_init` gives every rayon worker its own
+                        // searcher, which is much cheaper than building one per
+                        // read (`AdapterTrimmer::new` encodes the adapter).
+                        .for_each_init(
+                            || AdapterTrimmer::new(config.clone()),
+                            |trimmer, chunk| {
+                                for record in chunk {
+                                    record.trim(trimmer);
+                                }
+                            },
+                        );
+                });
             }
+            _ => {
+                let mut trimmer = AdapterTrimmer::new(config.clone());
+                for record in &mut batch {
+                    record.trim(&mut trimmer);
+                }
+            }
+        }
+
+        for record in &batch {
+            stats.total += 1;
+            stats.count(&record.sides);
+
+            writer.write_all(b"@")?;
+            writer.write_all(&record.id)?;
+            writer.write_all(b"\n")?;
+            writer.write_all(&record.seq)?;
+            writer.write_all(b"\n+\n")?;
+            writer.write_all(&record.qual)?;
+            writer.write_all(b"\n")?;
         }
     }
 
-    for writer in writers.values_mut() {
-        writer.flush()?;
-    }
+    writer.flush()?;
 
     Ok(stats)
 }
 
 impl AdapterTrimStats {
-    fn count(&mut self, trim: &AdapterTrim) {
-        match (trim.sides[0], trim.sides[1]) {
+    fn count(&mut self, sides: &[bool; 2]) {
+        match (sides[0], sides[1]) {
             (true, true) => self.trimmed_both += 1,
             (true, false) => self.trimmed_start += 1,
             (false, true) => self.trimmed_end += 1,
             (false, false) => {}
         }
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.total += other.total;
+        self.trimmed_start += other.trimmed_start;
+        self.trimmed_end += other.trimmed_end;
+        self.trimmed_both += other.trimmed_both;
     }
 
     pub fn trimmed(&self) -> usize {
@@ -666,5 +824,122 @@ mod tests {
         assert_eq!(trim.keep_start, 24);
         assert_eq!(trim.keep_end, read.len());
         assert!(trim.sides[0] && !trim.sides[1]);
+    }
+
+    /// Assemble a FASTQ file with `n` reads; every third read has an adapter at
+    /// the start, every fifth read a reverse complement adapter at the end.
+    fn write_test_fastq(path: &Path, n: usize) {
+        let mut out = Vec::new();
+        for i in 0..n {
+            let mut seq = Vec::new();
+            if i % 3 == 0 {
+                seq.extend_from_slice(ADAPTER_SEQUENCE);
+            }
+            // Only ACGT(N), which is what the searcher accepts.
+            for j in 0..36 {
+                seq.push(b"ACGTN"[(i + j) % 5]);
+            }
+            if i % 5 == 0 {
+                seq.extend_from_slice(&reverse_complement(ADAPTER_SEQUENCE));
+            }
+            let qual = vec![b'I'; seq.len()];
+            out.extend_from_slice(format!("@read{i}\n").as_bytes());
+            out.extend_from_slice(&seq);
+            out.extend_from_slice(b"\n+\n");
+            out.extend_from_slice(&qual);
+            out.extend_from_slice(b"\n");
+        }
+        std::fs::write(path, out).unwrap();
+    }
+
+    #[test]
+    fn test_trim_adapters_in_fastq_multithreaded_matches_single_threaded() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("reads.fastq");
+        write_test_fastq(&input, 1500);
+
+        let single_out = dir.path().join("single.fastq");
+        let multi_out = dir.path().join("multi.fastq");
+
+        let single_stats = trim_adapters_in_fastq(
+            std::slice::from_ref(&input),
+            single_out.to_str().unwrap(),
+            &AdapterTrimConfig {
+                threads: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let multi_stats = trim_adapters_in_fastq(
+            std::slice::from_ref(&input),
+            multi_out.to_str().unwrap(),
+            &AdapterTrimConfig {
+                threads: 8,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read(&single_out).unwrap(),
+            std::fs::read(&multi_out).unwrap(),
+            "read order and content must not depend on the number of threads"
+        );
+        assert_eq!(single_stats.total, multi_stats.total);
+        assert_eq!(single_stats.trimmed(), multi_stats.trimmed());
+        assert_eq!(single_stats.trimmed_start, multi_stats.trimmed_start);
+        assert_eq!(single_stats.trimmed_end, multi_stats.trimmed_end);
+        assert_eq!(single_stats.trimmed_both, multi_stats.trimmed_both);
+        assert!(single_stats.trimmed() > 0);
+    }
+
+    #[test]
+    fn test_trim_adapters_in_fastq_multiple_files_in_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let files: Vec<PathBuf> = ["a.fastq", "b.fastq", "c.fastq"]
+            .iter()
+            .map(|name| {
+                let path = dir.path().join(name);
+                write_test_fastq(&path, 200);
+                path
+            })
+            .collect();
+
+        let single_dir = dir.path().join("single");
+        let multi_dir = dir.path().join("multi");
+
+        let single_stats = trim_adapters_in_fastq(
+            &files,
+            single_dir.to_str().unwrap(),
+            &AdapterTrimConfig {
+                threads: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let multi_stats = trim_adapters_in_fastq(
+            &files,
+            multi_dir.to_str().unwrap(),
+            &AdapterTrimConfig {
+                threads: 4,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(single_stats.total, 3 * 200);
+        assert_eq!(multi_stats.total, single_stats.total);
+        assert_eq!(multi_stats.trimmed(), single_stats.trimmed());
+        for input in &files {
+            let name = format!(
+                "{}.adapter_trimmed.fastq",
+                input.file_name().unwrap().to_string_lossy()
+            );
+            assert_eq!(
+                std::fs::read(single_dir.join(&name)).unwrap(),
+                std::fs::read(multi_dir.join(&name)).unwrap(),
+                "{name} differs between 1 and 4 threads"
+            );
+        }
     }
 }

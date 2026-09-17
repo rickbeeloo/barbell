@@ -331,22 +331,9 @@ adapter (`CCTGTACTTCGTTCAGTTACGTATTGC`) or its reverse complement
 basecalling can drop the first bases of a read.
 
 Barcode-based trimming (above) cuts at the barcode, so the adapter in front of the
-barcode stays in the read. To also remove that adapter — like
-[Porechop](https://github.com/rrwick/Porechop) and `dorado trim` do — add
-`--adapter-trim`:
-
-```bash
-# as part of the kit pipeline
-barbell kit -k SQK-RBK114-96 -i reads.fastq -o output_folder --maximize --adapter-trim
-```
-
-Adapter trimming was tested on simulated kit14 reads: **~99%** of reads carrying an
-adapter are trimmed correctly, while random/adaptor-free reads are affected in
-well under **0.1%** of cases. Adapters found in the *middle* of a read are
-deliberately ignored (that needs read splitting, not end trimming).
-
-Do you only have (already demultiplexed) reads and want to remove adapters, without
-any demultiplexing? Use the standalone command:
+barcode stays in the read. Removing that adapter (like
+[Porechop](https://github.com/rrwick/Porechop) and `dorado trim` do) is a separate
+step, done with the standalone `trim-adapters` command:
 
 ```bash
 # -o can be a file (single input) or a folder (multiple inputs)
@@ -354,18 +341,32 @@ barbell trim-adapters -r reads.fastq -o adapter_trimmed.fastq
 barbell trim-adapters -r '*.fastq.gz' -o adapter_trimmed/ --gzip
 ```
 
-Note that this keeps read order and orientation, in contrast to `barbell trim`.
+So after demultiplexing, run `trim-adapters` on the trimmed reads of a barcode to
+also remove the adapter that sat in front of the barcode:
+
+```bash
+barbell kit -k SQK-RBK114-96 -i reads.fastq -o output_folder --maximize
+barbell trim-adapters -r output_folder/BC01.trimmed.fastq -o output_folder/BC01.adapter_trimmed.fastq
+```
+
+Adapter trimming was tested on simulated kit14 reads: **~99%** of reads carrying an
+adapter are trimmed correctly, while random/adaptor-free reads are affected in
+well under **0.1%** of cases. Adapters found in the *middle* of a read are
+deliberately ignored (that needs read splitting, not end trimming).
+
+Reads keep their order and orientation, also when several threads are used.
 
 Tuning (defaults work well in practice):
 
 ```
-  --adapter-min-match-len <INT>  minimum matching adapter bases    [default: 14]
-  --adapter-min-identity <FLOAT> minimum identity of the alignment [default: 0.75]
-  --adapter-end-slack <INT>      how far the adapter may sit from  [default: 10]
+  -t, --threads <INT>            number of threads                 [default: 10]
+  --min-match-len <INT>          minimum matching adapter bases    [default: 14]
+  --min-identity <FLOAT>         minimum identity of the alignment [default: 0.75]
+  --end-slack <INT>              how far the adapter may sit from  [default: 10]
                                  the very read end
 ```
-Lowering `--adapter-min-match-len` picks up more (very short) partial adapters at
-the cost of more false positives; raising it is more conservative.
+Lowering `--min-match-len` picks up more (very short) partial adapters at the
+cost of more false positives; raising it is more conservative.
 
 ### The `--maximize` flag explained in more detail (`kit` command only)
 
