@@ -8,6 +8,9 @@
   - Adapter trimming for Nanopore ligation ("kit14") libraries such as SQK-LSK114
     and SQK-ULK114, like Porechop/dorado trim (#5), via the standalone
     `barbell trim-adapters` command (multithreaded with `-t/--threads`).
+  - `barbell trim-adapters` decodes gzipped input in parallel with
+    `rapidgzip-core`, so `-t/--threads` covers both reading and trimming instead
+    of leaving a single core to inflate the input.
 
 ## 0.3.3
 

@@ -356,6 +356,10 @@ deliberately ignored (that needs read splitting, not end trimming).
 
 Reads keep their order and orientation, also when several threads are used.
 
+Gzipped input is decoded in parallel (via
+[rapidgzip](https://github.com/COMBINE-lab/rapidgzip-rust)), so `-t/--threads`
+also applies to reading `.fastq.gz` input; uncompressed input is read directly.
+
 Tuning (defaults work well in practice):
 
 ```

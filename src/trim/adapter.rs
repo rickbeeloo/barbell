@@ -36,7 +36,7 @@ use rayon::prelude::*;
 use sassy::profiles::Iupac;
 use sassy::{EncodedPatterns, Match, Searcher};
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
 use crate::config::AdapterTrimConfig;
@@ -350,6 +350,13 @@ pub const DEFAULT_ADAPTER_THREADS: usize = 10;
 /// memory even for very long reads, large enough to keep the threads busy.
 const ADAPTER_BATCH_RECORDS: usize = 512;
 
+/// Size of the read-ahead buffer used in front of a decoder.
+///
+/// Uncompressed input is read straight from a `BufReader`; for gzip input this
+/// decouples the parser from the decoder so that the decoder's background
+/// workers are not woken up for (and stalled by) the parser's small reads.
+const ADAPTER_READ_BUFFER: usize = 1 << 20;
+
 /// One input file to trim, together with the file it is written to.
 struct AdapterJob {
     input: PathBuf,
@@ -495,6 +502,69 @@ fn plan_jobs(
     Ok(jobs)
 }
 
+/// Open a FASTQ file as a batch reader, decoding gzip input in parallel.
+///
+/// Regular files are the fast path:
+///
+/// * gzip is decoded by `rapidgzip`, whose marker/window based decoder splits the
+///   stream into independent blocks that are inflated by its own workers.
+///   Decoding a multi-hundred-MB FASTQ serially would otherwise pin a single core
+///   before the trimming threads ever see a byte;
+/// * uncompressed input is wrapped in a plain `BufReader`.
+///
+/// Non-regular inputs (a FIFO, `/dev/stdin`, a process substitution) cannot be
+/// decoded in parallel because every parallel path needs positional reads, so they
+/// keep going through paraseq's `niffler`-based reader, which sniffs the format on
+/// a single handle.
+fn open_batch_reader(
+    path: &Path,
+    batch_records: usize,
+    threads: usize,
+) -> anyhow::Result<paraseq::fastq::Reader<Box<dyn Read + Send>>> {
+    if !std::fs::metadata(path).is_ok_and(|meta| meta.is_file()) {
+        return Ok(paraseq::fastq::Reader::from_path_with_batch_size(
+            path,
+            batch_records,
+        )?);
+    }
+
+    let source: Box<dyn Read + Send> = if is_gzip_file(path) {
+        Box::new(
+            rapidgzip_core::Decoder::builder()
+                .decoder_threads(threads)
+                .build()?
+                .open(path)?,
+        )
+    } else {
+        Box::new(BufReader::with_capacity(
+            ADAPTER_READ_BUFFER,
+            File::open(path)?,
+        ))
+    };
+    Ok(paraseq::fastq::Reader::with_batch_size(
+        source,
+        batch_records,
+    )?)
+}
+
+/// Whether the regular file `path` holds gzip data, by magic number or extension.
+///
+/// The magic number is probed on a throwaway handle so that the parser's own
+/// stream is never consumed. This is why the caller has to keep the function away
+/// from non-regular files: opening a second handle on a pipe would steal bytes
+/// from it.
+fn is_gzip_file(path: &Path) -> bool {
+    let mut magic = [0u8; 2];
+    if File::open(path)
+        .and_then(|mut file| file.read(&mut magic))
+        .is_ok_and(|n| n == 2)
+    {
+        return magic == [0x1f, 0x8b];
+    }
+    path.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("gz"))
+}
+
 /// Trim the adapters of one FASTQ file, writing the result to `job.output`.
 fn trim_adapter_file(
     job: &AdapterJob,
@@ -504,9 +574,8 @@ fn trim_adapter_file(
 ) -> anyhow::Result<AdapterTrimStats> {
     let mut stats = AdapterTrimStats::default();
 
-    let mut reader =
-        paraseq::fastq::Reader::from_path_with_batch_size(&job.input, ADAPTER_BATCH_RECORDS)
-            .map_err(|err| anyhow!("Failed to open FASTQ file '{}': {err}", job.input.display()))?;
+    let mut reader = open_batch_reader(&job.input, ADAPTER_BATCH_RECORDS, threads)
+        .map_err(|err| anyhow!("Failed to open FASTQ file '{}': {err}", job.input.display()))?;
     let mut record_set = reader.new_record_set();
 
     let file = File::create(&job.output).map_err(|err| {
@@ -941,5 +1010,87 @@ mod tests {
                 "{name} differs between 1 and 4 threads"
             );
         }
+    }
+
+    /// Gzip input is decoded by a different reader than plain input (rapidgzip
+    /// instead of `niffler` via paraseq), so it has to produce the same reads and
+    /// the same trim decisions.
+    #[test]
+    fn test_trim_adapters_in_fastq_gzip_input_matches_plain_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let plain = dir.path().join("reads.fastq");
+        let gz = dir.path().join("reads.fastq.gz");
+        write_test_fastq(&plain, 500);
+        {
+            let file = File::create(&gz).unwrap();
+            let mut encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+            std::io::copy(&mut File::open(&plain).unwrap(), &mut encoder).unwrap();
+            encoder.finish().unwrap();
+        }
+
+        let plain_out = dir.path().join("plain_out.fastq");
+        let gz_out = dir.path().join("gz_out.fastq");
+
+        let plain_stats = trim_adapters_in_fastq(
+            std::slice::from_ref(&plain),
+            plain_out.to_str().unwrap(),
+            &AdapterTrimConfig {
+                threads: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let gz_stats = trim_adapters_in_fastq(
+            std::slice::from_ref(&gz),
+            gz_out.to_str().unwrap(),
+            &AdapterTrimConfig {
+                threads: 4,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(gz_stats.total, plain_stats.total);
+        assert_eq!(gz_stats.trimmed(), plain_stats.trimmed());
+        assert_eq!(gz_stats.trimmed_start, plain_stats.trimmed_start);
+        assert_eq!(gz_stats.trimmed_end, plain_stats.trimmed_end);
+        assert_eq!(gz_stats.trimmed_both, plain_stats.trimmed_both);
+        assert_eq!(
+            std::fs::read(&plain_out).unwrap(),
+            std::fs::read(&gz_out).unwrap(),
+            "gzip input must trim to the same bytes as plain input"
+        );
+    }
+
+    /// A `.fastq` file that happens to hold gzip data (what `cat reads.fastq.gz
+    /// > reads.fastq` produces) is detected by magic number, not by name.
+    #[test]
+    fn test_gzip_input_without_gz_extension_is_detected() {
+        let dir = tempfile::tempdir().unwrap();
+        let plain = dir.path().join("reads.fastq");
+        let misnamed = dir.path().join("reads_no_suffix.fastq");
+        write_test_fastq(&plain, 50);
+        {
+            let file = File::create(&misnamed).unwrap();
+            let mut encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+            std::io::copy(&mut File::open(&plain).unwrap(), &mut encoder).unwrap();
+            encoder.finish().unwrap();
+        }
+
+        assert!(is_gzip_file(&misnamed));
+        assert!(!is_gzip_file(&plain));
+
+        let out = dir.path().join("out.fastq");
+        let stats = trim_adapters_in_fastq(
+            std::slice::from_ref(&misnamed),
+            out.to_str().unwrap(),
+            &AdapterTrimConfig {
+                threads: 2,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(stats.total, 50);
+        assert!(stats.trimmed() > 0);
     }
 }
