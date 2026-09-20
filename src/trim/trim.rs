@@ -6,8 +6,8 @@ use crate::io::io::{split_fastq_header, validate_fastq_paths};
 use crate::progress::progress::{ProgressTracker, TRIM_PROGRESS_SPECS};
 use anyhow::anyhow;
 use csv;
-use flate2::write::GzEncoder;
 use flate2::Compression;
+use flate2::write::GzEncoder;
 use paraseq::Record;
 use sassy::Strand;
 use std::collections::HashMap;
@@ -263,21 +263,23 @@ pub fn process_read_and_anno(
 
     // Group slices by cut group ID
     for (slice_count, slice) in slices.iter().enumerate() {
-        if slice.start >= slice.end {
+        let slice_start = slice.start;
+        let slice_end = slice.end;
+
+        if slice_start >= slice_end {
             continue;
         }
 
-        // For now if trimming is disabled, we just
-        // return the full sequence and quality
+        // With barcode trimming disabled we return the whole read
         let mut trimmed_seq = if skip_trim {
             seq.to_vec()
         } else {
-            seq[slice.start..slice.end].to_vec()
+            seq[slice_start..slice_end].to_vec()
         };
         let mut trimmed_qual = if skip_trim {
             qual.to_vec()
         } else {
-            qual[slice.start..slice.end].to_vec()
+            qual[slice_start..slice_end].to_vec()
         };
 
         if flip && should_flip(&slice.annotations) {

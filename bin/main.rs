@@ -1,9 +1,13 @@
 use barbell::annotate::annotator::*;
 use barbell::annotate::barcodes::BarcodeType;
-use barbell::config::{AnnotateConfig, FilterConfig, KitConfig, TrimConfig};
+use barbell::config::{AdapterTrimConfig, AnnotateConfig, FilterConfig, KitConfig, TrimConfig};
 use barbell::filter::filter::filter_from_text_file;
 use barbell::inspect::inspect;
 use barbell::kits::use_kit::demux_using_kit;
+use barbell::trim::adapter::{
+    ADAPTER_END_SLACK, ADAPTER_MIN_IDENTITY, ADAPTER_MIN_MATCH_LEN, DEFAULT_ADAPTER_THREADS,
+    trim_adapters_in_fastq,
+};
 use barbell::trim::trim::{LabelSide, trim_matches};
 use clap::{Parser, Subcommand};
 use colored::*;
@@ -261,6 +265,38 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         gzip: bool,
     },
+
+    /// Trim only the Nanopore ligation adapters (kit14, e.g. SQK-LSK114 / SQK-ULK114)
+    /// from the read ends, without demultiplexing
+    TrimAdapters {
+        /// Read FASTQ file(s). Shell-expanded globs are supported.
+        #[arg(short = 'r', long, num_args = 1.., required = true)]
+        reads: Vec<PathBuf>,
+
+        /// Output FASTQ file (single input) or folder (multiple inputs)
+        #[arg(short = 'o', long, default_value = "adapter_trimmed")]
+        output: String,
+
+        /// Number of threads
+        #[arg(short = 't', long, default_value_t = DEFAULT_ADAPTER_THREADS)]
+        threads: usize,
+
+        /// Minimum number of aligned adapter bases before an adapter hit is trimmed
+        #[arg(long = "min-match-len", default_value_t = ADAPTER_MIN_MATCH_LEN)]
+        min_match_len: usize,
+
+        /// Minimum identity (0..1) of the aligned part of the adapter
+        #[arg(long = "min-identity", default_value_t = ADAPTER_MIN_IDENTITY)]
+        min_identity: f64,
+
+        /// How far the adapter may be from the very read end and still be trimmed
+        #[arg(long = "end-slack", default_value_t = ADAPTER_END_SLACK)]
+        end_slack: usize,
+
+        /// Write output FASTQ as gzip-compressed (.fastq.gz)
+        #[arg(long, default_value_t = false)]
+        gzip: bool,
+    },
 }
 
 fn main() {
@@ -435,6 +471,43 @@ fn main() {
 
             if let Err(e) = demux_using_kit(input, &kit_config) {
                 println!("{} {}", "Demultiplexing failed:".red(), e);
+            }
+        }
+
+        Commands::TrimAdapters {
+            reads,
+            output,
+            threads,
+            min_match_len,
+            min_identity,
+            end_slack,
+            gzip,
+        } => {
+            println!(
+                "{}",
+                "Trimming ligation adapters (SQK-LSK114 / SQK-ULK114 / other kit14 kits)..."
+                    .green()
+            );
+            let config = AdapterTrimConfig {
+                min_match_len: *min_match_len,
+                min_identity: *min_identity,
+                end_slack: *end_slack,
+                threads: *threads,
+                gzip: *gzip,
+            };
+            match trim_adapters_in_fastq(reads, output, &config) {
+                Ok(stats) => {
+                    println!(
+                        "{} {} of {} reads had an adapter trimmed ({} at the start, {} at the end, {} at both)",
+                        "Trimming complete!".green(),
+                        stats.trimmed(),
+                        stats.total,
+                        stats.trimmed_start,
+                        stats.trimmed_end,
+                        stats.trimmed_both,
+                    );
+                }
+                Err(e) => println!("{} {}", "Adapter trimming failed:".red(), e),
             }
         }
     }

@@ -16,6 +16,38 @@ pub struct FilterConfig {
     pub verbose: bool,
 }
 
+/// Configuration for trimming the Nanopore ligation adapters (kit14 / `SQK-LSK114`
+/// and friends) from the read ends. See [`crate::trim::adapter`].
+///
+/// This is only used by the standalone `barbell trim-adapters` command; the
+/// barcode-based `barbell trim` / `barbell kit` pipelines do not trim adapters.
+#[derive(Debug, Clone)]
+pub struct AdapterTrimConfig {
+    /// Minimum number of aligned bases before a hit is considered an adapter.
+    pub min_match_len: usize,
+    /// Minimum identity of the aligned part of the adapter.
+    pub min_identity: f64,
+    /// How far the outer edge of an adapter may be from the very start/end of the
+    /// read and still be considered a terminal adapter.
+    pub end_slack: usize,
+    /// Number of threads to use.
+    pub threads: usize,
+    /// Write output FASTQ files as gzip.
+    pub gzip: bool,
+}
+
+impl Default for AdapterTrimConfig {
+    fn default() -> Self {
+        Self {
+            min_match_len: crate::trim::adapter::ADAPTER_MIN_MATCH_LEN,
+            min_identity: crate::trim::adapter::ADAPTER_MIN_IDENTITY,
+            end_slack: crate::trim::adapter::ADAPTER_END_SLACK,
+            threads: crate::trim::adapter::DEFAULT_ADAPTER_THREADS,
+            gzip: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TrimConfig {
     pub add_labels: bool,

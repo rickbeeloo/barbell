@@ -20,6 +20,7 @@ flate2 = "1.1"
 sassy = "0.2.1"
 pa-types = "1.2.0"
 paraseq = "0.4.13"
+rapidgzip-core = "0.3.1"
 rand = "0.8"
 spinners = "4.1.1"
 indicatif = "0.17.11"
@@ -40,6 +41,7 @@ cigar-lodhi-rs =  "0.1.0"
 ensure_simd = "0.1.0"
 log = "0.4.29"
 env_logger = "0.11.9"
+gzp = { version = "2.0.4", default-features = false, features = ["deflate_rust"] }
 
 [workspace]
 members = [
