@@ -357,8 +357,13 @@ deliberately ignored (that needs read splitting, not end trimming).
 Reads keep their order and orientation, also when several threads are used.
 
 Gzipped input is decoded in parallel (via
-[rapidgzip](https://github.com/COMBINE-lab/rapidgzip-rust)), so `-t/--threads`
-also applies to reading `.fastq.gz` input; uncompressed input is read directly.
+[rapidgzip](https://github.com/COMBINE-lab/rapidgzip-rust)) and gzipped output
+(`--gzip`, or a `.gz` output suffix) is compressed in parallel (via
+[gzp](https://github.com/sstadick/gzp)), so `-t/--threads` also applies to both
+reading `.fastq.gz` input and writing `.fastq.gz` output; uncompressed input and
+output are read/written directly. Without parallel output compression, deflating
+the output would pin a single core while all trimming threads wait, which is the
+dominant cost of a `--gzip` run.
 
 Tuning (defaults work well in practice):
 

@@ -31,6 +31,8 @@
 //! out of scope here).
 
 use anyhow::anyhow;
+use gzp::ZBuilder;
+use gzp::deflate::Gzip;
 use paraseq::Record;
 use rayon::prelude::*;
 use sassy::profiles::Iupac;
@@ -362,6 +364,9 @@ struct AdapterJob {
     input: PathBuf,
     output: PathBuf,
     gzip: bool,
+    /// Number of threads used to compress the output when [`AdapterJob::gzip`] is
+    /// set (see [`gzip_writer`]).
+    gzip_threads: usize,
 }
 
 /// A single read while it is being trimmed.
@@ -496,6 +501,10 @@ fn plan_jobs(
             input: read_path.clone(),
             output: out_path,
             gzip,
+            // One writer thread per input file is already the unit of
+            // parallelism; give each one the whole requested budget so a single
+            // file still compresses in parallel instead of pinning a full core.
+            gzip_threads: config.threads.max(1),
         });
     }
 
@@ -565,6 +574,25 @@ fn is_gzip_file(path: &Path) -> bool {
         .is_some_and(|ext| ext.eq_ignore_ascii_case("gz"))
 }
 
+/// Wrap `file` in a gzip writer, compressing the output with `threads` workers.
+///
+/// A plain [`flate2::write::GzEncoder`] deflates on the writing thread, which
+/// pins a single core while every trimming thread waits and becomes the dominant
+/// cost of a `--gzip` run. [`gzp`] instead splits the byte stream into independent
+/// blocks that are deflated on a background thread pool, so the compression scales
+/// with `-t/--threads` the same way the trimming itself does. The result is a
+/// regular single-member gzip file (one header, one footer) that any gzip reader
+/// can open.
+///
+/// `threads == 1` keeps a plain synchronous writer, so single-threaded runs are
+/// unaffected by the parallel machinery.
+fn gzip_writer(file: File, threads: usize) -> Box<dyn Write> {
+    ZBuilder::<Gzip, _>::new()
+        .num_threads(threads.max(1))
+        .compression_level(gzp::Compression::default())
+        .from_writer(file)
+}
+
 /// Trim the adapters of one FASTQ file, writing the result to `job.output`.
 fn trim_adapter_file(
     job: &AdapterJob,
@@ -585,10 +613,7 @@ fn trim_adapter_file(
         )
     })?;
     let mut writer: Box<dyn Write> = if job.gzip {
-        Box::new(flate2::write::GzEncoder::new(
-            file,
-            flate2::Compression::default(),
-        ))
+        gzip_writer(file, job.gzip_threads)
     } else {
         Box::new(BufWriter::new(file))
     };
@@ -1092,5 +1117,165 @@ mod tests {
         .unwrap();
         assert_eq!(stats.total, 50);
         assert!(stats.trimmed() > 0);
+    }
+
+    fn gunzip(path: &Path) -> Vec<u8> {
+        let mut out = Vec::new();
+        flate2::read::MultiGzDecoder::new(File::open(path).unwrap())
+            .read_to_end(&mut out)
+            .unwrap();
+        out
+    }
+
+    /// Gzip output is compressed by a parallel writer when more than one thread is
+    /// requested. It must stay a valid gzip file, and it must decode to exactly the
+    /// same reads as a single-threaded run (and as plain output).
+    #[test]
+    fn test_gzip_output_multithreaded_matches_single_threaded() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("reads.fastq");
+        write_test_fastq(&input, 1500);
+
+        let plain_out = dir.path().join("plain.fastq");
+        let single_gz = dir.path().join("single.fastq.gz");
+        let multi_gz = dir.path().join("multi.fastq.gz");
+
+        let plain_stats = trim_adapters_in_fastq(
+            std::slice::from_ref(&input),
+            plain_out.to_str().unwrap(),
+            &AdapterTrimConfig {
+                threads: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let single_stats = trim_adapters_in_fastq(
+            std::slice::from_ref(&input),
+            single_gz.to_str().unwrap(),
+            &AdapterTrimConfig {
+                threads: 1,
+                gzip: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let multi_stats = trim_adapters_in_fastq(
+            std::slice::from_ref(&input),
+            multi_gz.to_str().unwrap(),
+            &AdapterTrimConfig {
+                threads: 8,
+                gzip: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(multi_stats.total, plain_stats.total);
+        assert_eq!(multi_stats.trimmed(), single_stats.trimmed());
+
+        // Both gzip files are real gzip streams (magic number) ...
+        assert!(is_gzip_file(&single_gz));
+        assert!(is_gzip_file(&multi_gz));
+
+        // ... and decompress to the same bytes as the plain output.
+        let plain_bytes = std::fs::read(&plain_out).unwrap();
+        assert_eq!(gunzip(&single_gz), plain_bytes);
+        assert_eq!(
+            gunzip(&multi_gz),
+            plain_bytes,
+            "parallel gzip output must decode to the same reads"
+        );
+    }
+
+    /// Without `--gzip` and without a `.gz` output suffix, output stays plain.
+    #[test]
+    fn test_gzip_flag_controls_output_compression() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("reads.fastq");
+        write_test_fastq(&input, 100);
+
+        let plain_out = dir.path().join("plain.fastq");
+        trim_adapters_in_fastq(
+            std::slice::from_ref(&input),
+            plain_out.to_str().unwrap(),
+            &AdapterTrimConfig {
+                threads: 4,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!is_gzip_file(&plain_out));
+
+        // A `.gz` suffix turns on compression even without `--gzip`.
+        let by_suffix = dir.path().join("by_suffix.fastq.gz");
+        trim_adapters_in_fastq(
+            std::slice::from_ref(&input),
+            by_suffix.to_str().unwrap(),
+            &AdapterTrimConfig {
+                threads: 4,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(is_gzip_file(&by_suffix));
+        assert_eq!(gunzip(&by_suffix), std::fs::read(&plain_out).unwrap());
+    }
+
+    /// The parallel gzip writer used for output must produce a stream that the
+    /// rapidgzip decoder used for input can read back (round-trip through both
+    /// parallel paths).
+    #[test]
+    fn test_gzip_output_roundtrips_through_parallel_input_decoder() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("reads.fastq");
+        write_test_fastq(&input, 2000);
+
+        // Parallel gzip output ...
+        let gz_out = dir.path().join("roundtrip.fastq.gz");
+        trim_adapters_in_fastq(
+            std::slice::from_ref(&input),
+            gz_out.to_str().unwrap(),
+            &AdapterTrimConfig {
+                threads: 8,
+                gzip: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        // ... read back through the parallel gzip *input* decoder.
+        let back_out = dir.path().join("back.fastq");
+        let stats = trim_adapters_in_fastq(
+            std::slice::from_ref(&gz_out),
+            back_out.to_str().unwrap(),
+            &AdapterTrimConfig {
+                threads: 8,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        // The same bytes passed through a plain file must trim identically.
+        let plain_copy = dir.path().join("plain_copy.fastq");
+        std::fs::write(&plain_copy, gunzip(&gz_out)).unwrap();
+        let ref_out = dir.path().join("ref.fastq");
+        let ref_stats = trim_adapters_in_fastq(
+            std::slice::from_ref(&plain_copy),
+            ref_out.to_str().unwrap(),
+            &AdapterTrimConfig {
+                threads: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(stats.total, 2000);
+        assert_eq!(ref_stats.total, stats.total);
+        assert_eq!(ref_stats.trimmed(), stats.trimmed());
+        assert_eq!(
+            std::fs::read(&back_out).unwrap(),
+            std::fs::read(&ref_out).unwrap(),
+            "reads decoded from the parallel gzip output must match the plain copy"
+        );
     }
 }

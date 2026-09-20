@@ -11,6 +11,9 @@
   - `barbell trim-adapters` decodes gzipped input in parallel with
     `rapidgzip-core`, so `-t/--threads` covers both reading and trimming instead
     of leaving a single core to inflate the input.
+  - `barbell trim-adapters` compresses gzipped output (`--gzip`) in parallel with
+    `gzp`, so `-t/--threads` also covers writing instead of leaving a single core
+    to deflate the output.
 
 ## 0.3.3
 
