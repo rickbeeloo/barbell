@@ -318,6 +318,34 @@ fn should_flip(annotations: &[BarbellMatch]) -> bool {
         .any(|anno| anno.match_type == BarcodeType::Ftag && anno.strand == Strand::Rc)
 }
 
+fn format_cut_tags(
+    seq: &[u8],
+    cut_idxs: Option<(usize, usize, bool)>,
+    config: &TrimConfig,
+) -> String {
+    let mut tags = String::new();
+    // With skip_trim the full read is written, slice coordinates would be misleading
+    if config.skip_trim {
+        return tags;
+    }
+    if let Some((start, end, flipped)) = cut_idxs {
+        if config.return_cuts_idxs {
+            tags.push_str(&format!(
+                "\tbs:i:{start}\tbe:i:{end}\tbf:i:{}",
+                flipped as u8
+            ));
+        }
+        // Empty prefix is omitted: a missing bp tag means nothing was trimmed at the start
+        if config.return_trimmed_start && start > 0 {
+            tags.push_str(&format!(
+                "\tbp:Z:{}",
+                String::from_utf8_lossy(&seq[..start])
+            ));
+        }
+    }
+    tags
+}
+
 pub fn trim_matches(
     filtered_match_file: &str,
     read_fastq_files: &[PathBuf],
@@ -416,7 +444,7 @@ pub fn trim_matches(
                         &label_config,
                         config.skip_trim,
                         config.flip,
-                        config.return_cuts_idxs,
+                        config.return_cuts_idxs || config.return_trimmed_start,
                     );
 
                     if !results.is_empty() {
@@ -460,12 +488,7 @@ pub fn trim_matches(
                             .get_mut(&group)
                             .expect("writer should exist after insertion");
 
-                        let cut_tags = match cut_idxs {
-                            Some((start, end, flipped)) => {
-                                format!("\tbs:i:{start}\tbe:i:{end}\tbf:i:{}", flipped as u8)
-                            }
-                            None => String::new(),
-                        };
+                        let cut_tags = format_cut_tags(seq.as_ref(), cut_idxs, config);
 
                         // Write FASTQ format
                         if config.write_full_header && !desc.is_empty() {
@@ -610,6 +633,59 @@ mod tests {
         let results =
             process_read_and_anno(seq, qual, &annotations, &label_config, false, false, true);
         assert_eq!(results[0].4, Some((8, 12, false)));
+    }
+
+    fn tag_config(
+        return_cuts_idxs: bool,
+        return_trimmed_start: bool,
+        skip_trim: bool,
+    ) -> TrimConfig {
+        TrimConfig {
+            add_labels: true,
+            add_orientation: true,
+            add_flank: true,
+            sort_labels: false,
+            only_side: None,
+            failed_trimmed_writer: None,
+            write_full_header: true,
+            skip_trim,
+            flip: false,
+            verbose: false,
+            gzip: false,
+            return_cuts_idxs,
+            return_trimmed_start,
+        }
+    }
+
+    #[test]
+    fn test_format_cut_tags() {
+        let seq = b"CCCCCCCCAAAACCCCCCCCCCCC";
+        let cut = Some((8, 12, false));
+
+        assert_eq!(
+            format_cut_tags(seq, cut, &tag_config(true, true, false)),
+            "\tbs:i:8\tbe:i:12\tbf:i:0\tbp:Z:CCCCCCCC"
+        );
+        // Flags are independent
+        assert_eq!(
+            format_cut_tags(seq, cut, &tag_config(false, true, false)),
+            "\tbp:Z:CCCCCCCC"
+        );
+        assert_eq!(
+            format_cut_tags(seq, cut, &tag_config(true, false, false)),
+            "\tbs:i:8\tbe:i:12\tbf:i:0"
+        );
+        // Nothing trimmed at the start: no bp tag
+        assert_eq!(
+            format_cut_tags(seq, Some((0, 12, false)), &tag_config(true, true, false)),
+            "\tbs:i:0\tbe:i:12\tbf:i:0"
+        );
+        // skip_trim writes the full read, so no tags at all
+        assert_eq!(format_cut_tags(seq, cut, &tag_config(true, true, true)), "");
+        assert_eq!(
+            format_cut_tags(seq, None, &tag_config(true, true, false)),
+            ""
+        );
     }
 
     #[test]
