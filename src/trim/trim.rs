@@ -254,7 +254,8 @@ pub fn process_read_and_anno(
     label_config: &LabelConfig,
     skip_trim: bool,
     flip: bool,
-) -> Vec<(Vec<u8>, Vec<u8>, String, String)> {
+    return_cuts_idxs: bool,
+) -> Vec<(Vec<u8>, Vec<u8>, String, String, Option<(usize, usize, bool)>)> {
     let mut results = Vec::new();
     let seq_len = seq.len();
 
@@ -280,7 +281,8 @@ pub fn process_read_and_anno(
             qual[slice.start..slice.end].to_vec()
         };
 
-        if flip && should_flip(&slice.annotations) {
+        let flipped = flip && should_flip(&slice.annotations);
+        if flipped {
             trimmed_seq = reverse_complement(&trimmed_seq);
             trimmed_qual.reverse();
         }
@@ -293,7 +295,9 @@ pub fn process_read_and_anno(
         } else {
             format!("_{slice_count}")
         };
-        results.push((trimmed_seq, trimmed_qual, group_label, read_suffix));
+        // Coordinates on the original read, before flipping
+        let cut_idxs = return_cuts_idxs.then_some((slice.start, slice.end, flipped));
+        results.push((trimmed_seq, trimmed_qual, group_label, read_suffix, cut_idxs));
     }
 
     results
@@ -312,6 +316,34 @@ fn should_flip(annotations: &[BarbellMatch]) -> bool {
     annotations
         .iter()
         .any(|anno| anno.match_type == BarcodeType::Ftag && anno.strand == Strand::Rc)
+}
+
+fn format_cut_tags(
+    seq: &[u8],
+    cut_idxs: Option<(usize, usize, bool)>,
+    config: &TrimConfig,
+) -> String {
+    let mut tags = String::new();
+    // With skip_trim the full read is written, slice coordinates would be misleading
+    if config.skip_trim {
+        return tags;
+    }
+    if let Some((start, end, flipped)) = cut_idxs {
+        if config.return_cuts_idxs {
+            tags.push_str(&format!(
+                "\tbs:i:{start}\tbe:i:{end}\tbf:i:{}",
+                flipped as u8
+            ));
+        }
+        // Empty prefix is omitted: a missing bp tag means nothing was trimmed at the start
+        if config.return_trimmed_start && start > 0 {
+            tags.push_str(&format!(
+                "\tbp:Z:{}",
+                String::from_utf8_lossy(&seq[..start])
+            ));
+        }
+    }
+    tags
 }
 
 pub fn trim_matches(
@@ -399,13 +431,20 @@ pub fn trim_matches(
                         .qual()
                         .ok_or_else(|| anyhow!("FASTQ record '{read_id}' has no quality scores"))?;
 
-                    let results: Vec<(Vec<u8>, Vec<u8>, String, String)> = process_read_and_anno(
+                    let results: Vec<(
+                        Vec<u8>,
+                        Vec<u8>,
+                        String,
+                        String,
+                        Option<(usize, usize, bool)>,
+                    )> = process_read_and_anno(
                         seq.as_ref(),
                         qual,
                         annotations,
                         &label_config,
                         config.skip_trim,
                         config.flip,
+                        config.return_cuts_idxs || config.return_trimmed_start,
                     );
 
                     if !results.is_empty() {
@@ -422,7 +461,7 @@ pub fn trim_matches(
                         progress.inc(TRIMMED_SPLIT_IDX);
                     }
 
-                    for (trimmed_seq, trimmed_qual, group, read_suffix) in results {
+                    for (trimmed_seq, trimmed_qual, group, read_suffix, cut_idxs) in results {
                         // Get or create writer for this group
                         if !writers.contains_key(&group) {
                             let output_file = if config.gzip {
@@ -449,12 +488,14 @@ pub fn trim_matches(
                             .get_mut(&group)
                             .expect("writer should exist after insertion");
 
+                        let cut_tags = format_cut_tags(seq.as_ref(), cut_idxs, config);
+
                         // Write FASTQ format
                         if config.write_full_header && !desc.is_empty() {
-                            writeln!(writer, "@{read_id}{read_suffix} {desc}")
+                            writeln!(writer, "@{read_id}{read_suffix} {desc}{cut_tags}")
                                 .expect("Failed to write header");
                         } else {
-                            writeln!(writer, "@{read_id}{read_suffix}")
+                            writeln!(writer, "@{read_id}{read_suffix}{cut_tags}")
                                 .expect("Failed to write header");
                         }
                         writeln!(writer, "{}", String::from_utf8_lossy(&trimmed_seq))
@@ -578,14 +619,73 @@ mod tests {
         ];
 
         let label_config = LabelConfig::new(true, true, true, true, None);
-        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false, false);
+        let results =
+            process_read_and_anno(seq, qual, &annotations, &label_config, false, false, false);
 
         assert_eq!(results.len(), 1);
-        let (trimmed_seq, trimmed_qual, group_label, _) = &results[0];
+        let (trimmed_seq, trimmed_qual, group_label, _, _) = &results[0];
         println!("trimmed_seq: {}", String::from_utf8_lossy(trimmed_seq));
         assert_eq!(trimmed_seq, b"AAAA");
         assert_eq!(trimmed_qual, b"IIII");
         assert_eq!(group_label, "Fbar_fw__Rbar_fw");
+        assert_eq!(results[0].4, None);
+
+        let results =
+            process_read_and_anno(seq, qual, &annotations, &label_config, false, false, true);
+        assert_eq!(results[0].4, Some((8, 12, false)));
+    }
+
+    fn tag_config(
+        return_cuts_idxs: bool,
+        return_trimmed_start: bool,
+        skip_trim: bool,
+    ) -> TrimConfig {
+        TrimConfig {
+            add_labels: true,
+            add_orientation: true,
+            add_flank: true,
+            sort_labels: false,
+            only_side: None,
+            failed_trimmed_writer: None,
+            write_full_header: true,
+            skip_trim,
+            flip: false,
+            verbose: false,
+            gzip: false,
+            return_cuts_idxs,
+            return_trimmed_start,
+        }
+    }
+
+    #[test]
+    fn test_format_cut_tags() {
+        let seq = b"CCCCCCCCAAAACCCCCCCCCCCC";
+        let cut = Some((8, 12, false));
+
+        assert_eq!(
+            format_cut_tags(seq, cut, &tag_config(true, true, false)),
+            "\tbs:i:8\tbe:i:12\tbf:i:0\tbp:Z:CCCCCCCC"
+        );
+        // Flags are independent
+        assert_eq!(
+            format_cut_tags(seq, cut, &tag_config(false, true, false)),
+            "\tbp:Z:CCCCCCCC"
+        );
+        assert_eq!(
+            format_cut_tags(seq, cut, &tag_config(true, false, false)),
+            "\tbs:i:8\tbe:i:12\tbf:i:0"
+        );
+        // Nothing trimmed at the start: no bp tag
+        assert_eq!(
+            format_cut_tags(seq, Some((0, 12, false)), &tag_config(true, true, false)),
+            "\tbs:i:0\tbe:i:12\tbf:i:0"
+        );
+        // skip_trim writes the full read, so no tags at all
+        assert_eq!(format_cut_tags(seq, cut, &tag_config(true, true, true)), "");
+        assert_eq!(
+            format_cut_tags(seq, None, &tag_config(true, true, false)),
+            ""
+        );
     }
 
     #[test]
@@ -670,16 +770,17 @@ mod tests {
         ];
 
         let label_config = LabelConfig::new(true, true, true, true, None);
-        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false, false);
+        let results =
+            process_read_and_anno(seq, qual, &annotations, &label_config, false, false, false);
 
         assert_eq!(results.len(), 2);
 
-        let (trimmed_seq1, trimmed_qual1, label1, _) = &results[0];
+        let (trimmed_seq1, trimmed_qual1, label1, _, _) = &results[0];
         assert_eq!(trimmed_seq1, b"AAAAAAAAAAAA");
         assert_eq!(trimmed_qual1, b"IIIIIIIIIIII");
         assert_eq!(label1, "F1_fw__R1_fw");
 
-        let (trimmed_seq2, trimmed_qual2, label2, _) = &results[1];
+        let (trimmed_seq2, trimmed_qual2, label2, _, _) = &results[1];
         assert_eq!(trimmed_seq2, b"GG");
         assert_eq!(trimmed_qual2, b"II");
         assert_eq!(label2, "F2_fw__R2_fw");
@@ -728,14 +829,16 @@ mod tests {
         ];
 
         let label_config = LabelConfig::new(true, true, true, true, None);
-        let results = process_read_and_anno(seq, qual, &annotations, &label_config, true, false);
+        let results =
+            process_read_and_anno(seq, qual, &annotations, &label_config, true, false, true);
 
         assert_eq!(results.len(), 1);
-        let (trimmed_seq, trimmed_qual, group_label, _) = &results[0];
+        let (trimmed_seq, trimmed_qual, group_label, _, _) = &results[0];
         println!("trimmed_seq: {}", String::from_utf8_lossy(trimmed_seq));
         assert_eq!(trimmed_seq, b"CCCCCCCCAAAACCCCCCCCCCCC");
         assert_eq!(trimmed_qual, b"________IIII____________");
         assert_eq!(group_label, "Fbar_fw__Rbar_fw");
+        assert_eq!(results[0].4, Some((8, 12, false)));
     }
 
     #[test]
@@ -781,22 +884,26 @@ mod tests {
         ];
 
         let label_config = LabelConfig::new(true, true, true, true, None);
-        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false, true);
+        let results =
+            process_read_and_anno(seq, qual, &annotations, &label_config, false, true, true);
 
         assert_eq!(results.len(), 1);
-        let (trimmed_seq, trimmed_qual, group_label, _) = &results[0];
+        let (trimmed_seq, trimmed_qual, group_label, _, _) = &results[0];
         println!("trimmed_seq: {}", String::from_utf8_lossy(trimmed_seq));
         assert_eq!(trimmed_seq, b"GCCT");
         assert_eq!(trimmed_qual, b"AIII");
         assert_eq!(group_label, "Fbar_rc__Rbar_fw");
+        assert_eq!(results[0].4, Some((8, 12, true)));
 
         annotations[0].strand = Strand::Fwd;
-        let results = process_read_and_anno(seq, qual, &annotations, &label_config, false, true);
-        let (trimmed_seq, trimmed_qual, group_label, _) = &results[0];
+        let results =
+            process_read_and_anno(seq, qual, &annotations, &label_config, false, true, true);
+        let (trimmed_seq, trimmed_qual, group_label, _, _) = &results[0];
         println!("trimmed_seq: {}", String::from_utf8_lossy(trimmed_seq));
         assert_eq!(trimmed_seq, b"AGGC");
         assert_eq!(trimmed_qual, b"IIIA");
         assert_eq!(group_label, "Fbar_fw__Rbar_fw");
+        assert_eq!(results[0].4, Some((8, 12, false)));
 
         // Chaning the strand in Fbar match should give original seq and qual again
     }
