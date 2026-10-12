@@ -190,6 +190,10 @@ enum Commands {
         /// Add cut coordinates on the original read to the header (bs, be, bf tags)
         #[arg(long, default_value_t = false)]
         return_cuts_idxs: bool,
+
+        /// Add the sequence trimmed from the start of the original read to the header (bp tag)
+        #[arg(long, default_value_t = false)]
+        return_trimmed_start: bool,
     },
 
     /// View most common patterns in annotation
@@ -268,6 +272,10 @@ enum Commands {
         /// Add cut coordinates on the original read to the header (bs, be, bf tags)
         #[arg(long, default_value_t = false)]
         return_cuts_idxs: bool,
+
+        /// Add the sequence trimmed from the start of the original read to the header (bp tag)
+        #[arg(long, default_value_t = false)]
+        return_trimmed_start: bool,
     },
 }
 
@@ -377,6 +385,7 @@ fn main() {
             verbose,
             gzip,
             return_cuts_idxs,
+            return_trimmed_start,
         } => {
             println!("{}", "Starting trimming...".green());
             let trim_config = TrimConfig {
@@ -392,6 +401,7 @@ fn main() {
                 verbose: *verbose,
                 gzip: *gzip,
                 return_cuts_idxs: *return_cuts_idxs,
+                return_trimmed_start: *return_trimmed_start,
             };
             match trim_matches(input, reads, output, &trim_config) {
                 Ok(_) => println!("{}", "Trimming complete!".green()),
@@ -428,6 +438,7 @@ fn main() {
             alpha,
             gzip,
             return_cuts_idxs,
+            return_trimmed_start,
         } => {
             let kit_config = KitConfig {
                 kit_name: kit.clone(),
@@ -443,6 +454,7 @@ fn main() {
                 alpha: *alpha,
                 gzip: *gzip,
                 return_cuts_idxs: *return_cuts_idxs,
+                return_trimmed_start: *return_trimmed_start,
             };
 
             if let Err(e) = demux_using_kit(input, &kit_config) {

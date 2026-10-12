@@ -30,6 +30,7 @@ pub struct TrimConfig {
     pub verbose: bool,
     pub gzip: bool,
     pub return_cuts_idxs: bool,
+    pub return_trimmed_start: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -47,4 +48,5 @@ pub struct KitConfig {
     pub alpha: f32,
     pub gzip: bool,
     pub return_cuts_idxs: bool,
+    pub return_trimmed_start: bool,
 }
